@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>窩 WoFitness｜規則後台</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+:root {
+  --orange:#E8620A;--orange-light:#F5874A;--orange-pale:#FFF0E8;
+  --cream:#FDF8F3;--dark:#1A1208;--gray:#8A7A6A;--border:#E8DDD4;
+  --green:#2D9B6F;--green-pale:#E8F5F0;--red:#C0392B;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--dark);min-height:100vh;}
+header{background:var(--dark);padding:0 24px;display:flex;align-items:center;gap:12px;height:56px;position:sticky;top:0;z-index:100;}
+header .logo{width:32px;height:32px;background:var(--orange);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:white;font-size:13px;}
+header h1{color:white;font-size:15px;font-weight:500;}
+header .actions{margin-left:auto;display:flex;gap:8px;}
+.btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:500;transition:all 0.2s;}
+.btn-primary{background:var(--orange);color:white;}.btn-primary:hover{background:var(--orange-light);}
+.btn-secondary{background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);}.btn-secondary:hover{background:rgba(255,255,255,0.25);}
+.btn-danger{background:var(--red);color:white;}.btn-danger:hover{opacity:0.85;}
+.btn-success{background:var(--green);color:white;}.btn-success:hover{opacity:0.85;}
+.btn-sm{padding:5px 10px;font-size:12px;}
+.layout{display:flex;min-height:calc(100vh - 56px);}
+.sidebar{width:200px;flex-shrink:0;background:white;border-right:1px solid var(--border);padding:16px 0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto;}
+.sidebar-item{display:flex;align-items:center;gap:8px;padding:10px 20px;cursor:pointer;font-size:13px;color:var(--gray);transition:all 0.15s;border-left:3px solid transparent;}
+.sidebar-item:hover{background:var(--orange-pale);color:var(--orange);}
+.sidebar-item.active{background:var(--orange-pale);color:var(--orange);border-left-color:var(--orange);font-weight:500;}
+.sidebar-divider{height:1px;background:var(--border);margin:8px 16px;}
+.main{flex:1;padding:24px;overflow-y:auto;}
+.section{display:none;}.section.active{display:block;}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+.section-title{font-size:18px;font-weight:700;}.section-desc{font-size:13px;color:var(--gray);margin-top:4px;}
+.rules-grid{display:flex;flex-direction:column;gap:12px;}
+.rule-card{background:white;border:1px solid var(--border);border-radius:12px;padding:16px;}.rule-card:hover{border-color:var(--orange);}
+.rule-card .rule-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px;}
+.rule-label{font-size:13px;font-weight:600;color:var(--dark);margin-bottom:6px;}
+.rule-card textarea{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:13px;line-height:1.7;resize:vertical;min-height:80px;background:var(--cream);outline:none;color:var(--dark);transition:border-color 0.2s;}
+.rule-card textarea:focus{border-color:var(--orange);background:white;}
+.add-rule-card{background:var(--orange-pale);border:2px dashed var(--orange-light);border-radius:12px;padding:16px;margin-top:12px;}
+.add-rule-card h4{font-size:13px;color:var(--orange);margin-bottom:12px;}
+.add-rule-card .form-row{display:flex;gap:10px;margin-bottom:10px;}
+.add-rule-card input,.add-rule-card textarea{flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:13px;background:white;outline:none;color:var(--dark);}
+.add-rule-card input:focus,.add-rule-card textarea:focus{border-color:var(--orange);}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--dark);color:white;padding:12px 20px;border-radius:10px;font-size:13px;transform:translateY(100px);opacity:0;transition:all 0.3s;z-index:999;}
+.toast.show{transform:translateY(0);opacity:1;}.toast.success{background:var(--green);}.toast.error{background:var(--red);}
+.preview-box{background:var(--dark);color:#e0d4c8;border-radius:12px;padding:20px;font-size:12px;line-height:1.8;font-family:monospace;white-space:pre-wrap;max-height:500px;overflow-y:auto;}
+.io-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+.io-card{background:white;border:1px solid var(--border);border-radius:12px;padding:20px;}
+.io-card h3{font-size:14px;font-weight:700;margin-bottom:8px;}.io-card p{font-size:13px;color:var(--gray);margin-bottom:16px;line-height:1.6;}
+.file-drop{border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;font-size:13px;color:var(--gray);transition:all 0.2s;}
+.file-drop:hover{border-color:var(--orange);color:var(--orange);}
+.stats-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+.stat-card{background:white;border:1px solid var(--border);border-radius:10px;padding:14px 18px;min-width:100px;}
+.stat-card .num{font-size:24px;font-weight:700;color:var(--orange);}.stat-card .label{font-size:12px;color:var(--gray);margin-top:2px;}
+.search-bar{display:flex;gap:10px;margin-bottom:16px;}
+.search-bar input{flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:inherit;font-size:13px;background:white;outline:none;}
+.search-bar input:focus{border-color:var(--orange);}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">窩</div>
+  <h1>規則後台管理系統</h1>
+  <div class="actions">
+    <button class="btn btn-secondary" onclick="exportJSON()">⬇ 匯出規則檔</button>
+    <button class="btn btn-primary" onclick="saveAll()">💾 儲存所有修改</button>
+  </div>
+</header>
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-item active" onclick="showSection('overview')" id="nav-overview"><span>📊</span> 總覽</div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-item" onclick="showSection('basic')" id="nav-basic"><span>🏠</span> 場館基本資訊</div>
+    <div class="sidebar-item" onclick="showSection('course')" id="nav-course"><span>🏋️</span> 課程與費用</div>
+    <div class="sidebar-item" onclick="showSection('payment')" id="nav-payment"><span>💳</span> 付款與預約</div>
+    <div class="sidebar-item" onclick="showSection('leave')" id="nav-leave"><span>📅</span> 請假規定</div>
+    <div class="sidebar-item" onclick="showSection('contract')" id="nav-contract"><span>📋</span> 合約暫停與退費</div>
+    <div class="sidebar-item" onclick="showSection('points')" id="nav-points"><span>⭐</span> 點數規則</div>
+    <div class="sidebar-item" onclick="showSection('trainer')" id="nav-trainer"><span>👨‍🏫</span> 教練相關</div>
+    <div class="sidebar-item" onclick="showSection('facility')" id="nav-facility"><span>🚿</span> 場館設施</div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-item" onclick="showSection('preview')" id="nav-preview"><span>👁</span> 預覽規則庫</div>
+    <div class="sidebar-item" onclick="showSection('io')" id="nav-io"><span>🔄</span> 匯入 / 匯出</div>
+  </div>
+  <div class="main">
+
+    <!-- 總覽 -->
+    <div class="section active" id="section-overview">
+      <div class="section-header"><div><div class="section-title">總覽</div><div class="section-desc">規則庫現況</div></div></div>
+      <div class="stats-row" id="statsRow"></div>
+      <div style="background:white;border:1px solid var(--border);border-radius:12px;padding:20px;">
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;">使用說明</h3>
+        <p style="font-size:13px;color:var(--gray);line-height:2;">
+          1. 從左側選擇要修改的類別<br>
+          2. 直接在文字框內修改規則內容<br>
+          3. 點上方「儲存所有修改」（存在這台電腦的瀏覽器）<br>
+          4. 點「匯出規則檔」下載 wo_rules.json<br>
+          5. 把 wo_rules.json 放到指定資料夾，員工查詢系統自動更新
+        </p>
+      </div>
+    </div>
+
+    <!-- 動態分類區塊 -->
+    <div class="section" id="section-basic"><div class="section-header"><div><div class="section-title">🏠 場館基本資訊</div><div class="section-desc">地址、聯絡方式、營業時間</div></div><button class="btn btn-primary btn-sm" onclick="addRule('basic')">＋ 新增</button></div><div class="rules-grid" id="rules-basic"></div><div class="add-rule-card" id="add-basic" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-basic" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-basic" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('basic')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('basic')">取消</button></div></div></div>
+
+    <div class="section" id="section-course"><div class="section-header"><div><div class="section-title">🏋️ 課程與費用</div><div class="section-desc">各課程種類、體驗價、正式課程費用</div></div><button class="btn btn-primary btn-sm" onclick="addRule('course')">＋ 新增</button></div><div class="rules-grid" id="rules-course"></div><div class="add-rule-card" id="add-course" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-course" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-course" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('course')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('course')">取消</button></div></div></div>
+
+    <div class="section" id="section-payment"><div class="section-header"><div><div class="section-title">💳 付款與預約</div><div class="section-desc">付款方式、預約流程、匯款資訊</div></div><button class="btn btn-primary btn-sm" onclick="addRule('payment')">＋ 新增</button></div><div class="rules-grid" id="rules-payment"></div><div class="add-rule-card" id="add-payment" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-payment" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-payment" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('payment')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('payment')">取消</button></div></div></div>
+
+    <div class="section" id="section-leave"><div class="section-header"><div><div class="section-title">📅 請假規定</div><div class="section-desc">學員請假、教練請假、補課規則</div></div><button class="btn btn-primary btn-sm" onclick="addRule('leave')">＋ 新增</button></div><div class="rules-grid" id="rules-leave"></div><div class="add-rule-card" id="add-leave" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-leave" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-leave" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('leave')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('leave')">取消</button></div></div></div>
+
+    <div class="section" id="section-contract"><div class="section-header"><div><div class="section-title">📋 合約暫停與退費</div><div class="section-desc">暫停條件、退費計算、轉讓規則</div></div><button class="btn btn-primary btn-sm" onclick="addRule('contract')">＋ 新增</button></div><div class="rules-grid" id="rules-contract"></div><div class="add-rule-card" id="add-contract" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-contract" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-contract" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('contract')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('contract')">取消</button></div></div></div>
+
+    <div class="section" id="section-points"><div class="section-header"><div><div class="section-title">⭐ 點數規則</div><div class="section-desc">多元團課點數、儲值方案、過期補價差</div></div><button class="btn btn-primary btn-sm" onclick="addRule('points')">＋ 新增</button></div><div class="rules-grid" id="rules-points"></div><div class="add-rule-card" id="add-points" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-points" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-points" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('points')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('points')">取消</button></div></div></div>
+
+    <div class="section" id="section-trainer"><div class="section-header"><div><div class="section-title">👨‍🏫 教練相關</div><div class="section-desc">薪資、請假、違約、核心教練方案</div></div><button class="btn btn-primary btn-sm" onclick="addRule('trainer')">＋ 新增</button></div><div class="rules-grid" id="rules-trainer"></div><div class="add-rule-card" id="add-trainer" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-trainer" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-trainer" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('trainer')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('trainer')">取消</button></div></div></div>
+
+    <div class="section" id="section-facility"><div class="section-header"><div><div class="section-title">🚿 場館設施</div><div class="section-desc">停車、淋浴、置物、器材</div></div><button class="btn btn-primary btn-sm" onclick="addRule('facility')">＋ 新增</button></div><div class="rules-grid" id="rules-facility"></div><div class="add-rule-card" id="add-facility" style="display:none"><h4>新增規則</h4><div class="form-row"><input type="text" id="new-key-facility" placeholder="規則名稱"></div><div class="form-row"><textarea id="new-val-facility" rows="3" placeholder="規則內容"></textarea></div><div style="display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="confirmAdd('facility')">確認</button><button class="btn btn-sm" style="background:var(--cream);color:var(--gray)" onclick="cancelAdd('facility')">取消</button></div></div></div>
+
+    <!-- 預覽 -->
+    <div class="section" id="section-preview">
+      <div class="section-header"><div><div class="section-title">👁 預覽規則庫</div><div class="section-desc">這是 AI 實際讀取的完整規則內容</div></div><button class="btn btn-primary btn-sm" onclick="refreshPreview()">重新整理</button></div>
+      <div class="preview-box" id="previewBox">點擊「重新整理」查看完整規則庫</div>
+    </div>
+
+    <!-- 匯入匯出 -->
+    <div class="section" id="section-io">
+      <div class="section-header"><div><div class="section-title">🔄 匯入 / 匯出</div><div class="section-desc">備份規則庫或從備份還原</div></div></div>
+      <div class="io-grid">
+        <div class="io-card">
+          <h3>⬇ 匯出規則檔</h3>
+          <p>下載目前所有規則為 JSON 檔案，放到指定資料夾後員工查詢系統會自動讀取。</p>
+          <button class="btn btn-primary" onclick="exportJSON()" style="width:100%">下載 wo_rules.json</button>
+        </div>
+        <div class="io-card">
+          <h3>⬆ 匯入規則檔</h3>
+          <p>從之前備份的 JSON 檔案還原規則庫，會覆蓋目前所有規則。</p>
+          <div class="file-drop" onclick="document.getElementById('importFile').click()">
+            點擊選擇 JSON 檔案匯入
+            <input type="file" id="importFile" accept=".json" onchange="importJSON(event)" style="display:none">
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let rules = {
+  basic:[
+    {key:'場館名稱',val:'窩 WoFitness'},
+    {key:'地址',val:'台北市大安區羅斯福路三段79號地下層'},
+    {key:'電話',val:'02-2365-5090'},
+    {key:'Email',val:'wofitness.co.ltd@gmail.com'},
+    {key:'網址',val:'wofitness.com.tw'},
+    {key:'統一編號',val:'83194360'},
+    {key:'負責人',val:'張惠雄'},
+    {key:'營業時間',val:'週一至週五：10:00-22:00\n週六、週日：10:00-19:00'},
+    {key:'新學員填表連結',val:'https://v3-prod.wofitness-official.com/full-register'},
+    {key:'優惠活動連結',val:'https://www.wofitness.com.tw/event/'},
+    {key:'詢問課程時需收集資訊',val:'生日、姓名、電話、運動目標及經驗'},
+  ],
+  course:[
+    {key:'課程種類',val:'1. 一對一私人教練課（重訓／矯正運動／健康訓練／體態訓練／專項體能）\n2. 一對五小班制重訓團課\n3. 多元成人團課（芭蕾／皮拉提斯／K-POP／瑜伽等）\n4. 兒童團課（芭蕾／空中瑜伽／街舞／拳擊等）\n注意：不能說「復健」，要說「矯正運動」'},
+    {key:'私教體驗課',val:'標準推薦：兩堂 $3,000（60分鐘×2，含首次運動評估）\n單堂體驗：$1,500（客人要求才提供）\n第三堂起體驗：$1,000/堂（客人詢問才說，不主動提）\n體驗課無40分鐘選項（因為包含運動評估）'},
+    {key:'私教正式課程_6個月_40分鐘',val:'每週1堂：月費$5,508（一堂$1,377）10% OFF\n每週2堂：月費$10,363（一堂$1,295）15% OFF\n每週3堂：月費$14,688（一堂$1,224）20% OFF'},
+    {key:'私教正式課程_6個月_60分鐘',val:'每週1堂：月費$6,867（一堂$1,717）10% OFF\n每週2堂：月費$12,974（一堂$1,622）15% OFF\n每週3堂：月費$18,311（一堂$1,526）20% OFF'},
+    {key:'私教正式課程_12個月_40分鐘',val:'每週1堂：月費$5,222（一堂$1,306）19% OFF\n每週2堂：月費$9,874（一堂$1,234）24% OFF\n每週3堂：月費$13,831（一堂$1,153）28% OFF'},
+    {key:'私教正式課程_12個月_60分鐘',val:'每週1堂：月費$6,506（一堂$1,626）19% OFF\n每週2堂：月費$12,294（一堂$1,537）23% OFF\n每週3堂：月費$17,343（一堂$1,445）28% OFF'},
+    {key:'重訓團課',val:'體驗：$680/堂\n正式：$6,800/10堂（一期10堂連續）\n補課：一期可補2次，必須在第10堂結束後一週內補完\n第3次起算浪費，可去其他時段同類課程補課'},
+    {key:'多元團課費用',val:'4點課程（50分鐘）體驗：$390\n5點課程（50分鐘）體驗：$520\n6點課程（50分鐘）體驗：$650\n90分鐘計算：點數×1.8，無條件進位\n例：4點90分鐘=7.2→8點→用兩個4點體驗價($390×2=$780)'},
+    {key:'多元團課開課條件',val:'最少2人才開課\n未達人數前一天通知取消\n課程取消：全額退回點數，或保留點數預約其他課程'},
+    {key:'場租費用',val:'重訓場地：$450/小時、$4,000/10小時、$10,500/30小時\n團課教室大（容納6人）：$850/小時、$7,000/10小時\n團課教室小（容納1-2人）：$550/小時、$4,000/10小時\n最少1小時起跳，之後可以半小時計算\n特殊情況（如比賽前）可開放半小時場租'},
+  ],
+  payment:[
+    {key:'付款方式',val:'現金、信用卡、匯款、手機感應支付（Apple Pay、Google Pay等NFC支付）\n沒有LINE Pay'},
+    {key:'分期付款',val:'6個月方案：信用卡6期0利率\n12個月方案：信用卡12期0利率\n定期定額月扣：不佔信用卡額度，第一個月收兩期（一期當月課程費，一期為保證金，最後一個月抵用）'},
+    {key:'匯款資訊',val:'台新銀行（812）\n帳號：20400100006114\n匯款後提供後五碼確認'},
+    {key:'線上刷卡',val:'（待補充刷卡連結）'},
+    {key:'預約成立條件',val:'付款完成才算預約成功\n沒付款只先登記，不正式預約\n已預付多堂場租者：直接扣堂數預約，不需再付款'},
+    {key:'發票規定',val:'正規營業一定開發票\n有載具號碼：登錄載具\n沒有載具：開紙本，到場館上課時交給學員'},
+  ],
+  leave:[
+    {key:'學員請假_3小時前',val:'上課前3小時以上通知 → 任何理由都不扣堂，不需要提供任何證明'},
+    {key:'學員請假_3小時內',val:'上課前3小時內請假 → 需在72小時內提供以下特定證明才免扣堂：\n・病假：醫師診斷證明書或就診收據\n・公假：差旅通知、公務派令等公事證明\n・事假：不成立，直接扣堂\n・其他不合理理由：直接扣堂\n未提供或理由不符 → 扣一堂'},
+    {key:'教練取消課程',val:'場館應在上課前3小時以上通知學員\n未及時通知 → 學員得要求7日內提供補課方案\n7日內無法安排 → 順延合約效期'},
+    {key:'重訓團課補課',val:'一期10堂，可補課2次\n補課必須在第10堂結束後一週內完成\n第3次起算浪費\n可去其他時段同類課程補課'},
+    {key:'多元團課請假',val:'點數制，請假點數不退回\n建議改去其他時段同類課程'},
+    {key:'整班停課',val:'如遇特殊日子，和全班同學討論後可整班停課'},
+  ],
+  contract:[
+    {key:'合約暫停條件',val:'需連續21天以上才能申請暫停\n可申請事由：\n・出國超過一個月（附機票）\n・傷病（附診斷證明）\n・懷孕（附媽媽手冊）\n・育嬰（嬰兒出生證明）\n・服兵役（徵集令）\n・職務調動（工作調派證明）\n暫停期間費用不計、效期順延（7工作日內辦理）'},
+    {key:'無證明暫停',val:'無法提供證明文件也可申請暫停\n費用：$1,200/月手續費'},
+    {key:'退費規定',val:'簽約7日內未使用 → 全額退費\n簽約7日後終止 → 按剩餘堂數退費，扣20%手續費（上限$9,000）\n期限屆滿後未用完 → 不退費\n退費流程：填書面申請，15日內匯款至指定帳戶'},
+    {key:'課程轉讓',val:'可轉讓給第三人，需乙方同意\n手續費：$600'},
+    {key:'長期傷病特別終止',val:'因傷病暫停超過6個月，且醫師證明6個月內不能運動\n→ 可依合約第8條終止，乙方不得收手續費'},
+  ],
+  points:[
+    {key:'點數儲值方案',val:'70點：$8,800（原價$10,500，單價$125.7）\n155點：$16,800（原價$20,150，單價$108.4）\n點數效期：一年'},
+    {key:'點數原價',val:'$145/點（這是補價差的基準價格）'},
+    {key:'點數過期補價差',val:'過期點數可補價差繼續使用\n計算：剩餘點數 × ($145 - 原購買單價) = 需補金額\n補完後點數重新起算效期一年\n沒有時間限制，隨時可以來補\n例：買70點$8,800（單價$125.7），用30點剩40點過期\n→ 40 × ($145-$125.7) = $772\n→ 補$772後，40點重新起算一年'},
+  ],
+  trainer:[
+    {key:'承攬教練薪資',val:'一對一重訓：60分鐘$800/堂、40分鐘$550/堂\n重訓團班：60分鐘$800/堂（不管人數）、40分鐘$550/堂\n多元團課：1-2人$700/堂、3人$800/堂、4人$900/堂、5人以上$1,000/堂'},
+    {key:'核心教練薪資',val:'60分鐘：$880/堂、40分鐘：$600/堂\n適用：一對一重訓和重訓團班（多元團課不適用）\n條件：每週固定排班12小時以上（含尖峰時段）'},
+    {key:'薪資發放',val:'次月5日匯款（遇例假日則順延至最近工作日）\n台新銀行免手續費，其他銀行扣$30'},
+    {key:'教練請假',val:'上課前3小時以上通知 → 正當請假，無需證明\n上課前3小時內 → 3天內提供對應證明免賠償：\n・病假：診斷證明書或就診收據\n・家屬緊急狀況：相關診斷書、急診收據\n・突發事故：事故證明、報案紀錄\n・事假：不成立\n未提供或理由不符 → 比照未出席處理'},
+    {key:'教練未出席罰則',val:'不給付報酬\n另賠償固定損失：60分鐘課$800、40分鐘課$550'},
+    {key:'教練遲到罰則',val:'遲到10分鐘以內：報酬扣20%，仍須完成課程\n遲到11分鐘以上但仍授課：報酬按50%計算'},
+    {key:'核心教練請假賠償基準',val:'請假賠償以核心教練費率計算（$880或$600），非原承攬費率'},
+    {key:'教練違約',val:'私下接學員：賠償已領報酬的10倍\n教學疏失致學員受傷：乙方先處理，再向教練全額追償'},
+    {key:'老師取消課程處理',val:'學員點數：全額退回，或保留點數預約其他課程\n老師罰則：賠償該堂課課費'},
+    {key:'新教練加入流程',val:'1. LINE洽談\n2. 提供簡介、照片、證照\n3. 提供可授課時段\n4. 填線上資料：https://v3-prod.wofitness-official.com/full-register\n5. 到場簽約'},
+    {key:'核心教練方案',val:'條件：每週固定排班12小時以上（含尖峰時段）\n退出：提前14天通知\n場館終止：連續兩週未達12小時，或表現不符預期\n終止後：立即恢復原承攬費率，無需預告期或賠償'},
+  ],
+  facility:[
+    {key:'停車場A',val:'半小時$80，每日上限$450，晚上9點後重新計算'},
+    {key:'停車場B',val:'每小時$80，部分信用卡有折抵優惠'},
+    {key:'淋浴間',val:'女生2間、男生1間（含馬桶、免治便座）\n提供：女性衛生用品、沐浴用品\n學員自備：換洗衣物、毛巾'},
+    {key:'置物櫃',val:'每位學員上課期間有專屬置物櫃，離開後清空給下一位'},
+    {key:'器材',val:'不需自備運動器材，場館提供所有器材'},
+    {key:'參觀',val:'可預約參觀（透過LINE、電話、IG、FB或櫃台預約）'},
+  ],
+};
+
+const catLabels={basic:'基本資訊',course:'課程費用',payment:'付款預約',leave:'請假規定',contract:'合約退費',points:'點數規則',trainer:'教練相關',facility:'場館設施'};
+
+function showSection(id){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('section-'+id).classList.add('active');
+  document.getElementById('nav-'+id).classList.add('active');
+  const cats=['basic','course','payment','leave','contract','points','trainer','facility'];
+  if(cats.includes(id)) renderSection(id);
+  if(id==='overview') renderStats();
+  if(id==='preview') refreshPreview();
+}
+
+function renderSection(cat){
+  const c=document.getElementById('rules-'+cat);
+  if(!c)return;
+  c.innerHTML='';
+  (rules[cat]||[]).forEach((rule,i)=>{
+    const d=document.createElement('div');
+    d.className='rule-card';
+    d.innerHTML=`
+      <div class="rule-header">
+        <div class="rule-label">${rule.key}</div>
+        <button class="btn btn-danger btn-sm" onclick="deleteRule('${cat}',${i})">刪除</button>
+      </div>
+      <textarea rows="4" onchange="rules['${cat}'][${i}].val=this.value">${rule.val}</textarea>`;
+    c.appendChild(d);
+  });
+}
+
+function deleteRule(cat,i){
+  if(!confirm(`確定要刪除「${rules[cat][i].key}」？`))return;
+  rules[cat].splice(i,1);
+  renderSection(cat);
+  showToast('已刪除','success');
+}
+
+function addRule(cat){document.getElementById('add-'+cat).style.display='block';}
+function cancelAdd(cat){document.getElementById('add-'+cat).style.display='none';document.getElementById('new-key-'+cat).value='';document.getElementById('new-val-'+cat).value='';}
+function confirmAdd(cat){
+  const k=document.getElementById('new-key-'+cat).value.trim();
+  const v=document.getElementById('new-val-'+cat).value.trim();
+  if(!k||!v){showToast('請填寫名稱和內容','error');return;}
+  rules[cat].push({key:k,val:v});
+  cancelAdd(cat);renderSection(cat);showToast('已新增','success');
+}
+
+function saveAll(){
+  Object.keys(rules).forEach(cat=>{
+    document.querySelectorAll(`#rules-${cat} textarea`).forEach((ta,i)=>{if(rules[cat][i])rules[cat][i].val=ta.value;});
+  });
+  localStorage.setItem('wo_rules',JSON.stringify(rules));
+  showToast('已儲存所有修改 ✓','success');
+}
+
+function buildPrompt(){
+  let p='=== 窩 WoFitness 完整規則庫 ===\n\n';
+  Object.keys(rules).forEach(cat=>{
+    p+=`【${catLabels[cat]||cat}】\n`;
+    (rules[cat]||[]).forEach(r=>{p+=`${r.key}：\n${r.val}\n\n`;});
+    p+='\n';
+  });
+  return p;
+}
+
+function refreshPreview(){document.getElementById('previewBox').textContent=buildPrompt();}
+
+function exportJSON(){
+  saveAll();
+  const blob=new Blob([JSON.stringify({rules,system_prompt:buildPrompt()},null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='wo_rules.json';a.click();
+  showToast('規則檔已下載','success');
+}
+
+function importJSON(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const d=JSON.parse(ev.target.result);
+      if(d.rules){rules=d.rules;localStorage.setItem('wo_rules',JSON.stringify(rules));showToast('規則庫已還原','success');renderStats();}
+      else showToast('檔案格式錯誤','error');
+    }catch{showToast('無法讀取檔案','error');}
+  };
+  r.readAsText(f);
+}
+
+function renderStats(){
+  let total=0,html='';
+  Object.keys(rules).forEach(cat=>{total+=(rules[cat]||[]).length;});
+  html+=`<div class="stat-card"><div class="num">${total}</div><div class="label">總規則數</div></div>`;
+  Object.keys(rules).forEach(cat=>{html+=`<div class="stat-card"><div class="num">${(rules[cat]||[]).length}</div><div class="label">${catLabels[cat]||cat}</div></div>`;});
+  document.getElementById('statsRow').innerHTML=html;
+}
+
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast show '+type;
+  setTimeout(()=>{t.className='toast';},2500);
+}
+
+window.onload=()=>{
+  const s=localStorage.getItem('wo_rules');
+  if(s){try{rules=JSON.parse(s);}catch(e){}}
+  renderStats();
+};
+</script>
+</body>
+</html>

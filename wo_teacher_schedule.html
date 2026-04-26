@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>窩 WoFitness｜老師時間提供系統</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+
+  :root {
+    --orange: #E8620A;
+    --orange-light: #F5874A;
+    --orange-pale: #FFF0E8;
+    --cream: #FDF8F3;
+    --dark: #1A1208;
+    --gray: #8A7A6A;
+    --border: #E8DDD4;
+    --green: #2D9B6F;
+    --green-pale: #E8F5F0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans TC', sans-serif;
+    background: var(--cream);
+    color: var(--dark);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--dark);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header .logo {
+    width: 36px;
+    height: 36px;
+    background: var(--orange);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: white;
+    font-size: 14px;
+  }
+
+  header h1 {
+    color: white;
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  header span {
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    margin-left: auto;
+  }
+
+  /* 身份選擇 */
+  .identity-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    gap: 16px;
+  }
+
+  .identity-screen h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  .identity-screen p {
+    color: var(--gray);
+    font-size: 14px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  .identity-btn {
+    width: 100%;
+    max-width: 340px;
+    padding: 20px 24px;
+    border-radius: 16px;
+    border: 2px solid var(--border);
+    background: white;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+
+  .identity-btn:hover {
+    border-color: var(--orange);
+    background: var(--orange-pale);
+  }
+
+  .identity-btn .title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 4px;
+  }
+
+  .identity-btn .desc {
+    font-size: 13px;
+    color: var(--gray);
+  }
+
+  .identity-btn .icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+
+  /* 主聊天介面 */
+  .main-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    display: none;
+  }
+
+  .teacher-info-bar {
+    background: white;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+
+  .teacher-info-bar .name-tag {
+    background: var(--orange-pale);
+    color: var(--orange);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+
+  .teacher-info-bar .type-tag {
+    background: var(--green-pale);
+    color: var(--green);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+
+  .teacher-info-bar button {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--gray);
+    font-family: inherit;
+  }
+
+  .chat-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 800px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .message {
+    display: flex;
+    gap: 10px;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .message.user { flex-direction: row-reverse; }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .avatar.ai { background: var(--dark); color: white; }
+  .avatar.user { background: var(--orange); color: white; }
+
+  .bubble {
+    max-width: 75%;
+    padding: 12px 16px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .message.ai .bubble {
+    background: white;
+    border: 1px solid var(--border);
+    border-top-left-radius: 4px;
+  }
+
+  .message.user .bubble {
+    background: var(--orange);
+    color: white;
+    border-top-right-radius: 4px;
+  }
+
+  /* 時間表卡片 */
+  .schedule-card {
+    background: white;
+    border: 2px solid var(--green);
+    border-radius: 16px;
+    padding: 16px;
+    max-width: 75%;
+    animation: fadeIn 0.3s ease;
+  }
+
+  .schedule-card .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .schedule-card .card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--green);
+  }
+
+  .schedule-card .week-label {
+    font-size: 12px;
+    color: var(--gray);
+    background: var(--green-pale);
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+
+  .schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .schedule-table th {
+    background: var(--cream);
+    padding: 6px 10px;
+    text-align: left;
+    color: var(--gray);
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .schedule-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .schedule-table tr:last-child td { border-bottom: none; }
+
+  .schedule-table .day { font-weight: 700; color: var(--dark); }
+  .schedule-table .time { color: var(--gray); }
+  .schedule-table .course {
+    display: inline-block;
+    background: var(--orange-pale);
+    color: var(--orange);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-top: 4px;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .card-actions button {
+    flex: 1;
+    padding: 8px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .btn-confirm {
+    background: var(--green);
+    color: white;
+  }
+
+  .btn-confirm:hover { background: #24875f; }
+
+  .btn-edit {
+    background: var(--cream);
+    color: var(--gray);
+    border: 1px solid var(--border) !important;
+  }
+
+  .btn-edit:hover { border-color: var(--orange) !important; color: var(--orange); }
+
+  .typing {
+    display: flex;
+    gap: 4px;
+    padding: 14px 16px;
+  }
+
+  .typing span {
+    width: 7px;
+    height: 7px;
+    background: var(--orange-light);
+    border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-6px); }
+  }
+
+  .input-area {
+    border-top: 1px solid var(--border);
+    padding: 16px;
+    background: white;
+  }
+
+  .input-inner {
+    max-width: 800px;
+    margin: 0 auto;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+
+  textarea {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: none;
+    min-height: 44px;
+    max-height: 120px;
+    line-height: 1.5;
+    color: var(--dark);
+    background: var(--cream);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  textarea:focus { border-color: var(--orange); }
+  textarea::placeholder { color: var(--gray); }
+
+  button.send {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--orange);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  button.send:hover { background: var(--orange-light); }
+  button.send:disabled { background: var(--border); cursor: not-allowed; }
+
+  button.send svg { width: 18px; height: 18px; fill: white; }
+
+  /* 名字輸入 */
+  .name-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    gap: 16px;
+    display: none;
+  }
+
+  .name-screen h2 {
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .name-screen p {
+    color: var(--gray);
+    font-size: 14px;
+    text-align: center;
+  }
+
+  .name-input-wrap {
+    width: 100%;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .name-input-wrap input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+    background: white;
+  }
+
+  .name-input-wrap input:focus { border-color: var(--orange); }
+
+  .name-input-wrap button {
+    background: var(--orange);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 15px;
+    font-family: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .name-input-wrap button:hover { background: var(--orange-light); }
+
+  .confirmed-badge {
+    background: var(--green-pale);
+    color: var(--green);
+    border: 1px solid var(--green);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 13px;
+    margin-top: 8px;
+    text-align: center;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">窩</div>
+  <h1>老師時間提供系統</h1>
+  <span>WoFitness</span>
+</header>
+
+<!-- 身份選擇畫面 -->
+<div class="identity-screen" id="identityScreen">
+  <h2>您好！請選擇您的課程類型</h2>
+  <p>選擇後進入對話，用說的方式告訴我您的可上課時間</p>
+
+  <button class="identity-btn" onclick="selectType('重訓')">
+    <div class="icon">🏋️</div>
+    <div class="title">重訓教練</div>
+    <div class="desc">一對一私人教練、重訓團班</div>
+  </button>
+
+  <button class="identity-btn" onclick="selectType('多元團課')">
+    <div class="icon">💃</div>
+    <div class="title">多元團課老師</div>
+    <div class="desc">芭蕾、瑜伽、K-POP、皮拉提斯等</div>
+  </button>
+</div>
+
+<!-- 名字輸入畫面 -->
+<div class="name-screen" id="nameScreen">
+  <h2>請問您怎麼稱呼？</h2>
+  <p>輸入您在課表上的名字</p>
+  <div class="name-input-wrap">
+    <input type="text" id="nameInput" placeholder="例如：莎莎、Kelly、孟翰..."
+      onkeydown="if(event.key==='Enter') confirmName()">
+    <button onclick="confirmName()">開始提供時間</button>
+  </div>
+</div>
+
+<!-- 主聊天畫面 -->
+
+<div id="apiKeyModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:16px;padding:32px;width:90%;max-width:400px;">
+    <div style="text-align:center;margin-bottom:20px;">
+      <div style="width:48px;height:48px;background:#E8620A;border-radius:12px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:18px;margin:0 auto 12px;">窩</div>
+      <h2 style="font-size:16px;font-weight:700;color:#1A1208;">設定 API Key</h2>
+      <p style="font-size:13px;color:#8A7A6A;margin-top:6px;">只需設定一次，之後自動記住</p>
+    </div>
+    <input id="apiKeyInput" type="password" placeholder="sk-ant-api03-..." 
+      style="width:100%;padding:12px;border:1px solid #E8DDD4;border-radius:8px;font-size:13px;outline:none;margin-bottom:12px;font-family:monospace;">
+    <button onclick="saveApiKey()" style="width:100%;background:#E8620A;color:white;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">確認儲存</button>
+  </div>
+</div>
+
+<div class="main-screen" id="mainScreen">
+  <div class="teacher-info-bar">
+    <span>老師：</span>
+    <span class="name-tag" id="nameTag"></span>
+    <span class="type-tag" id="typeTag"></span>
+    <button onclick="resetAll()">重新開始</button>
+  </div>
+
+  <div class="chat-container" id="chatContainer"></div>
+
+  <div class="confirmed-badge" id="confirmedBadge">
+    ✅ 時間已記錄！我們的行政人員會根據這份時間表安排課程，謝謝老師 😊
+  </div>
+
+  <div class="input-area">
+    <div class="input-inner">
+      <textarea id="userInput" placeholder="用說的方式告訴我您的時間..." rows="1"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="send" id="sendBtn" onclick="sendMessage()">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+
+function getApiKey() {
+  return localStorage.getItem('wo_api_key') || '';
+}
+
+function checkApiKey() {
+  if (!getApiKey()) {
+    document.getElementById('apiKeyModal').style.display = 'flex';
+    return false;
+  }
+  return true;
+}
+
+function saveApiKey() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key.startsWith('sk-ant-')) {
+    alert('API Key 格式不正確，請重新輸入');
+    return;
+  }
+  localStorage.setItem('wo_api_key', key);
+  document.getElementById('apiKeyModal').style.display = 'none';
+}
+
+
+let teacherType = '';
+let teacherName = '';
+let messages = [];
+let isLoading = false;
+let currentScheduleData = null;
+
+function selectType(type) {
+  teacherType = type;
+  document.getElementById('identityScreen').style.display = 'none';
+  document.getElementById('nameScreen').style.display = 'flex';
+  setTimeout(() => document.getElementById('nameInput').focus(), 100);
+}
+
+function confirmName() {
+  const name = document.getElementById('nameInput').value.trim();
+  if (!name) return;
+  teacherName = name;
+  document.getElementById('nameScreen').style.display = 'none';
+  document.getElementById('mainScreen').style.display = 'flex';
+  document.getElementById('nameTag').textContent = teacherName;
+  document.getElementById('typeTag').textContent = teacherType + '老師';
+  startChat();
+}
+
+function resetAll() {
+  teacherType = '';
+  teacherName = '';
+  messages = [];
+  currentScheduleData = null;
+  document.getElementById('chatContainer').innerHTML = '';
+  document.getElementById('confirmedBadge').style.display = 'none';
+  document.getElementById('mainScreen').style.display = 'none';
+  document.getElementById('nameScreen').style.display = 'none';
+  document.getElementById('identityScreen').style.display = 'flex';
+}
+
+function getSystemPrompt() {
+  const isMulti = teacherType === '多元團課';
+
+  let prompt = `你是窩WoFitness的排班助手。現在正在和「${teacherName}」老師對話，他是${teacherType}老師。
+
+你的任務是：
+1. 用友善自然的方式收集老師可上課的時間
+2. 確認清楚後，輸出一個JSON格式的時間表
+3. 語氣輕鬆、簡短，像在LINE聊天一樣
+
+收集資訊時要確認：
+- 哪幾天可以上課
+- 每天的時段（幾點到幾點）
+- 有沒有特別不能排的時間`;
+
+  if (isMulti) {
+    prompt += `
+- 這個時段要開什麼課（因為你是多元團課老師，我們知道你會的課有哪些，你說時段時我會詢問要排哪種課）`;
+  }
+
+  prompt += `
+
+注意事項：
+- 窩的營業時間：週一到週五10:00-22:00，週六週日10:00-19:00
+- 如果老師說的時間超出營業時間，提醒他
+- 收集完整後，輸出以下格式的JSON（放在\`\`\`json \`\`\`裡）：
+
+\`\`\`json
+{
+  "teacher": "${teacherName}",
+  "type": "${teacherType}",
+  "schedule": [
+    {
+      "day": "週一",
+      "start": "10:00",
+      "end": "14:00",
+      "courses": ${isMulti ? '"芭蕾"' : '"重訓"'}
+    }
+  ],
+  "notes": "備註"
+}
+\`\`\`
+
+輸出JSON之前，先用一句話確認時間，例如：「好的！幫您整理如下，請確認～」
+
+回答要簡短，用繁體中文。`;
+
+  return prompt;
+}
+
+function startChat() {
+  const greeting = teacherType === '多元團課'
+    ? `${teacherName}老師好！請告訴我您下週（或接下來兩週）可以上課的時間，以及每個時段想開什麼課，我幫您整理成表單 😊`
+    : `${teacherName}老師好！請告訴我您下週（或接下來兩週）可以上課的時間，我幫您整理成排班表 😊`;
+
+  addMessage('ai', greeting);
+  messages.push({ role: 'assistant', content: greeting });
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function addMessage(role, content) {
+  const container = document.getElementById('chatContainer');
+
+  // 檢查是否有JSON時間表
+  const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
+  if (jsonMatch) {
+    try {
+      const data = JSON.parse(jsonMatch[1]);
+      currentScheduleData = data;
+
+      // 顯示文字部分
+      const textPart = content.replace(/```json[\s\S]*?```/, '').trim();
+      if (textPart) {
+        const div = document.createElement('div');
+        div.className = 'message ai';
+        div.innerHTML = `
+          <div class="avatar ai">窩</div>
+          <div class="bubble">${formatContent(textPart)}</div>
+        `;
+        container.appendChild(div);
+      }
+
+      // 顯示時間表卡片
+      showScheduleCard(data);
+      return;
+    } catch(e) {}
+  }
+
+  const div = document.createElement('div');
+  div.className = `message ${role === 'user' ? 'user' : 'ai'}`;
+  const avatarText = role === 'user' ? teacherName.charAt(0) : '窩';
+  div.innerHTML = `
+    <div class="avatar ${role === 'user' ? 'user' : 'ai'}">${avatarText}</div>
+    <div class="bubble">${formatContent(content)}</div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function showScheduleCard(data) {
+  const container = document.getElementById('chatContainer');
+  const card = document.createElement('div');
+  card.className = 'schedule-card';
+  card.id = 'scheduleCard';
+
+  const rows = data.schedule.map(s => `
+    <tr>
+      <td><span class="day">${s.day}</span></td>
+      <td><span class="time">${s.start} - ${s.end}</span>${s.courses ? `<br><span class="course">${s.courses}</span>` : ''}</td>
+    </tr>
+  `).join('');
+
+  card.innerHTML = `
+    <div class="card-header">
+      <span class="card-title">📅 時間確認表</span>
+      <span class="week-label">${data.teacher} 老師</span>
+    </div>
+    <table class="schedule-table">
+      <tr><th>日期</th><th>時段</th></tr>
+      ${rows}
+    </table>
+    ${data.notes ? `<div style="margin-top:10px;font-size:13px;color:var(--gray)">備註：${data.notes}</div>` : ''}
+    <div class="card-actions">
+      <button class="btn-confirm" onclick="confirmSchedule()">✅ 確認送出</button>
+      <button class="btn-edit" onclick="editSchedule()">✏️ 需要修改</button>
+    </div>
+  `;
+
+  container.appendChild(card);
+  container.scrollTop = container.scrollHeight;
+}
+
+function confirmSchedule() {
+  const card = document.getElementById('scheduleCard');
+  if (card) {
+    const actions = card.querySelector('.card-actions');
+    actions.innerHTML = '<div style="text-align:center;color:var(--green);font-weight:700;padding:8px">✅ 已送出！感謝老師</div>';
+  }
+  document.getElementById('confirmedBadge').style.display = 'block';
+
+  // 這裡之後可以加串接後端儲存
+  console.log('確認時間表：', JSON.stringify(currentScheduleData, null, 2));
+
+  addMessage('ai', `收到了！已幫您記錄時間，我們的行政會根據這份表安排課程，有調整會再通知您 😊`);
+  messages.push({ role: 'assistant', content: '收到！時間已記錄完成。' });
+}
+
+function editSchedule() {
+  const card = document.getElementById('scheduleCard');
+  if (card) card.remove();
+  addMessage('ai', '好的！請告訴我要修改哪個地方～');
+  messages.push({ role: 'assistant', content: '好的！請告訴我要修改哪個地方～' });
+}
+
+function formatContent(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+function showTyping() {
+  const container = document.getElementById('chatContainer');
+  const div = document.createElement('div');
+  div.className = 'message ai';
+  div.id = 'typingIndicator';
+  div.innerHTML = `
+    <div class="avatar ai">窩</div>
+    <div class="bubble typing"><span></span><span></span><span></span></div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeTyping() {
+  const el = document.getElementById('typingIndicator');
+  if (el) el.remove();
+}
+
+async function sendMessage() {
+  if (!checkApiKey()) return;
+  const input = document.getElementById('userInput');
+  const text = input.value.trim();
+  if (!text || isLoading) return;
+
+  isLoading = true;
+  document.getElementById('sendBtn').disabled = true;
+  input.value = '';
+  input.style.height = 'auto';
+
+  addMessage('user', text);
+  messages.push({ role: 'user', content: text });
+  showTyping();
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: getSystemPrompt(),
+        messages: messages
+      })
+    });
+
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || '抱歉，發生錯誤，請再試一次。';
+
+    removeTyping();
+    addMessage('ai', reply);
+    messages.push({ role: 'assistant', content: reply });
+
+  } catch (err) {
+    removeTyping();
+    addMessage('ai', '⚠️ 連線發生問題，請再試一次。');
+  }
+
+  isLoading = false;
+  document.getElementById('sendBtn').disabled = false;
+  input.focus();
+}
+</script>
+</body>
+</html>
