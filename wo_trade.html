@@ -56,6 +56,13 @@ header .spacer{margin-left:auto;}
 .wl-name{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wl-del{opacity:0;color:var(--muted);font-size:15px;background:none;border:none;cursor:pointer;}
 .wl-item:hover .wl-del{opacity:.6;}.wl-del:hover{opacity:1!important;color:var(--red);}
+.wl-group{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.wl-sort{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:2px 7px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0;text-transform:none;}
+.wl-sort:hover{color:var(--orange);border-color:var(--orange);}
+.wl-q{flex-shrink:0;text-align:right;min-width:74px;cursor:pointer;}
+.wl-px{font-size:12.5px;font-weight:600;line-height:1.3;}
+.wl-ch{font-size:11px;line-height:1.3;}
+.wl-aft{display:block;font-size:10px;color:var(--muted);}
 /* main */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;}
 .chart-area{height:40vh;min-height:240px;border-bottom:1px solid var(--border);}
@@ -291,6 +298,7 @@ let region = localStorage.getItem('wo_region') || 'us';
 let lists = JSON.parse(localStorage.getItem('wo_lists2')||'null') || structuredClone(DEFAULTS);
 let current = null, currentName = '';
 let analyzeList = [];
+let wlSort = 'none';
 let busy = false;
 function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
 function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
@@ -313,16 +321,45 @@ function loadChart(sym){
 /* ---------- 關注清單渲染 ---------- */
 function renderWatchlist(){
   const el=document.getElementById('watchlist');
-  el.innerHTML=`<div class="wl-group">${region==='us'?'美股 US':'台股 TW'}　關注清單</div>`;
-  lists[region].forEach((it,i)=>{
+  const arr=lists[region].slice();
+  if(wlSort!=='none'){
+    arr.sort((a,b)=>{
+      const qa=futu.quotes[futuCode(a.s)], qb=futu.quotes[futuCode(b.s)];
+      const va=qa&&qa.change_rate!=null?qa.change_rate:-99999, vb=qb&&qb.change_rate!=null?qb.change_rate:-99999;
+      return wlSort==='up'? vb-va : va-vb;
+    });
+  }
+  const sortLabel=wlSort==='none'?'排序':wlSort==='up'?'漲幅↓':'跌幅↑';
+  el.innerHTML=`<div class="wl-group"><span>${region==='us'?'美股':'台股'}（${lists[region].length}）</span><button class="wl-sort" onclick="cycleSort()">↕ ${sortLabel}</button></div>`;
+  arr.forEach(it=>{
     const row=document.createElement('div');
     row.className='wl-item'+(it.s===current?' active':'');
-    row.innerHTML=`<div class="wl-main"><div class="wl-sym">${tkr(it.s)}</div><div class="wl-name">${it.n||''}</div></div><button class="wl-del">×</button>`;
+    row.setAttribute('data-code', futuCode(it.s)||'');
+    row.innerHTML=`<div class="wl-main"><div class="wl-sym">${tkr(it.s)}</div><div class="wl-name">${it.n||''}</div></div><div class="wl-q"><div class="wl-px"></div><div class="wl-ch"></div></div><button class="wl-del">×</button>`;
     row.querySelector('.wl-main').onclick=()=>selectSymbol(it.s,it.n);
-    row.querySelector('.wl-del').onclick=e=>{e.stopPropagation();lists[region].splice(i,1);save();renderWatchlist();};
+    row.querySelector('.wl-q').onclick=()=>selectSymbol(it.s,it.n);
+    row.querySelector('.wl-del').onclick=e=>{e.stopPropagation();lists[region]=lists[region].filter(x=>x.s!==it.s);save();renderWatchlist();};
     el.appendChild(row);
   });
+  updateWatchlistQuotes();
   renderStockPick();
+}
+function cycleSort(){ wlSort = wlSort==='none'?'up':wlSort==='up'?'down':'none'; renderWatchlist(); }
+function updateWatchlistQuotes(){
+  document.querySelectorAll('#watchlist .wl-item').forEach(row=>{
+    const code=row.getAttribute('data-code');
+    const q=code?futu.quotes[code]:null;
+    const px=row.querySelector('.wl-px'), ch=row.querySelector('.wl-ch');
+    if(!px||!ch)return;
+    if(q&&q.last!=null){
+      px.textContent=q.last;
+      px.style.color=(q.change_rate||0)>=0?'var(--green)':'var(--red)';
+      let h=fmtPct(q.change_rate);
+      if(q.after_rate!=null&&q.after_rate!=='') h+=`<span class="wl-aft">盤後 ${fmtPct(q.after_rate)}</span>`;
+      else if(q.pre_rate!=null&&q.pre_rate!=='') h+=`<span class="wl-aft">盤前 ${fmtPct(q.pre_rate)}</span>`;
+      ch.innerHTML=h;
+    } else { px.textContent=''; ch.textContent=''; }
+  });
 }
 function renderStockPick(){
   const sel=document.getElementById('stockPick'); if(!sel)return;
@@ -664,6 +701,7 @@ async function pollFutu(){
     try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
     futu.connected=true; setFutuStatus(true);
     renderPositions(); updateCurQuote();
+    if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
   }catch(e){ futu.connected=false; setFutuStatus(false); }
 }
 function updateCurQuote(){
