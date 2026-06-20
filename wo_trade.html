@@ -399,20 +399,23 @@ const feed=()=>document.getElementById('feed');
 function hideWelcome(){ const w=document.getElementById('welcome'); if(w)w.remove(); }
 function addBubble(html,who){ hideWelcome(); const d=document.createElement('div'); d.className='bubble '+who; d.innerHTML=html; feed().appendChild(d); feed().scrollTop=feed().scrollHeight; return d; }
 function addTyping(){ hideWelcome(); const d=document.createElement('div'); d.className='typing'; feed().appendChild(d); feed().scrollTop=feed().scrollHeight; return d; }
-function ctx(){
-  let base=`目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?current.split(':')[1]+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>x.s.split(':')[1]).join('、')}。`;
-  if(futu.connected){
-    let live='\n【富途即時數據（請以此為準）】';
-    const c=(current&&isUS(current))?futu.quotes[toFutu(current)]:null;
-    if(c) live+=` ${c.code} 現價${c.last}（${c.change_rate}%）開${c.open} 高${c.high} 低${c.low} 量${c.volume}；`;
-    if(futu.positions&&futu.positions.length){
-      live+=' 我的實際持股：'+futu.positions.map(p=>`${(p.code||'').replace('US.','')} ${p.qty}股 成本${p.cost} 現價${p.price} 損益${p.pl_ratio}%`).join('、')+'。';
-    }
-    if(futu.account){ live+=` 帳戶：總資產${futu.account.total_assets} 現金${futu.account.cash} 購買力${futu.account.power}。`; }
-    live+='（請依我的實際持股與購買力給部位大小與停損建議。）';
-    base+=live;
+function futuLiveStr(){
+  if(!futu.connected) return '';
+  let live='\n【富途即時數據（請以此為準）】';
+  const c=(current&&isUS(current))?futu.quotes[toFutu(current)]:null;
+  if(c) live+=` ${c.code} 現價${c.last}（${c.change_rate}%）開${c.open} 高${c.high} 低${c.low} 量${c.volume}；`;
+  if(futu.positions&&futu.positions.length){
+    live+=' 我的實際持股：'+futu.positions.map(p=>`${(p.code||'').replace('US.','')} ${p.qty}股 成本${p.cost} 現價${p.price} 損益${p.pl_ratio}%`).join('、')+'。';
   }
-  return base;
+  if(futu.account){ live+=` 帳戶：總資產${futu.account.total_assets} 現金${futu.account.cash} 購買力${futu.account.power}。`; }
+  live+='（請依我的實際持股與購買力給部位大小與停損建議。）';
+  return live;
+}
+function ctx(){
+  return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?current.split(':')[1]+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>x.s.split(':')[1]).join('、')}。`+futuLiveStr();
+}
+function marketCtx(){
+  return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>x.s.split(':')[1]).join('、')}。`+futuLiveStr();
 }
 
 /* ---------- 盤面導讀 → 研究方向 ---------- */
@@ -421,22 +424,23 @@ async function marketTemp(){
   addBubble('🌡️ 量一下今天的<b>市場溫度</b>…','user');
   const tp=addTyping();
   try{
-    const txt=await callClaude(`${ctx()}
-請執行【市場溫度】掃描。先用 web 搜尋確認今天日期/星期、美股最新交易日與目前休市或開盤狀態。
-最上面先輸出一行：【資料截至：YYYY/MM/DD（週X）HH:MM ／ 美股：盤中或盤後或週末休市】，後面每個數值都標它的時間點（如 6/19 收盤）。
-若美股休市（週末/假日/盤後），本掃描＝「上一交易日收盤的溫度 ＋ 下週展望」，不要假裝盤中。
-依流程輸出（Markdown、## 標題、粗體、精簡）：
-## 市場溫度
-逐項給數值＋方向＋時間：VIX 與期限結構、MOVE、信用利差、10Y、2Y、殖利率曲線、DXY、油價WTI、銅金比、黃金、USDJPY、比特幣。
+    const txt=await callClaude(`${marketCtx()}
+請執行【整體大盤｜市場溫度】掃描（以大盤與跨資產為主，不是分析單一個股）。先用 web 搜尋確認今天日期/星期、美股最新交易日與休市或開盤狀態。
+最上面先輸出一行：【資料截至：YYYY/MM/DD（週X）HH:MM ／ 美股：盤中或盤後或週末休市】，每個數值標時間點（如 6/19 收盤）。
+若美股休市（週末/假日/盤後），本掃描＝「上一交易日收盤回顧 ＋ 下週展望」，不要假裝盤中。
+依序輸出（Markdown、## 標題、粗體、精簡）：
+## 大盤
+S&P500、那斯達克、道瓊、費半SOX、羅素2000小型股 的收盤價、漲跌、近期趨勢與關鍵均線位階。
+## 市場溫度（跨資產）
+逐項給數值＋方向＋時間：VIX與期限結構、MOVE、信用利差、10Y、2Y、殖利率曲線、DXY、油價WTI、銅金比、黃金、USDJPY、比特幣。
 ## 市場廣度
 騰落 / %站上50或200日均線 / RSP-SPY，有無背離。
 ## 結論與下週展望
 **風險評分：進攻 / 中性 / 防禦** ＋「建議槓桿上限」＋一句理由；若休市，加「下一個交易日/下週最可能的走勢與觸發條件」。
-## 資金輪動 / 強勢板塊（多週期）
-用三個時間框排序11大類股相對SPY：短(5日/20日)、中(1–3月)、長(6–12月)。標出：
-- 目前「領先」與「正在轉強(改善中)」的板塊(含代表ETF與個股代號)
-- 三個時間框是否對齊(對齊=高勝率)
-- **下週最可能輪到的板塊**＋理由(循環位置＋市場溫度＋intermarket如殖利率/油價/美元＋近1–2週催化劑，附日期)`,{maxTokens:4000});
+## 資金輪動 / 板塊（多週期）
+三個時間框排序11大類股相對SPY：短(5日/20日)、中(1–3月)、長(6–12月)；標出領先、轉強中、是否對齊、**下週最可能輪到的板塊＋理由**(循環位置＋溫度＋intermarket＋近1–2週催化劑)。
+## 我的關注清單點評
+針對我關注清單裡的個股，逐檔(或挑重點)點評它在此大盤/板塊環境下的相對強弱與位階。`,{maxTokens:4500});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
@@ -446,7 +450,7 @@ async function marketBrief(){
   if(busy)return; setBusy(true);
   const tp=addTyping();
   try{
-    const txt=await callClaude(`${ctx()}
+    const txt=await callClaude(`${marketCtx()}
 延續由上而下流程：先用 web 搜尋確認今天日期/星期、美股最新交易日收盤與休市狀態、以及市場溫度與資金輪動。
 若美股休市（週末/假日），挑的是「下一個交易日/下週」值得佈局的方向（依即時與近1–2週催化劑預測），不是盤中追價。
 從強勢/改善中的板塊挑 3 個最值得短線研究的方向（具體到個股代號），每個考量：板塊轉強、相對強度、技術型態、近期催化劑、與大盤同向。
@@ -510,7 +514,7 @@ async function refreshNews(){
   const list=document.getElementById('newsList');
   list.innerHTML='<div class="news-empty">抓取最新新聞中…</div>';
   try{
-    const txt=await callClaude(`${ctx()}
+    const txt=await callClaude(`${marketCtx()}
 先用 web 搜尋確認今天日期/星期。找跟「${region==='us'?'美股':'台股'}」大盤與我關注清單個股相關、近 1–3 天的最新重要新聞，挑 8 條。
 每條標出「對『誰』利多或利空」（個股代號／板塊／大盤），附可點開的來源網址，並用「絕對日期」標時間（如 6/19 週五 盤後）。
 只輸出 JSON：{"as_of":"資料截至：日期 週X","news":[{"title":"標題","impact":"利多/利空/中性","subject":"對象，如 AMD／半導體／大盤","note":"一句話重點＋對短線的意義","time":"絕對日期如 6/19 週五","url":"來源連結"}]}`,{json:true,maxTokens:2500});
