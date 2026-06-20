@@ -66,6 +66,10 @@ header .spacer{margin-left:auto;}
 .brain-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);}
 .brain-bar select{background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 8px;font-family:inherit;font-size:12.5px;max-width:150px;}
 .brain-bar select:focus{border-color:var(--orange);outline:none;}
+.chips{display:flex;flex-wrap:wrap;gap:5px;}
+.chips .chip{background:var(--panel-2);border:1px solid var(--blue);color:var(--blue);border-radius:7px;padding:4px 8px;font-size:12px;display:inline-flex;align-items:center;gap:4px;}
+.chips .chip b{cursor:pointer;color:var(--muted);font-weight:700;}
+.chips .chip b:hover{color:var(--red);}
 .brain-bar .cur{font-size:13px;font-weight:600;}
 .brain-bar .cur span{color:var(--muted);font-weight:400;font-size:12px;margin-left:6px;}
 .btn-primary{background:var(--orange);border:none;border-radius:8px;color:white;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
@@ -165,7 +169,8 @@ header .spacer{margin-left:auto;}
         <div class="brain-bar">
           <div class="cur" id="curLabel">—</div>
           <div class="spacer" style="flex:1"></div>
-          <select id="stockPick" onchange="pickStock(this.value)" title="從關注清單選個股"></select>
+          <div id="analyzeChips" class="chips"></div>
+          <select id="stockPick" onchange="addAnalyze(this.value)" title="加入個股分析（可複選）"></select>
           <button class="btn-primary" id="stockBtn" onclick="stockAnalysis()" style="background:var(--panel-2);border:1px solid var(--blue);color:var(--blue)">🔬 個股分析</button>
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
@@ -257,6 +262,7 @@ const DEFAULTS = {
 let region = localStorage.getItem('wo_region') || 'us';
 let lists = JSON.parse(localStorage.getItem('wo_lists2')||'null') || structuredClone(DEFAULTS);
 let current = null, currentName = '';
+let analyzeList = [];
 let busy = false;
 function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
 function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
@@ -291,12 +297,26 @@ function renderWatchlist(){
 }
 function renderStockPick(){
   const sel=document.getElementById('stockPick'); if(!sel)return;
-  sel.innerHTML=lists[region].map(it=>`<option value="${it.s}">${it.s.split(':')[1]}${it.n?'　'+it.n:''}</option>`).join('');
-  if(current) sel.value=current;
+  sel.innerHTML='<option value="">＋ 加入個股</option>'+lists[region].map(it=>`<option value="${it.s}">${it.s.split(':')[1]}${it.n?'　'+it.n:''}</option>`).join('');
+  sel.value='';
 }
 function pickStock(sym){
   const it=lists[region].find(x=>x.s===sym);
   selectSymbol(sym, it?it.n:'');
+}
+function addAnalyze(sym){
+  if(!sym) return;
+  const it=lists[region].find(x=>x.s===sym);
+  const name=it?it.n:'';
+  if(!analyzeList.some(x=>x.s===sym)) analyzeList.push({s:sym,n:name});
+  selectSymbol(sym,name);
+  renderAnalyzeChips();
+  const sel=document.getElementById('stockPick'); if(sel) sel.value='';
+}
+function renderAnalyzeChips(){
+  const el=document.getElementById('analyzeChips'); if(!el)return;
+  el.innerHTML=analyzeList.map(it=>`<span class="chip" data-s="${it.s}">${it.s.split(':')[1]} <b>×</b></span>`).join('');
+  el.querySelectorAll('.chip b').forEach(b=>{ b.onclick=()=>{ const s=b.parentNode.getAttribute('data-s'); analyzeList=analyzeList.filter(x=>x.s!==s); renderAnalyzeChips(); }; });
 }
 function freqGet(s){ try{ return (JSON.parse(localStorage.getItem('wo_freq')||'{}'))[s]||0; }catch(e){ return 0; } }
 function freqBump(s){ try{ const f=JSON.parse(localStorage.getItem('wo_freq')||'{}'); f[s]=(f[s]||0)+1; localStorage.setItem('wo_freq',JSON.stringify(f)); }catch(e){} }
@@ -506,24 +526,24 @@ async function marketBrief(){
 /* ---------- 個股分析（從關注清單選） ---------- */
 async function stockAnalysis(){
   if(busy)return;
-  if(!current){ addBubble('請先在上方下拉或左邊清單選一支股票。','ai'); return; }
+  const targets = analyzeList.length ? analyzeList.slice() : (current?[{s:current,n:currentName}]:[]);
+  if(!targets.length){ addBubble('請先用上方「＋ 加入個股」選一或多檔（也可點左邊清單）。','ai'); return; }
   setBusy(true);
-  addBubble('🔬 個股分析：<b>'+current.split(':')[1]+(currentName?'（'+currentName+'）':'')+'</b>','user');
+  const multi=targets.length>1;
+  const namesStr=targets.map(t=>t.s.split(':')[1]+(t.n?'（'+t.n+'）':'')).join('、');
+  addBubble('🔬 個股分析：<b>'+namesStr+'</b>','user');
   const tp=addTyping();
   try{
     const txt=await callClaude(`${ctx()}
-請針對【${current.split(':')[1]}${currentName?'（'+currentName+'）':''}】做「單一個股」分析（不是大盤）。先用 web 搜尋確認今天日期/星期、該股最新報價與最近消息。
+請針對以下個股做「個股」分析（不是大盤）：${namesStr}。先用 web 搜尋確認今天日期/星期、各股最新報價與最近消息。
 最上面標一行【資料截至：日期 週X／美股狀態】，數據附時間。
-輸出（Markdown、## 標題、粗體、精簡）：
-## 現況
-最新價/漲跌/量(附時間)、近期走勢與關鍵均線位階、相對大盤與所屬類股的強弱。
-## 催化劑
-近期或即將到來的財報、事件、消息(附日期)。
-## 短線計畫
-進場區、停損、目標、風險報酬比、建議部位(考量我的購買力與持股)、屬當沖/隔日沖/短波段；若美股休市，以下一交易日/下週為進場時點並說明觸發條件。
-## 風險
-會讓你立刻出場的訊號。
-若需要更精準數據才能定進出場，最後用一行「👉 請從 TradingView 看…」列出要我提供的數值。`,{maxTokens:3500});
+${multi?'每一檔分開、各自用「## 代號 名稱」當標題分段，每檔給：':'輸出（Markdown、粗體、精簡）：'}
+- 現況：最新價/漲跌/量(附時間)、近期走勢與均線位階、相對大盤與所屬類股強弱
+- 催化劑：近期或即將到來的財報、事件、消息(附日期)
+- 短線計畫：進場區、停損、目標、風險報酬比、建議部位(考量我的購買力與持股)、屬當沖/隔日沖/短波段；若美股休市以下一交易日/下週為進場時點並說明觸發條件
+- 風險：會讓你立刻出場的訊號
+${multi?'最後加「## 綜合比較」：這幾檔裡現在最值得短線的排序與理由。':''}
+若需要更精準數據才能定進出場，最後用一行「👉 請從 TradingView 看…」列出要我提供的數值。`,{maxTokens:multi?5000:3500});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
