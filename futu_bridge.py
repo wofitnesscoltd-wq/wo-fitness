@@ -90,6 +90,8 @@ def do_quote(codes):
             "high": num(r.get("high_price")), "low": num(r.get("low_price")),
             "prev_close": prev, "change_rate": chg,
             "volume": num(r.get("volume")), "turnover": num(r.get("turnover")),
+            "after": num(r.get("after_price")), "after_rate": num(r.get("after_change_rate")),
+            "pre": num(r.get("pre_price")), "pre_rate": num(r.get("pre_change_rate")),
             "update_time": r.get("update_time"),
         })
     return {"quotes": out}
