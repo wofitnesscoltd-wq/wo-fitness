@@ -23,6 +23,21 @@ header .spacer{margin-left:auto;}
 .region-toggle button.active{background:var(--orange);color:white;}
 .icon-btn{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:15px;}
 .icon-btn:hover{color:var(--text);border-color:var(--orange);}
+.futu-status{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);cursor:pointer;white-space:nowrap;}
+.futu-status.on{color:var(--green);border-color:rgba(22,199,132,.4);}
+.futu-status.off{color:var(--muted);}
+.tab-row{display:flex;gap:4px;}
+.tab-row .tab{font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;color:var(--muted);border:1px solid transparent;}
+.tab-row .tab.active{color:var(--orange);border-color:var(--orange);}
+.pos-acct{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap;}
+.pos-acct b{color:var(--text);}
+.pos-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px;}
+.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;}
+.pos-item:hover{border-color:var(--orange);}
+.pos-item .pc{font-size:13px;font-weight:600;}
+.pos-item .pn{font-size:11px;color:var(--muted);margin-top:2px;}
+.pos-item .pr{font-size:13px;font-weight:700;text-align:right;line-height:1.5;}
+.up{color:var(--green);}.down{color:var(--red);}
 .layout{display:flex;height:calc(100vh - 52px);}
 /* sidebar */
 .sidebar{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;}
@@ -125,6 +140,7 @@ header .spacer{margin-left:auto;}
     <button id="btnUS" onclick="setRegion('us')">美股</button>
     <button id="btnTW" onclick="setRegion('tw')">台股</button>
   </div>
+  <span id="futuStatus" class="futu-status off" title="富途即時數據" onclick="openSettings()">⚪ 富途</span>
   <button class="icon-btn" title="設定" onclick="openSettings()">⚙</button>
 </header>
 
@@ -165,11 +181,19 @@ header .spacer{margin-left:auto;}
 
       <aside class="news">
         <div class="news-bar">
-          <div class="t">⚡ 即時新聞</div>
+          <div class="tab-row">
+            <div class="tab active" id="tabNews" onclick="switchTab('news')">⚡ 新聞</div>
+            <div class="tab" id="tabPos" onclick="switchTab('pos')">💼 持股</div>
+          </div>
+          <div style="flex:1"></div>
           <button onclick="refreshNews()">更新</button>
         </div>
         <div class="news-list" id="newsList">
           <div class="news-empty">按「更新」抓取目前市場與你關注股的最新即時新聞，AI 會自動標注利多 / 利空。</div>
+        </div>
+        <div class="pos-acct" id="posAcct" style="display:none"></div>
+        <div class="pos-list" id="posList" style="display:none">
+          <div class="news-empty">啟用富途即時數據後，這裡會顯示你的持股與損益。點右上 ⚙ 設定。</div>
         </div>
       </aside>
     </div>
@@ -191,6 +215,14 @@ header .spacer{margin-left:auto;}
       <option value="claude-sonnet-4-6">Sonnet 4.6（快、便宜）</option>
       <option value="claude-haiku-4-5-20251001">Haiku 4.5（最快、最省）</option>
     </select>
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 2px">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--text)">
+      <input type="checkbox" id="futuOn" style="width:auto"> 啟用富途牛牛即時數據（需在本機跑 futu_bridge.py）
+    </label>
+    <label>橋接位址</label>
+    <input id="futuUrl" placeholder="http://127.0.0.1:8888">
+    <label>橋接 Token（啟動 futu_bridge.py 時會印出）</label>
+    <input id="futuToken" type="password" placeholder="貼上 bridge token">
     <div class="row">
       <button class="cancel" onclick="closeSettings()">取消</button>
       <button class="save" onclick="saveSettings()">儲存</button>
@@ -251,7 +283,7 @@ function renderWatchlist(){
 function selectSymbol(sym,name){
   current=sym; currentName=name||'';
   document.getElementById('curLabel').innerHTML=`${sym.split(':')[1]} <span>${name||''}</span>`;
-  loadChart(sym); renderWatchlist();
+  loadChart(sym); renderWatchlist(); updateCurQuote();
 }
 function normalizeSymbol(raw){
   let t=raw.trim().toUpperCase(); if(!t)return null;
@@ -276,13 +308,19 @@ function setRegion(r){
 function openSettings(){
   document.getElementById('keyInput').value=localStorage.getItem('wo_key')||'';
   document.getElementById('modelInput').value=localStorage.getItem('wo_model')||'claude-opus-4-8';
+  document.getElementById('futuOn').checked=localStorage.getItem('wo_futu_on')==='1';
+  document.getElementById('futuUrl').value=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888';
+  document.getElementById('futuToken').value=localStorage.getItem('wo_futu_token')||'';
   document.getElementById('settingsModal').classList.add('show');
 }
 function closeSettings(){document.getElementById('settingsModal').classList.remove('show');}
 function saveSettings(){
   localStorage.setItem('wo_key',document.getElementById('keyInput').value.trim());
   localStorage.setItem('wo_model',document.getElementById('modelInput').value);
-  closeSettings();
+  localStorage.setItem('wo_futu_on',document.getElementById('futuOn').checked?'1':'0');
+  localStorage.setItem('wo_futu_url',document.getElementById('futuUrl').value.trim());
+  localStorage.setItem('wo_futu_token',document.getElementById('futuToken').value.trim());
+  loadFutuCfg(); closeSettings(); connectFutu();
 }
 
 /* ---------- Claude API ---------- */
@@ -344,7 +382,21 @@ const feed=()=>document.getElementById('feed');
 function hideWelcome(){ const w=document.getElementById('welcome'); if(w)w.remove(); }
 function addBubble(html,who){ hideWelcome(); const d=document.createElement('div'); d.className='bubble '+who; d.innerHTML=html; feed().appendChild(d); feed().scrollTop=feed().scrollHeight; return d; }
 function addTyping(){ hideWelcome(); const d=document.createElement('div'); d.className='typing'; feed().appendChild(d); feed().scrollTop=feed().scrollHeight; return d; }
-function ctx(){ return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?current.split(':')[1]+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>x.s.split(':')[1]).join('、')}。`; }
+function ctx(){
+  let base=`目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?current.split(':')[1]+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>x.s.split(':')[1]).join('、')}。`;
+  if(futu.connected){
+    let live='\n【富途即時數據（請以此為準）】';
+    const c=(current&&isUS(current))?futu.quotes[toFutu(current)]:null;
+    if(c) live+=` ${c.code} 現價${c.last}（${c.change_rate}%）開${c.open} 高${c.high} 低${c.low} 量${c.volume}；`;
+    if(futu.positions&&futu.positions.length){
+      live+=' 我的實際持股：'+futu.positions.map(p=>`${(p.code||'').replace('US.','')} ${p.qty}股 成本${p.cost} 現價${p.price} 損益${p.pl_ratio}%`).join('、')+'。';
+    }
+    if(futu.account){ live+=` 帳戶：總資產${futu.account.total_assets} 現金${futu.account.cash} 購買力${futu.account.power}。`; }
+    live+='（請依我的實際持股與購買力給部位大小與停損建議。）';
+    base+=live;
+  }
+  return base;
+}
 
 /* ---------- 盤面導讀 → 研究方向 ---------- */
 async function marketTemp(){
@@ -449,13 +501,69 @@ async function refreshNews(){
   }catch(e){ list.innerHTML='<div class="news-empty">⚠️ '+e.message+'</div>'; }
 }
 
+/* ---------- 富途即時數據橋接 ---------- */
+let futu={on:false,url:'',token:'',quotes:{},positions:[],account:null,timer:null,connected:false,tab:'news'};
+function loadFutuCfg(){ futu.on=localStorage.getItem('wo_futu_on')==='1'; futu.url=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888'; futu.token=localStorage.getItem('wo_futu_token')||''; }
+function isUS(sym){ return /^(NASDAQ|NYSE|AMEX|BATS):/.test(sym||''); }
+function toFutu(sym){ return 'US.'+sym.split(':')[1]; }
+function setFutuStatus(ok){ const e=document.getElementById('futuStatus'); if(!e)return; e.className='futu-status '+(ok?'on':'off'); e.textContent=(ok?'🟢':'⚪')+' 富途'; }
+function fmtPct(v){ if(v===null||v===undefined||v==='')return ''; const n=parseFloat(v); return `<span class="${n>=0?'up':'down'}">${n>=0?'+':''}${n}%</span>`; }
+async function futuFetch(path){ const r=await fetch(futu.url.replace(/\/$/,'')+path,{headers:{'X-Token':futu.token}}); if(!r.ok) throw new Error('bridge '+r.status); return r.json(); }
+async function connectFutu(){
+  if(futu.timer){ clearInterval(futu.timer); futu.timer=null; }
+  if(!futu.on){ futu.connected=false; setFutuStatus(false); return; }
+  try{ await futuFetch('/health'); await pollFutu(); futu.timer=setInterval(pollFutu,12000); }
+  catch(e){ futu.connected=false; setFutuStatus(false); }
+}
+async function pollFutu(){
+  try{
+    const codes=lists['us'].map(x=>toFutu(x.s));
+    if(current&&isUS(current)){ const c=toFutu(current); if(!codes.includes(c)) codes.push(c); }
+    const q=await futuFetch('/quote?codes='+encodeURIComponent(codes.join(',')));
+    (q.quotes||[]).forEach(x=>{ futu.quotes[x.code]=x; });
+    try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
+    try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
+    futu.connected=true; setFutuStatus(true);
+    renderPositions(); updateCurQuote();
+  }catch(e){ futu.connected=false; setFutuStatus(false); }
+}
+function updateCurQuote(){
+  const el=document.getElementById('curLabel'); if(!el||!current)return;
+  const base=`${current.split(':')[1]} <span>${currentName||''}</span>`;
+  const c=(futu.connected&&isUS(current))?futu.quotes[toFutu(current)]:null;
+  el.innerHTML=c?base+` <span style="color:var(--text);font-weight:700;margin-left:8px">${c.last}</span> ${fmtPct(c.change_rate)}`:base;
+}
+function renderPositions(){
+  const acct=document.getElementById('posAcct'), list=document.getElementById('posList');
+  if(futu.account){ acct.innerHTML=`總資產 <b>${futu.account.total_assets??'—'}</b>　現金 <b>${futu.account.cash??'—'}</b>　購買力 <b>${futu.account.power??'—'}</b>`; if(futu.tab==='pos') acct.style.display='flex'; }
+  if(!futu.positions.length){ list.innerHTML='<div class="news-empty">'+(futu.connected?'目前無持股部位。':'尚未連線富途。點右上 ⚙ 設定。')+'</div>'; return; }
+  list.innerHTML='';
+  futu.positions.forEach(p=>{
+    const d=document.createElement('div'); d.className='pos-item';
+    d.innerHTML=`<div><div class="pc">${(p.code||'').replace('US.','')}</div><div class="pn">${p.qty} 股・成本 ${p.cost}</div></div><div class="pr">${p.price??''}<br>${fmtPct(p.pl_ratio)}</div>`;
+    d.onclick=()=>selectSymbol('NASDAQ:'+(p.code||'').replace('US.',''), p.name||'');
+    list.appendChild(d);
+  });
+}
+function switchTab(t){
+  futu.tab=t;
+  document.getElementById('tabNews').classList.toggle('active',t==='news');
+  document.getElementById('tabPos').classList.toggle('active',t==='pos');
+  document.getElementById('newsList').style.display=t==='news'?'flex':'none';
+  document.getElementById('posList').style.display=t==='pos'?'flex':'none';
+  document.getElementById('posAcct').style.display=(t==='pos'&&futu.account)?'flex':'none';
+  if(t==='pos'){ renderPositions(); if(futu.on) pollFutu(); }
+}
+
 /* ---------- 啟動 ---------- */
 (function init(){
   document.getElementById('btnUS').classList.toggle('active',region==='us');
   document.getElementById('btnTW').classList.toggle('active',region==='tw');
+  loadFutuCfg(); setFutuStatus(false);
   renderWatchlist();
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
   if(!localStorage.getItem('wo_key')) setTimeout(openSettings,400);
+  connectFutu();
 })();
 </script>
 </body>
