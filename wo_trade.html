@@ -86,6 +86,9 @@ header .spacer{margin-left:auto;}
 .dir-card .dw{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px;}
 .dir-card button{background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light);border-radius:7px;padding:6px 12px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;}
 .dir-card button:hover{background:var(--orange);color:white;}
+.dir-card .add-btn{border-color:var(--green);color:var(--green);margin-left:6px;}
+.dir-card .add-btn:hover{background:var(--green);color:white;}
+.dir-card button:disabled{opacity:.6;cursor:default;}
 .typing{align-self:flex-start;color:var(--muted);font-size:13px;padding:4px 6px;}
 .typing::after{content:'';animation:dots 1.4s infinite;}
 @keyframes dots{0%{content:'思考中.'}33%{content:'思考中..'}66%{content:'思考中...'}}
@@ -295,6 +298,12 @@ function pickStock(sym){
   const it=lists[region].find(x=>x.s===sym);
   selectSymbol(sym, it?it.n:'');
 }
+function freqGet(s){ try{ return (JSON.parse(localStorage.getItem('wo_freq')||'{}'))[s]||0; }catch(e){ return 0; } }
+function freqBump(s){ try{ const f=JSON.parse(localStorage.getItem('wo_freq')||'{}'); f[s]=(f[s]||0)+1; localStorage.setItem('wo_freq',JSON.stringify(f)); }catch(e){} }
+function addToWatch(sym,title){
+  if(!lists['us'].some(x=>x.s===sym)) lists['us'].unshift({s:sym, n:(title||'').split('（')[0].split('(')[0].trim()});
+  save(); if(region==='us') renderWatchlist();
+}
 function selectSymbol(sym,name){
   current=sym; currentName=name||'';
   document.getElementById('curLabel').innerHTML=`${sym.split(':')[1]} <span>${name||''}</span>`;
@@ -466,18 +475,25 @@ async function marketBrief(){
   try{
     const txt=await callClaude(`${marketCtx()}
 延續由上而下流程：先用 web 搜尋確認今天日期/星期、美股最新交易日收盤與休市狀態、以及市場溫度與資金輪動。
+先掃【整個美股市場的全部 11 大類股】找出當下最強／正在轉強的板塊，再從這些強勢板塊裡選股——【不限我的關注清單，整個美股市場哪檔最強、最值得短線就挑哪檔】。
 若美股休市（週末/假日），挑的是「下一個交易日/下週」值得佈局的方向（依即時與近1–2週催化劑預測），不是盤中追價。
-從強勢/改善中的板塊挑 3 個最值得短線研究的方向（具體到個股代號），每個考量：板塊轉強、相對強度、技術型態、近期催化劑、與大盤同向。
-只輸出 JSON：{"as_of":"資料截至：日期 週X／美股狀態","directions":[{"title":"方向/個股（含代號與板塊）","why":"為什麼值得看：板塊轉強+催化劑(含日期)+技術，一句話"}]}`,{json:true,maxTokens:3000});
+挑 3 個最值得短線研究的方向（具體到個股代號），每個考量：所屬板塊正在轉強、個股相對強度、技術型態、近期催化劑、與大盤同向。
+只輸出 JSON：{"as_of":"資料截至：日期 週X／美股狀態","directions":[{"title":"方向/個股（含代號與板塊）","symbol":"該股TradingView格式代號，如 NASDAQ:NVDA 或 NYSE:XOM","why":"為什麼值得看：板塊轉強+催化劑(含日期)+技術，一句話"}]}`,{json:true,maxTokens:3000});
     tp.remove();
     let dirs=null, asOf=''; try{ const m=txt.match(/\{[\s\S]*\}/); if(m){ const o=JSON.parse(m[0]); dirs=o.directions; asOf=o.as_of||''; } }catch(e){}
     if(dirs&&dirs.length){
       addBubble('🎯 <b>'+(asOf?asOf.replace(/</g,'&lt;')+'<br>':'')+'值得研究的方向：</b>','ai');
       dirs.forEach(d=>{
         hideWelcome();
+        const sym=(d.symbol||'').toUpperCase().trim();
+        if(sym) freqBump(sym);
+        const n=sym?freqGet(sym):0;
+        const badge=n>1?` <span style="color:var(--orange-light);font-size:12px">🔥 近期第 ${n} 次出現</span>`:'';
         const card=document.createElement('div'); card.className='dir-card';
-        card.innerHTML=`<div class="dt">${d.title}</div><div class="dw">${d.why||''}</div><button>🔍 深入研究</button>`;
-        card.querySelector('button').onclick=()=>deepResearch(d.title,d.why);
+        card.innerHTML=`<div class="dt">${d.title}${badge}</div><div class="dw">${d.why||''}</div><button class="dr-btn">🔍 深入研究</button>${sym?'<button class="add-btn">➕ 加關注</button>':''}`;
+        card.querySelector('.dr-btn').onclick=()=>deepResearch(d.title,d.why);
+        const ab=card.querySelector('.add-btn');
+        if(ab) ab.onclick=()=>{ addToWatch(sym,d.title); ab.textContent='✓ 已加入'; ab.disabled=true; };
         feed().appendChild(card); feed().scrollTop=feed().scrollHeight;
       });
     }else{
