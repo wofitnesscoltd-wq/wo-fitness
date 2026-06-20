@@ -174,7 +174,7 @@ header .spacer{margin-left:auto;}
           </div>
         </div>
         <div class="chat-box">
-          <textarea id="chatInput" rows="1" placeholder="問我任何盤面問題，例：台積電現在適合短進嗎？" onkeydown="chatKey(event)"></textarea>
+          <textarea id="chatInput" rows="1" placeholder="問我問題，或把 TradingView 的數據貼進來讓我深入分析…" onkeydown="chatKey(event)"></textarea>
           <button onclick="sendChat()">➤</button>
         </div>
       </section>
@@ -334,7 +334,12 @@ const SYSTEM = `你是「窩 Trading 大腦」，一位專攻美股短線的繁�
   ・增長/通膨：油價(WTI)、銅與銅金比(Copper/Gold=成長vs避險)、黃金(避險)
   → 綜合給「今日風險評分：進攻 / 中性 / 防禦」與「建議槓桿上限」。
 【2 市場廣度 Breadth】騰落線、%站上50/200日均線、新高新低、RSP/SPY(等權重vs市值)；判斷漲勢是否健康、有無「指數新高但廣度走弱」的背離。
-【3 資金輪動/板塊強弱】排序11大類股ETF(XLK科技/XLC通訊/XLY非必需消費/XLF金融/XLE能源/XLV醫療/XLI工業/XLP必需消費/XLU公用/XLB原物料/XLRE房產)相對SPY的1週/1月強度，找「領先與改善中」的板塊；輔以攻守比 XLY/XLP、半導體 SMH/SOX、高Beta/低波 SPHB/SPLV、成長/價值 IWF/IWD、小型股 IWM。這就是資金輪動方向。
+【3 資金輪動/板塊強弱（多週期）】輪動有快有慢，用三個時間框一起看：
+  ・長(6–12月,月/週線)：定位景氣循環階段（早循環→金融/工業/非必需消費/原物料；中→科技；晚→能源/原物料/必需消費；轉弱→必需消費/公用/醫療），知道「照理該輪到誰」。
+  ・中(1–3月/13週)：主要操作依據，排序11大類股ETF(XLK/XLC/XLY/XLF/XLE/XLV/XLI/XLP/XLU/XLB/XLRE)相對SPY的相對強度，找持續走強的領先板塊(RRG 領先象限)。
+  ・短(1–4週/5日、20日)：抓資金「剛輪入」的轉折——從落後翻強、進入 RRG 改善象限的板塊。
+  三個時間框「對齊」(長中短同向)＝高勝率；背離(中強但短轉弱)＝已晚、別追。輔以攻守比 XLY/XLP、半導體 SMH/SOX、高Beta/低波、成長/價值、小型股 IWM。
+  【預測下一個輪到的板塊】不是猜，是看這5項的交集：①循環位置下理論上接棒者 ②市場溫度(risk-on偏成長/半導體/小型股；risk-off偏防禦) ③intermarket領先訊號(殖利率↑利金融、油價↑利能源、美元↓利原物料/跨國，常領先數日) ④RRG改善象限正在翻上來者 ⑤近期催化劑(Fed/CPI/財報)會點火誰。
 【4 強勢板塊內選股】只從當日強勢/改善中的板塊挑：相對強度創高、技術型態(突破、均線多頭排列、量能配合)、近期催化劑(財報、消息、升降評)、與大盤同向、流動性足。
 【5 進場計畫】進場區、停損、目標、風險報酬比、建議部位(考量槓桿，不重壓all in)、標明當沖/隔日沖/短波段；並檢查事件日曆(CPI/PCE/NFP/ISM/初領失業金/FOMC/重要財報/OpEx選擇權結算)——短線槓桿勿在二元事件前帶滿倉過夜。
 
@@ -343,7 +348,8 @@ const SYSTEM = `你是「窩 Trading 大腦」，一位專攻美股短線的繁�
 2. 進場想法必附：進場區/停損/目標/風險報酬比/部位/(當沖或隔日沖)。
 3. 你不是投顧、會犯錯，最終決策由使用者負責；提醒「停損是命」，但只講重點。
 4. 盡量用 web 搜尋取得最新數據與新聞並標注時間點。
-5. 教他判斷，不報明牌、不保證獲利。`;
+5. 教他判斷，不報明牌、不保證獲利。
+6. 【需要精準數據時，叫使用者去 TradingView 取】你用 web 搜尋的數據可能延遲或不夠精準。當更精準的即時數據會明顯影響判斷時（精確價位、量vs均量、指標數值如 RSI/MACD/均線/VWAP、精確支撐壓力、選擇權、盤中型態），不要硬猜——直接請使用者打開他付費的 TradingView 幫你看，並「明確列出要看哪個標的、哪個時間週期、哪幾個數值」，等他貼回來再做更精準的分析與計畫。範例：「👉 請幫我從 TradingView 看 NVDA 日線：現價、今日量vs均量、RSI(14)、20/60日均線位置、最近的支撐與壓力，貼回給我。」`;
 
 function todayStr(){ return new Date().toLocaleDateString('zh-TW'); }
 
@@ -412,8 +418,11 @@ async function marketTemp(){
 騰落 / %站上50或200日均線 / RSP-SPY，有無背離。
 ## 今日結論
 **風險評分：進攻 / 中性 / 防禦**，並給「今天槓桿建議上限」與一句話理由。
-## 資金輪動 / 強勢板塊
-排序今天領先與改善中的板塊(含代表ETF與相關個股代號)，點出資金正流入哪裡。`,{maxTokens:4000});
+## 資金輪動 / 強勢板塊（多週期）
+用三個時間框排序11大類股相對SPY：短(5日/20日)、中(1–3月)、長(6–12月)。請標出：
+- 目前「領先」與「正在轉強(改善中)」的板塊(含代表ETF與個股代號)
+- 三個時間框是否對齊(對齊=高勝率)
+- **下一個最可能輪到的板塊**，並說明理由(循環位置＋市場溫度＋intermarket訊號如殖利率/油價/美元＋近期催化劑)`,{maxTokens:4000});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
@@ -458,6 +467,7 @@ async function deepResearch(title,why){
 2. 重點觀察的個股（代號）與目前價位
 3. 具體短線操作計畫：進場區間、停損價、目標價、風險報酬比、建議部位大小、屬於（當沖/隔日沖/短波段）
 4. 風險與會讓你立刻出場的訊號
+若需要更精準的即時數據才能定進出場，最後用一行「👉 請從 TradingView 幫我看：…」明確列出要我提供哪些數值（標的、週期、指標）。
 用 Markdown，標題用 ##，重點用粗體，精簡。`,{maxTokens:3500});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
@@ -486,15 +496,19 @@ async function refreshNews(){
   try{
     const txt=await callClaude(`${ctx()}
 用 web 搜尋現在（最近數小時內）跟「${region==='us'?'美股':'台股'}」大盤與我關注清單個股相關的最新即時新聞，挑 8 條最重要的。
-只輸出 JSON：{"news":[{"title":"標題","impact":"利多/利空/中性","note":"一句話重點＋對短線的意義","time":"相對時間如 2小時前"}]}`,{json:true,maxTokens:2500});
+每條請明確標出「這條是對『誰』利多或利空」（個股代號／板塊／大盤），並附上可點開的來源網址。
+只輸出 JSON：{"news":[{"title":"標題","impact":"利多/利空/中性","subject":"對象，如 AMD／半導體／大盤","note":"一句話重點＋對短線的意義","time":"相對時間如 2小時前","url":"來源連結"}]}`,{json:true,maxTokens:2500});
     let news=null; try{ const m=txt.match(/\{[\s\S]*\}/); if(m) news=JSON.parse(m[0]).news; }catch(e){}
     if(news&&news.length){
       list.innerHTML='';
       news.forEach(n=>{
         const cls=n.impact&&n.impact.includes('多')?'up':n.impact&&n.impact.includes('空')?'down':'mid';
         const d=document.createElement('div'); d.className='news-item';
-        d.innerHTML=`<span class="tag ${cls}">${n.impact||'中性'}</span> <span style="font-size:11px;color:var(--muted)">${n.time||''}</span>
-          <div class="nh">${(n.title||'').replace(/</g,'&lt;')}</div><div class="nn">${(n.note||'').replace(/</g,'&lt;')}</div>`;
+        const subj=n.subject?('·'+(n.subject+'').replace(/</g,'&lt;')):'';
+        const title=(n.title||'').replace(/</g,'&lt;');
+        const titleHtml=n.url?`<a href="${(n.url+'').replace(/["<>]/g,'')}" target="_blank" rel="noopener">${title} ↗</a>`:title;
+        d.innerHTML=`<span class="tag ${cls}">${(n.impact||'中性')+subj}</span> <span style="font-size:11px;color:var(--muted)">${n.time||''}</span>
+          <div class="nh">${titleHtml}</div><div class="nn">${(n.note||'').replace(/</g,'&lt;')}</div>`;
         list.appendChild(d);
       });
     }else{ list.innerHTML='<div class="news-empty">'+md(txt)+'</div>'; }
