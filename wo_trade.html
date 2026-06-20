@@ -259,6 +259,34 @@ const DEFAULTS = {
     {s:'TWSE:0050',n:'元大台灣50'},{s:'TWSE:2603',n:'長榮'},
   ]
 };
+/* 從富途自選匯入的清單（v2）。美股用裸代號讓 TradingView 自動判交易所；指數/原物料/外股用前綴 */
+const IMPORT_US = [
+  {s:'NVDA',n:'輝達'},{s:'AMD',n:'超微'},{s:'TSM',n:'台積電ADR'},{s:'AVGO',n:'博通'},{s:'MU',n:'美光'},
+  {s:'ARM',n:'Arm'},{s:'MRVL',n:'邁威爾'},{s:'INTC',n:'英特爾'},{s:'QCOM',n:'高通'},{s:'SWKS',n:'思佳訊'},
+  {s:'QRVO',n:'Qorvo'},{s:'SMCI',n:'美超微'},{s:'CRDO',n:'Credo'},{s:'LITE',n:'Lumentum'},{s:'AAOI',n:'Applied Opto'},
+  {s:'COHR',n:'Coherent'},{s:'FN',n:'Fabrinet'},{s:'GLW',n:'康寧'},{s:'AMAT',n:'應用材料'},{s:'LRCX',n:'科林研發'},
+  {s:'ASML',n:'艾司摩爾'},{s:'TEL',n:'TE連接'},{s:'SNDK',n:'SanDisk'},{s:'DRAM',n:'記憶體ETF'},{s:'Q',n:'Qnity'},
+  {s:'EUV',n:'Corgi Lithography'},{s:'AXTI',n:'AXT'},{s:'MOD',n:'摩丁'},{s:'WDC',n:'威騰電子'},{s:'GEV',n:'GE Vernova'},
+  {s:'VRT',n:'Vertiv'},
+  {s:'AAPL',n:'蘋果'},{s:'MSFT',n:'微軟'},{s:'GOOGL',n:'谷歌'},{s:'META',n:'Meta'},{s:'AMZN',n:'亞馬遜'},
+  {s:'TSLA',n:'特斯拉'},{s:'ORCL',n:'甲骨文'},{s:'NOW',n:'ServiceNow'},{s:'PLTR',n:'Palantir'},{s:'SNOW',n:'Snowflake'},
+  {s:'MDB',n:'MongoDB'},{s:'NET',n:'Cloudflare'},{s:'IGV',n:'軟體ETF'},{s:'WDAY',n:'Workday'},{s:'CRCL',n:'Circle'},
+  {s:'COIN',n:'Coinbase'},{s:'MSTR',n:'Strategy'},{s:'STRC',n:'Strategy特別股'},{s:'BMNR',n:'Bitmine'},{s:'IBM',n:'IBM'},
+  {s:'NDAQ',n:'那斯達克交易所'},{s:'AIFC',n:'AI Financial'},{s:'ORBS',n:'Eightco'},{s:'GPRO',n:'GoPro'},{s:'BKNG',n:'Booking'},
+  {s:'BABA',n:'阿里巴巴'},{s:'JD',n:'京東'},{s:'NBIS',n:'Nebius'},{s:'DXYZ',n:'Destiny Tech100'},{s:'SPCX',n:'SpaceX(SPCX)'},
+  {s:'RKLB',n:'Rocket Lab'},{s:'ASTS',n:'AST SpaceMobile'},
+  {s:'OKLO',n:'Oklo'},{s:'SMR',n:'NuScale'},{s:'CEG',n:'Constellation'},{s:'VST',n:'Vistra'},{s:'UUUU',n:'Energy Fuels'},
+  {s:'LLY',n:'禮來'},{s:'HIMS',n:'Hims & Hers'},{s:'VSTM',n:'Verastem'},
+  {s:'KO',n:'可口可樂'},{s:'PEP',n:'百事'},{s:'CL',n:'高露潔'},{s:'MA',n:'萬事達'},{s:'V',n:'Visa'},{s:'EQIX',n:'Equinix'},
+  {s:'LMT',n:'洛克希德'},{s:'NOC',n:'諾斯洛普'},{s:'TT',n:'Trane'},{s:'ESP',n:'Espey'},{s:'NOK',n:'諾基亞'},{s:'DOW',n:'陶氏'},
+  {s:'XOM',n:'埃克森'},{s:'CVX',n:'雪佛龍'},{s:'OXY',n:'西方石油'},
+  {s:'QQQ',n:'納指100 ETF'},{s:'SOXX',n:'半導體ETF'},{s:'SOXL',n:'3x做多半導體'},{s:'SOXS',n:'3x做空半導體'},{s:'SOXQ',n:'Invesco半導體ETF'},
+  {s:'COPX',n:'銅礦ETF'},{s:'SLV',n:'白銀ETF'},{s:'GLD',n:'黃金ETF'},{s:'EWY',n:'南韓ETF'},{s:'TLT',n:'20年美債ETF'},
+  {s:'IEF',n:'7-10年美債ETF'},{s:'UCO',n:'2x做多原油ETF'},{s:'TSX:U.UN',n:'Sprott鈾信託'},
+  {s:'KRX:000660',n:'SK海力士'},{s:'KRX:005930',n:'三星電子'},
+  {s:'TVC:VIX',n:'VIX 波動率指數'},{s:'TVC:SOX',n:'費城半導體指數'},{s:'TVC:US10Y',n:'美10年期殖利率'},
+  {s:'TVC:USOIL',n:'WTI原油'},{s:'TVC:UKOIL',n:'布蘭特原油'},
+];
 let region = localStorage.getItem('wo_region') || 'us';
 let lists = JSON.parse(localStorage.getItem('wo_lists2')||'null') || structuredClone(DEFAULTS);
 let current = null, currentName = '';
@@ -266,6 +294,7 @@ let analyzeList = [];
 let busy = false;
 function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
 function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
+function tkr(s){ return s&&s.includes(':') ? s.split(':')[1] : (s||''); }
 
 /* ---------- TradingView 圖 ---------- */
 function loadChart(sym){
@@ -288,7 +317,7 @@ function renderWatchlist(){
   lists[region].forEach((it,i)=>{
     const row=document.createElement('div');
     row.className='wl-item'+(it.s===current?' active':'');
-    row.innerHTML=`<div class="wl-main"><div class="wl-sym">${it.s.split(':')[1]}</div><div class="wl-name">${it.n||''}</div></div><button class="wl-del">×</button>`;
+    row.innerHTML=`<div class="wl-main"><div class="wl-sym">${tkr(it.s)}</div><div class="wl-name">${it.n||''}</div></div><button class="wl-del">×</button>`;
     row.querySelector('.wl-main').onclick=()=>selectSymbol(it.s,it.n);
     row.querySelector('.wl-del').onclick=e=>{e.stopPropagation();lists[region].splice(i,1);save();renderWatchlist();};
     el.appendChild(row);
@@ -297,7 +326,7 @@ function renderWatchlist(){
 }
 function renderStockPick(){
   const sel=document.getElementById('stockPick'); if(!sel)return;
-  sel.innerHTML='<option value="">＋ 加入個股</option>'+lists[region].map(it=>`<option value="${it.s}">${it.s.split(':')[1]}${it.n?'　'+it.n:''}</option>`).join('');
+  sel.innerHTML='<option value="">＋ 加入個股</option>'+lists[region].map(it=>`<option value="${it.s}">${tkr(it.s)}${it.n?'　'+it.n:''}</option>`).join('');
   sel.value='';
 }
 function pickStock(sym){
@@ -315,7 +344,7 @@ function addAnalyze(sym){
 }
 function renderAnalyzeChips(){
   const el=document.getElementById('analyzeChips'); if(!el)return;
-  el.innerHTML=analyzeList.map(it=>`<span class="chip" data-s="${it.s}">${it.s.split(':')[1]} <b>×</b></span>`).join('');
+  el.innerHTML=analyzeList.map(it=>`<span class="chip" data-s="${it.s}">${tkr(it.s)} <b>×</b></span>`).join('');
   el.querySelectorAll('.chip b').forEach(b=>{ b.onclick=()=>{ const s=b.parentNode.getAttribute('data-s'); analyzeList=analyzeList.filter(x=>x.s!==s); renderAnalyzeChips(); }; });
 }
 function freqGet(s){ try{ return (JSON.parse(localStorage.getItem('wo_freq')||'{}'))[s]||0; }catch(e){ return 0; } }
@@ -326,14 +355,14 @@ function addToWatch(sym,title){
 }
 function selectSymbol(sym,name){
   current=sym; currentName=name||'';
-  document.getElementById('curLabel').innerHTML=`${sym.split(':')[1]} <span>${name||''}</span>`;
+  document.getElementById('curLabel').innerHTML=`${tkr(sym)} <span>${name||''}</span>`;
   loadChart(sym); renderWatchlist(); updateCurQuote();
 }
 function normalizeSymbol(raw){
   let t=raw.trim().toUpperCase(); if(!t)return null;
   if(t.includes(':'))return t;
   if(region==='tw'||/^[0-9]{4,6}[A-Z]?$/.test(t))return 'TWSE:'+t;
-  return 'NASDAQ:'+t;
+  return t;
 }
 function addSymbol(){
   const inp=document.getElementById('addInput'); const sym=normalizeSymbol(inp.value); if(!sym)return;
@@ -445,7 +474,7 @@ function addTyping(){ hideWelcome(); const d=document.createElement('div'); d.cl
 function futuLiveStr(){
   if(!futu.connected) return '';
   let live='\n【富途即時數據（請以此為準）】';
-  const c=(current&&isUS(current))?futu.quotes[toFutu(current)]:null;
+  const c=(current&&isUS(current))?futu.quotes[futuCode(current)]:null;
   if(c) live+=` ${c.code} 現價${c.last}（${c.change_rate}%）開${c.open} 高${c.high} 低${c.low} 量${c.volume}；`;
   if(futu.positions&&futu.positions.length){
     live+=' 我的實際持股：'+futu.positions.map(p=>`${(p.code||'').replace('US.','')} ${p.qty}股 成本${p.cost} 現價${p.price} 損益${p.pl_ratio}%`).join('、')+'。';
@@ -455,10 +484,10 @@ function futuLiveStr(){
   return live;
 }
 function ctx(){
-  return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?current.split(':')[1]+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>x.s.split(':')[1]).join('、')}。`+futuLiveStr();
+  return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?tkr(current)+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>tkr(x.s)).join('、')}。`+futuLiveStr();
 }
 function marketCtx(){
-  return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>x.s.split(':')[1]).join('、')}。`+futuLiveStr();
+  return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>tkr(x.s)).join('、')}。`+futuLiveStr();
 }
 
 /* ---------- 盤面導讀 → 研究方向 ---------- */
@@ -530,7 +559,7 @@ async function stockAnalysis(){
   if(!targets.length){ addBubble('請先用上方「＋ 加入個股」選一或多檔（也可點左邊清單）。','ai'); return; }
   setBusy(true);
   const multi=targets.length>1;
-  const namesStr=targets.map(t=>t.s.split(':')[1]+(t.n?'（'+t.n+'）':'')).join('、');
+  const namesStr=targets.map(t=>tkr(t.s)+(t.n?'（'+t.n+'）':'')).join('、');
   addBubble('🔬 個股分析：<b>'+namesStr+'</b>','user');
   const tp=addTyping();
   try{
@@ -614,8 +643,8 @@ async function refreshNews(){
 /* ---------- 富途即時數據橋接 ---------- */
 let futu={on:false,url:'',token:'',quotes:{},positions:[],account:null,timer:null,connected:false,tab:'news'};
 function loadFutuCfg(){ futu.on=localStorage.getItem('wo_futu_on')==='1'; futu.url=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888'; futu.token=localStorage.getItem('wo_futu_token')||''; }
-function isUS(sym){ return /^(NASDAQ|NYSE|AMEX|BATS):/.test(sym||''); }
-function toFutu(sym){ return 'US.'+sym.split(':')[1]; }
+function isUS(sym){ return !!futuCode(sym); }
+function futuCode(sym){ if(!sym)return null; if(/^TWSE:|^TPEX:/.test(sym))return null; if(sym.includes(':')){ const p=sym.split(':'); return ['NASDAQ','NYSE','AMEX','BATS','ARCA'].includes(p[0])?'US.'+p[1]:null; } return 'US.'+sym; }
 function setFutuStatus(ok){ const e=document.getElementById('futuStatus'); if(!e)return; e.className='futu-status '+(ok?'on':'off'); e.textContent=(ok?'🟢':'⚪')+' 富途'; }
 function fmtPct(v){ if(v===null||v===undefined||v==='')return ''; const n=parseFloat(v); return `<span class="${n>=0?'up':'down'}">${n>=0?'+':''}${n}%</span>`; }
 async function futuFetch(path){ const r=await fetch(futu.url.replace(/\/$/,'')+path,{headers:{'X-Token':futu.token}}); if(!r.ok) throw new Error('bridge '+r.status); return r.json(); }
@@ -627,8 +656,8 @@ async function connectFutu(){
 }
 async function pollFutu(){
   try{
-    const codes=lists['us'].map(x=>toFutu(x.s));
-    if(current&&isUS(current)){ const c=toFutu(current); if(!codes.includes(c)) codes.push(c); }
+    const codes=lists['us'].map(x=>futuCode(x.s)).filter(Boolean);
+    if(current&&isUS(current)){ const c=futuCode(current); if(c&&!codes.includes(c)) codes.push(c); }
     const q=await futuFetch('/quote?codes='+encodeURIComponent(codes.join(',')));
     (q.quotes||[]).forEach(x=>{ futu.quotes[x.code]=x; });
     try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
@@ -639,8 +668,8 @@ async function pollFutu(){
 }
 function updateCurQuote(){
   const el=document.getElementById('curLabel'); if(!el||!current)return;
-  const base=`${current.split(':')[1]} <span>${currentName||''}</span>`;
-  const c=(futu.connected&&isUS(current))?futu.quotes[toFutu(current)]:null;
+  const base=`${tkr(current)} <span>${currentName||''}</span>`;
+  const c=(futu.connected&&isUS(current))?futu.quotes[futuCode(current)]:null;
   el.innerHTML=c?base+` <span style="color:var(--text);font-weight:700;margin-left:8px">${c.last}</span> ${fmtPct(c.change_rate)}`:base;
 }
 function renderPositions(){
@@ -667,6 +696,7 @@ function switchTab(t){
 
 /* ---------- 啟動 ---------- */
 (function init(){
+  if(localStorage.getItem('wo_import')!=='v2'){ lists.us=IMPORT_US.slice(); region='us'; localStorage.setItem('wo_import','v2'); save(); }
   document.getElementById('btnUS').classList.toggle('active',region==='us');
   document.getElementById('btnTW').classList.toggle('active',region==='tw');
   loadFutuCfg(); setFutuStatus(false);
