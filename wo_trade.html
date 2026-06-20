@@ -227,6 +227,7 @@ header .spacer{margin-left:auto;}
       <button class="cancel" onclick="closeSettings()">取消</button>
       <button class="save" onclick="saveSettings()">儲存</button>
     </div>
+    <button onclick="clearAllData()" style="width:100%;margin-top:10px;padding:9px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer;">🧹 清除這台電腦上的所有資料（金鑰 / Token / 關注清單）</button>
   </div>
 </div>
 
@@ -314,6 +315,12 @@ function openSettings(){
   document.getElementById('settingsModal').classList.add('show');
 }
 function closeSettings(){document.getElementById('settingsModal').classList.remove('show');}
+function clearAllData(){
+  if(confirm('確定清除這台電腦瀏覽器裡儲存的 API 金鑰、富途 Token 與關注清單嗎？\n此動作無法復原（你的線上帳號與雲端不受影響）。')){
+    localStorage.clear();
+    location.reload();
+  }
+}
 function saveSettings(){
   localStorage.setItem('wo_key',document.getElementById('keyInput').value.trim());
   localStorage.setItem('wo_model',document.getElementById('modelInput').value);
