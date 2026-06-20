@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>窩 Trading 大腦｜美股・台股 AI 看盤副駕</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+:root{
+  --orange:#E8620A;--orange-light:#F5874A;--orange-pale:#2A1C10;
+  --bg:#0E1116;--panel:#161A21;--panel-2:#1C212B;--border:#262C38;
+  --text:#E6E9EF;--muted:#8A93A3;--green:#16C784;--red:#EA3943;--blue:#4C8DFF;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;}
+header{background:#0A0D12;border-bottom:1px solid var(--border);padding:0 18px;display:flex;align-items:center;gap:12px;height:52px;}
+header .logo{width:30px;height:30px;background:var(--orange);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:white;font-size:13px;}
+header h1{font-size:15px;font-weight:500;}
+header h1 .sub{color:var(--muted);font-weight:300;font-size:12px;margin-left:6px;}
+header .spacer{margin-left:auto;}
+.region-toggle{display:flex;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.region-toggle button{padding:6px 15px;border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;}
+.region-toggle button.active{background:var(--orange);color:white;}
+.icon-btn{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:15px;}
+.icon-btn:hover{color:var(--text);border-color:var(--orange);}
+.layout{display:flex;height:calc(100vh - 52px);}
+/* sidebar */
+.sidebar{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;}
+.add-bar{padding:10px;border-bottom:1px solid var(--border);display:flex;gap:7px;}
+.add-bar input{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-family:inherit;font-size:13px;outline:none;}
+.add-bar input:focus{border-color:var(--orange);}
+.add-bar button{background:var(--orange);border:none;border-radius:7px;color:white;width:32px;font-size:17px;cursor:pointer;flex-shrink:0;}
+.watchlist{flex:1;overflow-y:auto;padding:6px;}
+.wl-group{font-size:11px;color:var(--muted);letter-spacing:.05em;padding:9px 10px 4px;}
+.wl-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;}
+.wl-item:hover{background:var(--panel-2);}
+.wl-item.active{background:var(--orange-pale);}
+.wl-item.active .wl-sym{color:var(--orange);}
+.wl-main{flex:1;min-width:0;}
+.wl-sym{font-size:13px;font-weight:600;}
+.wl-name{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wl-del{opacity:0;color:var(--muted);font-size:15px;background:none;border:none;cursor:pointer;}
+.wl-item:hover .wl-del{opacity:.6;}.wl-del:hover{opacity:1!important;color:var(--red);}
+/* main */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.chart-area{height:40vh;min-height:240px;border-bottom:1px solid var(--border);}
+.chart-area>div,.chart-area .tradingview-widget-container{height:100%;width:100%;}
+.work{flex:1;display:flex;min-height:0;}
+/* brain */
+.brain{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border);}
+.brain-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);}
+.brain-bar .cur{font-size:13px;font-weight:600;}
+.brain-bar .cur span{color:var(--muted);font-weight:400;font-size:12px;margin-left:6px;}
+.btn-primary{background:var(--orange);border:none;border-radius:8px;color:white;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-primary:hover{background:var(--orange-light);}
+.btn-primary:disabled{opacity:.5;cursor:default;}
+.feed{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.welcome{color:var(--muted);font-size:13px;line-height:1.9;text-align:center;margin:auto;max-width:420px;}
+.welcome b{color:var(--text);}
+.bubble{border-radius:12px;padding:13px 15px;font-size:13.5px;line-height:1.8;max-width:92%;}
+.bubble.user{background:var(--orange);color:white;align-self:flex-end;border-bottom-right-radius:4px;}
+.bubble.ai{background:var(--panel);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px;}
+.bubble.ai h3{font-size:15px;margin:10px 0 6px;color:var(--orange-light);}
+.bubble.ai h4{font-size:14px;margin:9px 0 5px;}
+.bubble.ai ul{margin:6px 0 6px 18px;}.bubble.ai li{margin:3px 0;}
+.bubble.ai strong{color:#fff;}
+.dir-card{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:10px;padding:13px 15px;align-self:flex-start;max-width:92%;}
+.dir-card .dt{font-size:14px;font-weight:700;margin-bottom:5px;}
+.dir-card .dw{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px;}
+.dir-card button{background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light);border-radius:7px;padding:6px 12px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;}
+.dir-card button:hover{background:var(--orange);color:white;}
+.typing{align-self:flex-start;color:var(--muted);font-size:13px;padding:4px 6px;}
+.typing::after{content:'';animation:dots 1.4s infinite;}
+@keyframes dots{0%{content:'思考中.'}33%{content:'思考中..'}66%{content:'思考中...'}}
+.chat-box{border-top:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;}
+.chat-box textarea{flex:1;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;color:var(--text);font-family:inherit;font-size:13.5px;resize:none;outline:none;max-height:120px;}
+.chat-box textarea:focus{border-color:var(--orange);}
+.chat-box button{background:var(--orange);border:none;border-radius:9px;color:white;width:42px;font-size:17px;cursor:pointer;}
+/* news */
+.news{width:330px;flex-shrink:0;display:flex;flex-direction:column;background:var(--panel);}
+.news-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);}
+.news-bar .t{font-size:13px;font-weight:600;flex:1;}
+.news-bar button{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;}
+.news-bar button:hover{color:var(--text);border-color:var(--orange);}
+.news-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:8px;}
+.news-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:11px 12px;}
+.news-item .nh{font-size:13px;font-weight:600;line-height:1.5;margin-bottom:5px;}
+.news-item .nn{font-size:12px;color:var(--muted);line-height:1.6;}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;margin-bottom:6px;}
+.tag.up{background:rgba(22,199,132,.15);color:var(--green);}
+.tag.down{background:rgba(234,57,67,.15);color:var(--red);}
+.tag.mid{background:rgba(138,147,163,.15);color:var(--muted);}
+.news-empty{color:var(--muted);font-size:12.5px;text-align:center;padding:30px 14px;line-height:1.8;}
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200;}
+.modal-bg.show{display:flex;}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;width:440px;max-width:92vw;}
+.modal h2{font-size:16px;margin-bottom:6px;}
+.modal p{font-size:12.5px;color:var(--muted);line-height:1.7;margin-bottom:14px;}
+.modal label{font-size:12px;color:var(--muted);display:block;margin:12px 0 5px;}
+.modal input,.modal select{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:inherit;font-size:13px;outline:none;}
+.modal input:focus{border-color:var(--orange);}
+.modal .row{display:flex;gap:10px;margin-top:18px;}
+.modal .row button{flex:1;padding:10px;border-radius:8px;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.modal .save{background:var(--orange);color:white;}
+.modal .cancel{background:var(--panel-2);color:var(--muted);border:1px solid var(--border)!important;}
+.disclaimer{font-size:11px;color:var(--muted);text-align:center;padding:6px;border-top:1px solid var(--border);line-height:1.5;}
+@media(max-width:920px){
+  body{overflow:auto;height:auto;}
+  .layout{flex-direction:column;height:auto;}
+  .sidebar{width:100%;max-height:200px;}
+  .chart-area{height:300px;}
+  .work{flex-direction:column;}
+  .brain{border-right:none;border-bottom:1px solid var(--border);height:520px;}
+  .news{width:100%;height:400px;}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">窩</div>
+  <h1>Trading 大腦 <span class="sub">美股・台股 AI 看盤副駕</span></h1>
+  <div class="spacer"></div>
+  <div class="region-toggle">
+    <button id="btnUS" onclick="setRegion('us')">美股</button>
+    <button id="btnTW" onclick="setRegion('tw')">台股</button>
+  </div>
+  <button class="icon-btn" title="設定" onclick="openSettings()">⚙</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="add-bar">
+      <input id="addInput" placeholder="新增代號 例 NVDA / 2454" onkeydown="if(event.key==='Enter')addSymbol()">
+      <button onclick="addSymbol()">+</button>
+    </div>
+    <div class="watchlist" id="watchlist"></div>
+  </aside>
+
+  <main class="main">
+    <div class="chart-area" id="chartArea"></div>
+    <div class="work">
+      <section class="brain">
+        <div class="brain-bar">
+          <div class="cur" id="curLabel">—</div>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
+          <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
+        </div>
+        <div class="feed" id="feed">
+          <div class="welcome" id="welcome">
+            👋 我是你的<b>美股短線交易副駕</b>，用「<b>由上而下</b>」三步幫你決策：<br><br>
+            <b>① 🌡️ 市場溫度</b>　跨資產(VIX、美元、利率、油價、銅金比、比特幣…)＋廣度，判斷今天敢不敢上槓桿<br>
+            <b>② 🎯 強勢選股</b>　找資金輪入的強勢板塊，挑出值得研究的個股方向<br>
+            <b>③ 🔍 深入研究</b>　你點頭後深挖，產出含 進場/停損/目標/部位 的短線計畫<br><br>
+            也可直接在下面打字問我任何盤面問題。<br>
+            <span style="font-size:11px">第一次使用請先點右上 ⚙ 設定你的 Anthropic API 金鑰。</span>
+          </div>
+        </div>
+        <div class="chat-box">
+          <textarea id="chatInput" rows="1" placeholder="問我任何盤面問題，例：台積電現在適合短進嗎？" onkeydown="chatKey(event)"></textarea>
+          <button onclick="sendChat()">➤</button>
+        </div>
+      </section>
+
+      <aside class="news">
+        <div class="news-bar">
+          <div class="t">⚡ 即時新聞</div>
+          <button onclick="refreshNews()">更新</button>
+        </div>
+        <div class="news-list" id="newsList">
+          <div class="news-empty">按「更新」抓取目前市場與你關注股的最新即時新聞，AI 會自動標注利多 / 利空。</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<div class="disclaimer">⚠️ 本工具僅供研究參考，非投資建議。短線槓桿風險高，AI 可能出錯，最終決策與風險由你自行負責，務必設停損。</div>
+
+<!-- settings modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h2>設定</h2>
+    <p>AI 大腦使用 Anthropic Claude API。金鑰<b>只會存在你這台瀏覽器</b>，不會上傳到任何伺服器。前往 console.anthropic.com 申請金鑰。</p>
+    <label>Anthropic API 金鑰</label>
+    <input id="keyInput" type="password" placeholder="sk-ant-...">
+    <label>模型（品質 / 速度）</label>
+    <select id="modelInput">
+      <option value="claude-opus-4-8">Opus 4.8（最強分析，預設）</option>
+      <option value="claude-sonnet-4-6">Sonnet 4.6（快、便宜）</option>
+      <option value="claude-haiku-4-5-20251001">Haiku 4.5（最快、最省）</option>
+    </select>
+    <div class="row">
+      <button class="cancel" onclick="closeSettings()">取消</button>
+      <button class="save" onclick="saveSettings()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- 關注清單 ---------- */
+const DEFAULTS = {
+  us:[
+    {s:'NASDAQ:NVDA',n:'輝達 NVIDIA'},{s:'NASDAQ:AAPL',n:'蘋果 Apple'},
+    {s:'NASDAQ:TSLA',n:'特斯拉 Tesla'},{s:'NASDAQ:AMD',n:'超微 AMD'},
+    {s:'NASDAQ:MSFT',n:'微軟'},{s:'NASDAQ:META',n:'Meta'},
+    {s:'AMEX:SPY',n:'S&P500 ETF'},{s:'NASDAQ:QQQ',n:'那斯達克100'},
+  ],
+  tw:[
+    {s:'TWSE:2330',n:'台積電'},{s:'TWSE:2317',n:'鴻海'},
+    {s:'TWSE:2454',n:'聯發科'},{s:'TWSE:2308',n:'台達電'},
+    {s:'TWSE:2382',n:'廣達'},{s:'TWSE:3231',n:'緯創'},
+    {s:'TWSE:0050',n:'元大台灣50'},{s:'TWSE:2603',n:'長榮'},
+  ]
+};
+let region = localStorage.getItem('wo_region') || 'us';
+let lists = JSON.parse(localStorage.getItem('wo_lists2')||'null') || structuredClone(DEFAULTS);
+let current = null, currentName = '';
+let busy = false;
+function setBusy(b){ busy=b; ['tempBtn','briefBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
+function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
+
+/* ---------- TradingView 圖 ---------- */
+function loadChart(sym){
+  const c = document.getElementById('chartArea'); c.innerHTML='';
+  const wrap=document.createElement('div'); wrap.className='tradingview-widget-container';
+  const inner=document.createElement('div'); inner.className='tradingview-widget-container__widget'; inner.style.height='100%';
+  wrap.appendChild(inner);
+  const s=document.createElement('script');
+  s.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'; s.async=true;
+  s.innerHTML=JSON.stringify({symbol:sym,interval:'D',timezone:'Asia/Taipei',theme:'dark',style:'1',
+    locale:'zh_TW',allow_symbol_change:true,hide_side_toolbar:false,withdateranges:true,details:false,
+    studies:['STD;SMA'],autosize:true,backgroundColor:'rgba(14,17,22,1)',gridColor:'rgba(38,44,56,0.6)'});
+  wrap.appendChild(s); c.appendChild(wrap);
+}
+
+/* ---------- 關注清單渲染 ---------- */
+function renderWatchlist(){
+  const el=document.getElementById('watchlist');
+  el.innerHTML=`<div class="wl-group">${region==='us'?'美股 US':'台股 TW'}　關注清單</div>`;
+  lists[region].forEach((it,i)=>{
+    const row=document.createElement('div');
+    row.className='wl-item'+(it.s===current?' active':'');
+    row.innerHTML=`<div class="wl-main"><div class="wl-sym">${it.s.split(':')[1]}</div><div class="wl-name">${it.n||''}</div></div><button class="wl-del">×</button>`;
+    row.querySelector('.wl-main').onclick=()=>selectSymbol(it.s,it.n);
+    row.querySelector('.wl-del').onclick=e=>{e.stopPropagation();lists[region].splice(i,1);save();renderWatchlist();};
+    el.appendChild(row);
+  });
+}
+function selectSymbol(sym,name){
+  current=sym; currentName=name||'';
+  document.getElementById('curLabel').innerHTML=`${sym.split(':')[1]} <span>${name||''}</span>`;
+  loadChart(sym); renderWatchlist();
+}
+function normalizeSymbol(raw){
+  let t=raw.trim().toUpperCase(); if(!t)return null;
+  if(t.includes(':'))return t;
+  if(region==='tw'||/^[0-9]{4,6}[A-Z]?$/.test(t))return 'TWSE:'+t;
+  return 'NASDAQ:'+t;
+}
+function addSymbol(){
+  const inp=document.getElementById('addInput'); const sym=normalizeSymbol(inp.value); if(!sym)return;
+  if(!lists[region].some(x=>x.s===sym)) lists[region].unshift({s:sym,n:''});
+  inp.value=''; save(); renderWatchlist(); selectSymbol(sym,'');
+}
+function setRegion(r){
+  region=r;
+  document.getElementById('btnUS').classList.toggle('active',r==='us');
+  document.getElementById('btnTW').classList.toggle('active',r==='tw');
+  save(); renderWatchlist();
+  const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
+}
+
+/* ---------- 設定 ---------- */
+function openSettings(){
+  document.getElementById('keyInput').value=localStorage.getItem('wo_key')||'';
+  document.getElementById('modelInput').value=localStorage.getItem('wo_model')||'claude-opus-4-8';
+  document.getElementById('settingsModal').classList.add('show');
+}
+function closeSettings(){document.getElementById('settingsModal').classList.remove('show');}
+function saveSettings(){
+  localStorage.setItem('wo_key',document.getElementById('keyInput').value.trim());
+  localStorage.setItem('wo_model',document.getElementById('modelInput').value);
+  closeSettings();
+}
+
+/* ---------- Claude API ---------- */
+const SYSTEM = `你是「窩 Trading 大腦」，一位專攻美股短線的繁體中文交易研究副駕，方法論是「由上而下：總經溫度 → 資金輪動/板塊強弱 → 強勢板塊選股」。
+使用者風格：短線會用槓桿（融資/當沖/隔日沖），盈餘做短線現股；目前先專注美股。
+
+你的固定分析流程：
+【1 市場溫度 Risk-On/Off】用跨資產判斷今天敢不敢上槓桿、要進攻還是防禦：
+  ・風險情緒：VIX 與其期限結構(VIX vs VIX3M，backwardation=壓力)、MOVE 債券波動、信用利差(HY OAS / HYG、LQD)、Put/Call、USDJPY 日元(carry，急升=risk-off)、比特幣(風險情緒先行者)
+  ・利率/資金：10年期殖利率與「變動速度」、2年期(升降息預期)、殖利率曲線(10Y-2Y)、美元指數 DXY
+  ・增長/通膨：油價(WTI)、銅與銅金比(Copper/Gold=成長vs避險)、黃金(避險)
+  → 綜合給「今日風險評分：進攻 / 中性 / 防禦」與「建議槓桿上限」。
+【2 市場廣度 Breadth】騰落線、%站上50/200日均線、新高新低、RSP/SPY(等權重vs市值)；判斷漲勢是否健康、有無「指數新高但廣度走弱」的背離。
+【3 資金輪動/板塊強弱】排序11大類股ETF(XLK科技/XLC通訊/XLY非必需消費/XLF金融/XLE能源/XLV醫療/XLI工業/XLP必需消費/XLU公用/XLB原物料/XLRE房產)相對SPY的1週/1月強度，找「領先與改善中」的板塊；輔以攻守比 XLY/XLP、半導體 SMH/SOX、高Beta/低波 SPHB/SPLV、成長/價值 IWF/IWD、小型股 IWM。這就是資金輪動方向。
+【4 強勢板塊內選股】只從當日強勢/改善中的板塊挑：相對強度創高、技術型態(突破、均線多頭排列、量能配合)、近期催化劑(財報、消息、升降評)、與大盤同向、流動性足。
+【5 進場計畫】進場區、停損、目標、風險報酬比、建議部位(考量槓桿，不重壓all in)、標明當沖/隔日沖/短波段；並檢查事件日曆(CPI/PCE/NFP/ISM/初領失業金/FOMC/重要財報/OpEx選擇權結算)——短線槓桿勿在二元事件前帶滿倉過夜。
+
+鐵則：
+1. 繁體中文、口語、精簡、可立即執行，少廢話。
+2. 進場想法必附：進場區/停損/目標/風險報酬比/部位/(當沖或隔日沖)。
+3. 你不是投顧、會犯錯，最終決策由使用者負責；提醒「停損是命」，但只講重點。
+4. 盡量用 web 搜尋取得最新數據與新聞並標注時間點。
+5. 教他判斷，不報明牌、不保證獲利。`;
+
+function todayStr(){ return new Date().toLocaleDateString('zh-TW'); }
+
+async function callClaude(userText, {json=false, maxTokens=3000}={}){
+  const key=localStorage.getItem('wo_key');
+  if(!key){ openSettings(); throw new Error('請先在 ⚙ 設定你的 Anthropic API 金鑰'); }
+  const model=localStorage.getItem('wo_model')||'claude-opus-4-8';
+  const body={
+    model, max_tokens:maxTokens,
+    system:SYSTEM+`\n（今天約為 ${todayStr()}，請用搜尋確認最新資訊。）`+(json?'\n本次請「只」輸出我要求的 JSON，不要任何多餘文字。':''),
+    messages:[{role:'user',content:userText}],
+    tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}]
+  };
+  const res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify(body)
+  });
+  if(!res.ok){ const t=await res.text(); throw new Error('API 錯誤 '+res.status+'：'+t.slice(0,300)); }
+  const data=await res.json();
+  return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+}
+
+/* ---------- markdown 迷你渲染 ---------- */
+function md(t){
+  let h=(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^#{1,3}\s+(.*)$/gm,'<h4>$1</h4>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/^\s*[-*]\s+(.*)$/gm,'<li>$1</li>');
+  h=h.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g,m=>'<ul>'+m+'</ul>');
+  return h.replace(/\n{2,}/g,'<br><br>').replace(/\n/g,'<br>');
+}
+
+/* ---------- 對話 feed ---------- */
+const feed=()=>document.getElementById('feed');
+function hideWelcome(){ const w=document.getElementById('welcome'); if(w)w.remove(); }
+function addBubble(html,who){ hideWelcome(); const d=document.createElement('div'); d.className='bubble '+who; d.innerHTML=html; feed().appendChild(d); feed().scrollTop=feed().scrollHeight; return d; }
+function addTyping(){ hideWelcome(); const d=document.createElement('div'); d.className='typing'; feed().appendChild(d); feed().scrollTop=feed().scrollHeight; return d; }
+function ctx(){ return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?current.split(':')[1]+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>x.s.split(':')[1]).join('、')}。`; }
+
+/* ---------- 盤面導讀 → 研究方向 ---------- */
+async function marketTemp(){
+  if(busy)return; setBusy(true);
+  addBubble('🌡️ 量一下今天的<b>市場溫度</b>…','user');
+  const tp=addTyping();
+  try{
+    const txt=await callClaude(`${ctx()}
+請執行【市場溫度】掃描：用 web 搜尋現在最新的跨資產數據，依你的流程輸出（Markdown、## 標題、粗體標重點、精簡）：
+## 市場溫度
+逐項給最新數值與方向(標時間)：VIX 與期限結構、MOVE、信用利差、10Y、2Y、殖利率曲線、DXY、油價WTI、銅金比、黃金、USDJPY、比特幣。
+## 市場廣度
+騰落 / %站上50或200日均線 / RSP-SPY，有無背離。
+## 今日結論
+**風險評分：進攻 / 中性 / 防禦**，並給「今天槓桿建議上限」與一句話理由。
+## 資金輪動 / 強勢板塊
+排序今天領先與改善中的板塊(含代表ETF與相關個股代號)，點出資金正流入哪裡。`,{maxTokens:4000});
+    tp.remove(); addBubble(md(txt),'ai');
+  }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
+  setBusy(false);
+}
+
+async function marketBrief(){
+  if(busy)return; setBusy(true);
+  const tp=addTyping();
+  try{
+    const txt=await callClaude(`${ctx()}
+延續你的由上而下流程：先用 web 搜尋確認今天的市場溫度與資金輪動，再從「今日強勢/改善中的板塊」裡，挑出 3 個現在最值得短線研究的方向（具體到個股代號）。
+每個方向都要考量：所屬板塊正在轉強、個股相對強度、技術型態、近期催化劑、與大盤同向。
+只輸出 JSON：{"directions":[{"title":"方向/個股（含代號與所屬板塊）","why":"為什麼現在值得看：板塊轉強+催化劑+技術，一句話"}]}`,{json:true,maxTokens:3000});
+    tp.remove();
+    let dirs=null; try{ const m=txt.match(/\{[\s\S]*\}/); if(m) dirs=JSON.parse(m[0]).directions; }catch(e){}
+    if(dirs&&dirs.length){
+      addBubble('🎯 <b>今日強勢板塊裡，這幾個方向值得你研究：</b>','ai');
+      dirs.forEach(d=>{
+        hideWelcome();
+        const card=document.createElement('div'); card.className='dir-card';
+        card.innerHTML=`<div class="dt">${d.title}</div><div class="dw">${d.why||''}</div><button>🔍 深入研究</button>`;
+        card.querySelector('button').onclick=()=>deepResearch(d.title,d.why);
+        feed().appendChild(card); feed().scrollTop=feed().scrollHeight;
+      });
+    }else{
+      addBubble(md(txt),'ai');
+    }
+  }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
+  setBusy(false);
+}
+
+/* ---------- 深入研究 ---------- */
+async function deepResearch(title,why){
+  if(busy)return; busy=true;
+  addBubble('深入研究：<b>'+title+'</b>','user');
+  const tp=addTyping();
+  try{
+    const txt=await callClaude(`${ctx()}
+請針對這個研究方向做深入研究並用 web 搜尋最新資料：「${title}」（背景：${why||''}）。
+請給出結構化結論，包含：
+1. 為什麼現在有機會（催化劑、籌碼/資金、技術位階，附資訊時間）
+2. 重點觀察的個股（代號）與目前價位
+3. 具體短線操作計畫：進場區間、停損價、目標價、風險報酬比、建議部位大小、屬於（當沖/隔日沖/短波段）
+4. 風險與會讓你立刻出場的訊號
+用 Markdown，標題用 ##，重點用粗體，精簡。`,{maxTokens:3500});
+    tp.remove(); addBubble(md(txt),'ai');
+  }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
+  busy=false;
+}
+
+/* ---------- 自由問答 ---------- */
+function chatKey(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendChat(); } }
+async function sendChat(){
+  if(busy)return; const inp=document.getElementById('chatInput'); const q=inp.value.trim(); if(!q)return;
+  inp.value=''; inp.style.height='auto';
+  addBubble(q.replace(/</g,'&lt;'),'user');
+  busy=true; const tp=addTyping();
+  try{
+    const txt=await callClaude(`${ctx()}\n使用者問：${q}\n請用最新資料回答；若牽涉進出場，附上進場/停損/目標/部位/風險。`,{maxTokens:3000});
+    tp.remove(); addBubble(md(txt),'ai');
+  }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
+  busy=false;
+}
+document.getElementById('chatInput').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
+
+/* ---------- 即時新聞 ---------- */
+async function refreshNews(){
+  const list=document.getElementById('newsList');
+  list.innerHTML='<div class="news-empty">抓取最新新聞中…</div>';
+  try{
+    const txt=await callClaude(`${ctx()}
+用 web 搜尋現在（最近數小時內）跟「${region==='us'?'美股':'台股'}」大盤與我關注清單個股相關的最新即時新聞，挑 8 條最重要的。
+只輸出 JSON：{"news":[{"title":"標題","impact":"利多/利空/中性","note":"一句話重點＋對短線的意義","time":"相對時間如 2小時前"}]}`,{json:true,maxTokens:2500});
+    let news=null; try{ const m=txt.match(/\{[\s\S]*\}/); if(m) news=JSON.parse(m[0]).news; }catch(e){}
+    if(news&&news.length){
+      list.innerHTML='';
+      news.forEach(n=>{
+        const cls=n.impact&&n.impact.includes('多')?'up':n.impact&&n.impact.includes('空')?'down':'mid';
+        const d=document.createElement('div'); d.className='news-item';
+        d.innerHTML=`<span class="tag ${cls}">${n.impact||'中性'}</span> <span style="font-size:11px;color:var(--muted)">${n.time||''}</span>
+          <div class="nh">${(n.title||'').replace(/</g,'&lt;')}</div><div class="nn">${(n.note||'').replace(/</g,'&lt;')}</div>`;
+        list.appendChild(d);
+      });
+    }else{ list.innerHTML='<div class="news-empty">'+md(txt)+'</div>'; }
+  }catch(e){ list.innerHTML='<div class="news-empty">⚠️ '+e.message+'</div>'; }
+}
+
+/* ---------- 啟動 ---------- */
+(function init(){
+  document.getElementById('btnUS').classList.toggle('active',region==='us');
+  document.getElementById('btnTW').classList.toggle('active',region==='tw');
+  renderWatchlist();
+  const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
+  if(!localStorage.getItem('wo_key')) setTimeout(openSettings,400);
+})();
+</script>
+</body>
+</html>
