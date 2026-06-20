@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>窩 WoFitness｜看盤台（美股・台股）</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+:root{
+  --orange:#E8620A;--orange-light:#F5874A;--orange-pale:#2A1C10;
+  --bg:#0E1116;--panel:#161A21;--panel-2:#1C212B;--border:#262C38;
+  --text:#E6E9EF;--muted:#8A93A3;--green:#16C784;--red:#EA3943;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+header{background:#0A0D12;border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:12px;height:54px;position:sticky;top:0;z-index:100;}
+header .logo{width:30px;height:30px;background:var(--orange);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:white;font-size:13px;}
+header h1{font-size:15px;font-weight:500;}
+header h1 .sub{color:var(--muted);font-weight:300;font-size:12px;margin-left:6px;}
+header .spacer{margin-left:auto;}
+.region-toggle{display:flex;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.region-toggle button{padding:7px 16px;border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;}
+.region-toggle button.active{background:var(--orange);color:white;}
+.ticker-wrap{border-bottom:1px solid var(--border);background:#0A0D12;}
+.layout{display:flex;height:calc(100vh - 54px - 46px);}
+.sidebar{width:260px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;}
+.add-bar{padding:12px;border-bottom:1px solid var(--border);display:flex;gap:8px;}
+.add-bar input{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-family:inherit;font-size:13px;outline:none;}
+.add-bar input:focus{border-color:var(--orange);}
+.add-bar button{background:var(--orange);border:none;border-radius:7px;color:white;width:34px;font-size:18px;cursor:pointer;flex-shrink:0;}
+.add-bar button:hover{background:var(--orange-light);}
+.watchlist{flex:1;overflow-y:auto;padding:6px;}
+.wl-group{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:10px 10px 4px;}
+.wl-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;transition:background .12s;}
+.wl-item:hover{background:var(--panel-2);}
+.wl-item.active{background:var(--orange-pale);}
+.wl-item.active .wl-sym{color:var(--orange);}
+.wl-main{flex:1;min-width:0;}
+.wl-sym{font-size:13px;font-weight:600;}
+.wl-name{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wl-del{opacity:0;color:var(--muted);font-size:15px;background:none;border:none;cursor:pointer;flex-shrink:0;}
+.wl-item:hover .wl-del{opacity:.6;}
+.wl-del:hover{opacity:1!important;color:var(--red);}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.chart-area{flex:1;min-height:0;position:relative;}
+.bottom-row{height:300px;flex-shrink:0;display:grid;grid-template-columns:340px 320px 1fr;gap:1px;background:var(--border);border-top:1px solid var(--border);}
+.bottom-row>div{background:var(--panel);overflow:hidden;position:relative;}
+.panel-label{position:absolute;top:8px;left:12px;z-index:5;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;pointer-events:none;}
+.tv-fill,.tv-fill>div{height:100%;width:100%;}
+.empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px;}
+@media(max-width:900px){
+  .layout{flex-direction:column;height:auto;}
+  .sidebar{width:100%;height:auto;max-height:220px;}
+  .chart-area{height:420px;}
+  .bottom-row{grid-template-columns:1fr;height:auto;}
+  .bottom-row>div{height:300px;}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">窩</div>
+  <h1>看盤台 <span class="sub">美股・台股 即時報價 & 技術分析</span></h1>
+  <div class="spacer"></div>
+  <div class="region-toggle">
+    <button id="btnUS" class="active" onclick="setRegion('us')">美股</button>
+    <button id="btnTW" onclick="setRegion('tw')">台股</button>
+  </div>
+</header>
+
+<div class="ticker-wrap" id="tickerTape"></div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="add-bar">
+      <input id="addInput" placeholder="新增代號，例 NVDA / 2454" onkeydown="if(event.key==='Enter')addSymbol()">
+      <button onclick="addSymbol()" title="新增">+</button>
+    </div>
+    <div class="watchlist" id="watchlist"></div>
+  </aside>
+
+  <main class="main">
+    <div class="chart-area" id="chartArea"></div>
+    <div class="bottom-row">
+      <div><div class="panel-label">個股資訊</div><div id="infoPanel" class="tv-fill"></div></div>
+      <div><div class="panel-label">技術分析</div><div id="taPanel" class="tv-fill"></div></div>
+      <div><div class="panel-label">相關新聞</div><div id="newsPanel" class="tv-fill"></div></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ---- 預設關注清單（可自行新增/刪除，會存在瀏覽器） ---- */
+const DEFAULTS = {
+  us:[
+    {s:'NASDAQ:AAPL',n:'蘋果 Apple'},
+    {s:'NASDAQ:NVDA',n:'輝達 NVIDIA'},
+    {s:'NASDAQ:TSLA',n:'特斯拉 Tesla'},
+    {s:'NASDAQ:MSFT',n:'微軟 Microsoft'},
+    {s:'NASDAQ:AMZN',n:'亞馬遜 Amazon'},
+    {s:'NASDAQ:GOOGL',n:'谷歌 Alphabet'},
+    {s:'NASDAQ:META',n:'Meta'},
+    {s:'NASDAQ:AMD',n:'超微 AMD'},
+    {s:'AMEX:SPY',n:'S&P 500 ETF'},
+    {s:'NASDAQ:QQQ',n:'那斯達克100 ETF'},
+  ],
+  tw:[
+    {s:'TWSE:2330',n:'台積電'},
+    {s:'TWSE:2317',n:'鴻海'},
+    {s:'TWSE:2454',n:'聯發科'},
+    {s:'TWSE:2308',n:'台達電'},
+    {s:'TWSE:2382',n:'廣達'},
+    {s:'TWSE:2412',n:'中華電'},
+    {s:'TWSE:2881',n:'富邦金'},
+    {s:'TWSE:0050',n:'元大台灣50'},
+    {s:'TWSE:0056',n:'元大高股息'},
+    {s:'TWSE:2603',n:'長榮'},
+  ]
+};
+const TICKERS = {
+  us:['NASDAQ:AAPL','NASDAQ:NVDA','NASDAQ:TSLA','NASDAQ:MSFT','NASDAQ:AMZN','NASDAQ:GOOGL','NASDAQ:META','AMEX:SPY','NASDAQ:QQQ','TVC:DXY'],
+  tw:['TWSE:2330','TWSE:2317','TWSE:2454','TWSE:2308','TWSE:2412','TWSE:2881','TWSE:0050','TWSE:0056','TWSE:2603','TWSE:IX0001']
+};
+
+let region = localStorage.getItem('wo_region') || 'us';
+let lists = JSON.parse(localStorage.getItem('wo_lists') || 'null') || structuredClone(DEFAULTS);
+let current = null;
+
+function save(){ localStorage.setItem('wo_lists', JSON.stringify(lists)); localStorage.setItem('wo_region', region); }
+
+/* ---- TradingView 元件載入 ---- */
+function tvWidget(container, type, config){
+  container.innerHTML = '';
+  const wrap = document.createElement('div'); wrap.className='tradingview-widget-container'; wrap.style.height='100%'; wrap.style.width='100%';
+  const inner = document.createElement('div'); inner.className='tradingview-widget-container__widget'; inner.style.height='100%'; inner.style.width='100%';
+  wrap.appendChild(inner);
+  const s = document.createElement('script');
+  s.src = `https://s3.tradingview.com/external-embedding/embed-widget-${type}.js`;
+  s.async = true; s.innerHTML = JSON.stringify(config);
+  wrap.appendChild(s);
+  container.appendChild(wrap);
+}
+
+function loadTicker(){
+  tvWidget(document.getElementById('tickerTape'),'ticker-tape',{
+    symbols: TICKERS[region].map(s=>({proName:s,title:s.split(':')[1]})),
+    showSymbolLogo:true, isTransparent:true, displayMode:'compact', colorTheme:'dark', locale:'zh_TW'
+  });
+}
+
+function loadChart(sym){
+  tvWidget(document.getElementById('chartArea'),'advanced-chart',{
+    symbol:sym, interval:'D', timezone:'Asia/Taipei', theme:'dark', style:'1',
+    locale:'zh_TW', allow_symbol_change:true, hide_side_toolbar:false, withdateranges:true,
+    details:true, studies:['STD;SMA','STD;Volume'], support_host:'https://www.tradingview.com',
+    autosize:true, backgroundColor:'rgba(14,17,22,1)', gridColor:'rgba(38,44,56,0.6)'
+  });
+}
+function loadInfo(sym){
+  tvWidget(document.getElementById('infoPanel'),'symbol-info',{symbol:sym,colorTheme:'dark',isTransparent:true,locale:'zh_TW',width:'100%'});
+}
+function loadTA(sym){
+  tvWidget(document.getElementById('taPanel'),'technical-analysis',{symbol:sym,interval:'1D',colorTheme:'dark',isTransparent:true,locale:'zh_TW',showIntervalTabs:true,displayMode:'single',width:'100%',height:'100%'});
+}
+function loadNews(sym){
+  tvWidget(document.getElementById('newsPanel'),'timeline',{feedMode:'symbol',symbol:sym,colorTheme:'dark',isTransparent:true,locale:'zh_TW',displayMode:'regular',width:'100%',height:'100%'});
+}
+
+function selectSymbol(sym){
+  current = sym;
+  loadChart(sym); loadInfo(sym); loadTA(sym); loadNews(sym);
+  renderWatchlist();
+}
+
+function renderWatchlist(){
+  const el = document.getElementById('watchlist');
+  const arr = lists[region];
+  el.innerHTML = `<div class="wl-group">${region==='us'?'美股 US':'台股 TW'}　關注清單</div>`;
+  arr.forEach((it,i)=>{
+    const row = document.createElement('div');
+    row.className = 'wl-item' + (it.s===current?' active':'');
+    row.innerHTML = `<div class="wl-main"><div class="wl-sym">${it.s.split(':')[1]}</div><div class="wl-name">${it.n||''}</div></div>
+      <button class="wl-del" title="移除">×</button>`;
+    row.querySelector('.wl-main').onclick = ()=>selectSymbol(it.s);
+    row.querySelector('.wl-del').onclick = (e)=>{ e.stopPropagation(); lists[region].splice(i,1); save(); renderWatchlist(); };
+    el.appendChild(row);
+  });
+}
+
+function normalizeSymbol(raw){
+  let t = raw.trim().toUpperCase();
+  if(!t) return null;
+  if(t.includes(':')) return t;            // 已含交易所，如 NASDAQ:AAPL
+  if(region==='tw' || /^[0-9]{4,6}[A-Z]?$/.test(t)) return 'TWSE:'+t;  // 台股代號
+  return 'NASDAQ:'+t;                       // 美股預設掛 NASDAQ（TradingView 會自動校正）
+}
+
+function addSymbol(){
+  const inp = document.getElementById('addInput');
+  const sym = normalizeSymbol(inp.value);
+  if(!sym) return;
+  if(!lists[region].some(x=>x.s===sym)) lists[region].unshift({s:sym,n:''});
+  inp.value=''; save(); renderWatchlist(); selectSymbol(sym);
+}
+
+function setRegion(r){
+  region = r;
+  document.getElementById('btnUS').classList.toggle('active', r==='us');
+  document.getElementById('btnTW').classList.toggle('active', r==='tw');
+  save(); loadTicker(); renderWatchlist();
+  const first = lists[region][0];
+  if(first) selectSymbol(first.s);
+}
+
+/* ---- 啟動 ---- */
+(function init(){
+  document.getElementById('btnUS').classList.toggle('active', region==='us');
+  document.getElementById('btnTW').classList.toggle('active', region==='tw');
+  loadTicker();
+  renderWatchlist();
+  const first = lists[region][0];
+  if(first) selectSymbol(first.s);
+})();
+</script>
+</body>
+</html>
