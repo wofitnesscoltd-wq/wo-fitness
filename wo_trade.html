@@ -349,9 +349,13 @@ const SYSTEM = `你是「窩 Trading 大腦」，一位專攻美股短線的繁�
 3. 你不是投顧、會犯錯，最終決策由使用者負責；提醒「停損是命」，但只講重點。
 4. 盡量用 web 搜尋取得最新數據與新聞並標注時間點。
 5. 教他判斷，不報明牌、不保證獲利。
-6. 【需要精準數據時，叫使用者去 TradingView 取】你用 web 搜尋的數據可能延遲或不夠精準。當更精準的即時數據會明顯影響判斷時（精確價位、量vs均量、指標數值如 RSI/MACD/均線/VWAP、精確支撐壓力、選擇權、盤中型態），不要硬猜——直接請使用者打開他付費的 TradingView 幫你看，並「明確列出要看哪個標的、哪個時間週期、哪幾個數值」，等他貼回來再做更精準的分析與計畫。範例：「👉 請幫我從 TradingView 看 NVDA 日線：現價、今日量vs均量、RSI(14)、20/60日均線位置、最近的支撐與壓力，貼回給我。」`;
+6. 【需要精準數據時，叫使用者去 TradingView 取】你用 web 搜尋的數據可能延遲或不夠精準。當更精準的即時數據會明顯影響判斷時（精確價位、量vs均量、指標數值如 RSI/MACD/均線/VWAP、精確支撐壓力、選擇權、盤中型態），不要硬猜——直接請使用者打開他付費的 TradingView 幫你看，並「明確列出要看哪個標的、哪個時間週期、哪幾個數值」，等他貼回來再做更精準的分析與計畫。範例：「👉 請幫我從 TradingView 看 NVDA 日線：現價、今日量vs均量、RSI(14)、20/60日均線位置、最近的支撐與壓力，貼回給我。」
+7. 【一律標時間】每次分析最上面用一行標【資料截至：YYYY/MM/DD（週X）HH:MM／美股：盤中或盤後或週末休市】；每個數據、新聞都附「絕對日期」（如 6/19 週五收盤），不要只說「現在/最新」，讓使用者清楚參考的是哪個時間點。先用 web 搜尋確認今天日期、星期與美股是否休市。
+8. 【休市就做展望，不要裝盤中】若現在是週末/假日/盤後，不要假裝即時盤中。改成：①最近一個交易日的收盤回顧 ②近 1–2 週的關鍵催化劑（附日期）③據此預測「下一個交易日／下週」最可能的走勢與會輪到的板塊，並說明觸發條件與要盯的數據。只有真的盤中才講即時動能。`;
 
 function todayStr(){ return new Date().toLocaleDateString('zh-TW'); }
+function nowStr(){ const d=new Date(); const wk=['日','一','二','三','四','五','六'][d.getDay()]; return d.toLocaleString('zh-TW',{hour12:false})+`（週${wk}）`; }
+function isWeekend(){ const g=new Date().getDay(); return g===0||g===6; }
 
 async function callClaude(userText, {json=false, maxTokens=3000}={}){
   const key=localStorage.getItem('wo_key');
@@ -359,7 +363,7 @@ async function callClaude(userText, {json=false, maxTokens=3000}={}){
   const model=localStorage.getItem('wo_model')||'claude-opus-4-8';
   const body={
     model, max_tokens:maxTokens,
-    system:SYSTEM+`\n（今天約為 ${todayStr()}，請用搜尋確認最新資訊。）`+(json?'\n本次請「只」輸出我要求的 JSON，不要任何多餘文字。':''),
+    system:SYSTEM+`\n（現在是使用者當地時間 ${nowStr()}。請以此為「現在」，並用 web 搜尋確認美股最新交易日收盤與目前休市/開盤狀態；務必在輸出最上面標一行【資料截至：日期 週X 時間／美股狀態】，每個數據與新聞都附其時間點。${isWeekend()?'今天是週末、美股休市：請做「收盤回顧＋下週展望與預測」，不要假裝盤中即時。':''}）`+(json?'\n本次請「只」輸出我要求的 JSON，不要任何多餘文字（JSON 內含 as_of 欄位放資料截至時間）。':''),
     messages:[{role:'user',content:userText}],
     tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}]
   };
@@ -411,18 +415,21 @@ async function marketTemp(){
   const tp=addTyping();
   try{
     const txt=await callClaude(`${ctx()}
-請執行【市場溫度】掃描：用 web 搜尋現在最新的跨資產數據，依你的流程輸出（Markdown、## 標題、粗體標重點、精簡）：
+請執行【市場溫度】掃描。先用 web 搜尋確認今天日期/星期、美股最新交易日與目前休市或開盤狀態。
+最上面先輸出一行：【資料截至：YYYY/MM/DD（週X）HH:MM ／ 美股：盤中或盤後或週末休市】，後面每個數值都標它的時間點（如 6/19 收盤）。
+若美股休市（週末/假日/盤後），本掃描＝「上一交易日收盤的溫度 ＋ 下週展望」，不要假裝盤中。
+依流程輸出（Markdown、## 標題、粗體、精簡）：
 ## 市場溫度
-逐項給最新數值與方向(標時間)：VIX 與期限結構、MOVE、信用利差、10Y、2Y、殖利率曲線、DXY、油價WTI、銅金比、黃金、USDJPY、比特幣。
+逐項給數值＋方向＋時間：VIX 與期限結構、MOVE、信用利差、10Y、2Y、殖利率曲線、DXY、油價WTI、銅金比、黃金、USDJPY、比特幣。
 ## 市場廣度
 騰落 / %站上50或200日均線 / RSP-SPY，有無背離。
-## 今日結論
-**風險評分：進攻 / 中性 / 防禦**，並給「今天槓桿建議上限」與一句話理由。
+## 結論與下週展望
+**風險評分：進攻 / 中性 / 防禦** ＋「建議槓桿上限」＋一句理由；若休市，加「下一個交易日/下週最可能的走勢與觸發條件」。
 ## 資金輪動 / 強勢板塊（多週期）
-用三個時間框排序11大類股相對SPY：短(5日/20日)、中(1–3月)、長(6–12月)。請標出：
+用三個時間框排序11大類股相對SPY：短(5日/20日)、中(1–3月)、長(6–12月)。標出：
 - 目前「領先」與「正在轉強(改善中)」的板塊(含代表ETF與個股代號)
 - 三個時間框是否對齊(對齊=高勝率)
-- **下一個最可能輪到的板塊**，並說明理由(循環位置＋市場溫度＋intermarket訊號如殖利率/油價/美元＋近期催化劑)`,{maxTokens:4000});
+- **下週最可能輪到的板塊**＋理由(循環位置＋市場溫度＋intermarket如殖利率/油價/美元＋近1–2週催化劑，附日期)`,{maxTokens:4000});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
@@ -433,13 +440,14 @@ async function marketBrief(){
   const tp=addTyping();
   try{
     const txt=await callClaude(`${ctx()}
-延續你的由上而下流程：先用 web 搜尋確認今天的市場溫度與資金輪動，再從「今日強勢/改善中的板塊」裡，挑出 3 個現在最值得短線研究的方向（具體到個股代號）。
-每個方向都要考量：所屬板塊正在轉強、個股相對強度、技術型態、近期催化劑、與大盤同向。
-只輸出 JSON：{"directions":[{"title":"方向/個股（含代號與所屬板塊）","why":"為什麼現在值得看：板塊轉強+催化劑+技術，一句話"}]}`,{json:true,maxTokens:3000});
+延續由上而下流程：先用 web 搜尋確認今天日期/星期、美股最新交易日收盤與休市狀態、以及市場溫度與資金輪動。
+若美股休市（週末/假日），挑的是「下一個交易日/下週」值得佈局的方向（依即時與近1–2週催化劑預測），不是盤中追價。
+從強勢/改善中的板塊挑 3 個最值得短線研究的方向（具體到個股代號），每個考量：板塊轉強、相對強度、技術型態、近期催化劑、與大盤同向。
+只輸出 JSON：{"as_of":"資料截至：日期 週X／美股狀態","directions":[{"title":"方向/個股（含代號與板塊）","why":"為什麼值得看：板塊轉強+催化劑(含日期)+技術，一句話"}]}`,{json:true,maxTokens:3000});
     tp.remove();
-    let dirs=null; try{ const m=txt.match(/\{[\s\S]*\}/); if(m) dirs=JSON.parse(m[0]).directions; }catch(e){}
+    let dirs=null, asOf=''; try{ const m=txt.match(/\{[\s\S]*\}/); if(m){ const o=JSON.parse(m[0]); dirs=o.directions; asOf=o.as_of||''; } }catch(e){}
     if(dirs&&dirs.length){
-      addBubble('🎯 <b>今日強勢板塊裡，這幾個方向值得你研究：</b>','ai');
+      addBubble('🎯 <b>'+(asOf?asOf.replace(/</g,'&lt;')+'<br>':'')+'值得研究的方向：</b>','ai');
       dirs.forEach(d=>{
         hideWelcome();
         const card=document.createElement('div'); card.className='dir-card';
@@ -462,6 +470,7 @@ async function deepResearch(title,why){
   try{
     const txt=await callClaude(`${ctx()}
 請針對這個研究方向做深入研究並用 web 搜尋最新資料：「${title}」（背景：${why||''}）。
+最上面先標一行【資料截至：日期 週X／美股狀態】。若美股休市（週末/假日），進場時點請以「下一個交易日/下週」為準，並說明觸發條件。
 請給出結構化結論，包含：
 1. 為什麼現在有機會（催化劑、籌碼/資金、技術位階，附資訊時間）
 2. 重點觀察的個股（代號）與目前價位
@@ -495,12 +504,12 @@ async function refreshNews(){
   list.innerHTML='<div class="news-empty">抓取最新新聞中…</div>';
   try{
     const txt=await callClaude(`${ctx()}
-用 web 搜尋現在（最近數小時內）跟「${region==='us'?'美股':'台股'}」大盤與我關注清單個股相關的最新即時新聞，挑 8 條最重要的。
-每條請明確標出「這條是對『誰』利多或利空」（個股代號／板塊／大盤），並附上可點開的來源網址。
-只輸出 JSON：{"news":[{"title":"標題","impact":"利多/利空/中性","subject":"對象，如 AMD／半導體／大盤","note":"一句話重點＋對短線的意義","time":"相對時間如 2小時前","url":"來源連結"}]}`,{json:true,maxTokens:2500});
-    let news=null; try{ const m=txt.match(/\{[\s\S]*\}/); if(m) news=JSON.parse(m[0]).news; }catch(e){}
+先用 web 搜尋確認今天日期/星期。找跟「${region==='us'?'美股':'台股'}」大盤與我關注清單個股相關、近 1–3 天的最新重要新聞，挑 8 條。
+每條標出「對『誰』利多或利空」（個股代號／板塊／大盤），附可點開的來源網址，並用「絕對日期」標時間（如 6/19 週五 盤後）。
+只輸出 JSON：{"as_of":"資料截至：日期 週X","news":[{"title":"標題","impact":"利多/利空/中性","subject":"對象，如 AMD／半導體／大盤","note":"一句話重點＋對短線的意義","time":"絕對日期如 6/19 週五","url":"來源連結"}]}`,{json:true,maxTokens:2500});
+    let news=null, asOf=''; try{ const m=txt.match(/\{[\s\S]*\}/); if(m){ const o=JSON.parse(m[0]); news=o.news; asOf=o.as_of||''; } }catch(e){}
     if(news&&news.length){
-      list.innerHTML='';
+      list.innerHTML = asOf?`<div style="font-size:11px;color:var(--muted);padding:2px 4px 6px">${asOf.replace(/</g,'&lt;')}</div>`:'';
       news.forEach(n=>{
         const cls=n.impact&&n.impact.includes('多')?'up':n.impact&&n.impact.includes('空')?'down':'mid';
         const d=document.createElement('div'); d.className='news-item';
