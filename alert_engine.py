@@ -27,6 +27,7 @@ except Exception:                       # pragma: no cover
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(HERE, "wo_alerts.db")
 WATCH_PATH = os.path.join(HERE, "wo_watch.json")
+HOLDINGS_PATH = os.path.join(HERE, "wo_holdings.json")
 
 
 # ====================================================================
@@ -568,6 +569,19 @@ class AlertEngine:
         json.dump({"codes": codes, "updated": datetime.now().isoformat()},
                   open(WATCH_PATH, "w", encoding="utf-8"), ensure_ascii=False)
 
+    # ---- 手動持股（你真正的部位在國泰/永豐/加密所，不在牛牛）----
+    @staticmethod
+    def load_holdings():
+        try:
+            return json.load(open(HOLDINGS_PATH, encoding="utf-8")).get("holdings", [])
+        except Exception:
+            return []
+
+    @staticmethod
+    def save_holdings(holdings):
+        json.dump({"holdings": holdings, "updated": datetime.now().isoformat()},
+                  open(HOLDINGS_PATH, "w", encoding="utf-8"), ensure_ascii=False)
+
     def status(self):
         return dict(self._last_status)
 
@@ -727,10 +741,11 @@ class AlertEngine:
     def _risk_halt(self, positions, account, session):
         """單日虧損熔斷：未實現損益 / 總資產 跌破門檻 → 本日暫停買訊（賣訊照發）。"""
         limit = float(self.cfg.get("daily_loss", 0.06))
-        if not account or not account.get("total_assets"):
+        base = (account or {}).get("total_assets") or self.cfg.get("account_size")
+        if not base:
             return False
         pl = sum((p.get("pl_val") or 0) for p in positions)
-        dd = pl / account["total_assets"]
+        dd = pl / base
         if dd <= -abs(limit):
             if self._halt_session != session:    # 一日一次警示
                 self._halt_session = session
@@ -756,20 +771,24 @@ class AlertEngine:
         regime, spy_ret = self._regime()
         ctx = {"regime": regime, "spy_ret": spy_ret}
 
-        # 持股：每輪都掃（賣點最重要）
+        # 持股：每輪都掃（賣點最重要）。你真正的部位＝手動輸入（國泰/永豐/加密），
+        # 牛牛只是數據源；若牛牛剛好也有部位就一併納入。
         positions, account = [], None
         try:
             positions = self.get_positions() or []
         except Exception:
             positions = []
+        have = {p.get("code") for p in positions}
+        for h in self.load_holdings():
+            code = h.get("code")
+            if code and code not in have:
+                positions.append({"code": code, "name": h.get("name"), "qty": h.get("qty"),
+                                  "cost": h.get("cost"), "manual": True})
         try:
             account = self.cfg.get("get_account") and self.cfg["get_account"]()
         except Exception:
             account = None
         pos_codes = [p.get("code") for p in positions if p.get("code")]
-
-        # 風控：單日虧損熔斷
-        halt_buys = self._risk_halt(positions, account, session)
         # risk-off 自動拉高買訊門檻
         buy_min = min_grade
         if regime == "risk_off" and order.get(min_grade, 1) < order["B"]:
@@ -791,6 +810,17 @@ class AlertEngine:
                 snap_map[r.get("code")] = r
         except Exception:
             pass
+
+        # 手動持股用即時報價補上損益（給賣訊備註與熔斷計算）
+        for p in positions:
+            last = snap_map.get(p.get("code"), {}).get("last")
+            if last and p.get("cost"):
+                p["pl_ratio"] = round((last / p["cost"] - 1) * 100, 2)
+                if p.get("qty"):
+                    p["pl_val"] = (last - p["cost"]) * p["qty"]
+
+        # 風控：單日虧損熔斷（依真實持股的未實現損益）
+        halt_buys = self._risk_halt(positions, account, session)
 
         pushed_cnt = 0
         if not halt_buys:                       # 熔斷時不發買訊

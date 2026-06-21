@@ -276,6 +276,21 @@ class Handler(BaseHTTPRequestHandler):
                 if alert_engine and codes:
                     alert_engine.AlertEngine.save_watch(codes)
                 self._json({"ok": True, "count": len(codes)})
+            elif path == "/setholdings":
+                # 格式 h=US.NVDA:10:200.5,US.AMD:5:120（code:股數:成本）
+                items = []
+                for part in q.get("h", [""])[0].split(","):
+                    bits = part.split(":")
+                    if len(bits) >= 3 and bits[0]:
+                        try:
+                            items.append({"code": bits[0], "qty": float(bits[1]), "cost": float(bits[2])})
+                        except ValueError:
+                            pass
+                if alert_engine:
+                    alert_engine.AlertEngine.save_holdings(items)
+                self._json({"ok": True, "count": len(items)})
+            elif path == "/holdings":
+                self._json({"holdings": alert_engine.AlertEngine.load_holdings() if alert_engine else []})
             elif path == "/alerts":
                 if not ENGINE:
                     self._json({"alerts": [], "engine": "off"})
@@ -338,6 +353,7 @@ def start_engine():
         "batch": ARGS.batch, "phases": [s.strip() for s in ARGS.phases.split(",") if s.strip()],
         "anthropic_key": ai_key, "ai_model": ARGS.ai_model,
         "get_account": _provider_account, "daily_loss": ARGS.daily_loss,
+        "account_size": ARGS.account_size or fc.get("account_size"),
     }
     ENGINE = alert_engine.AlertEngine(_provider_kline, _provider_snapshot, _provider_positions, cfg)
     ENGINE.start()
@@ -366,6 +382,7 @@ def main():
     p.add_argument("--anthropic-key", default=None, help="Claude 金鑰，開啟每則訊號 AI 複核（或設環境變數 ANTHROPIC_API_KEY）")
     p.add_argument("--ai-model", default="claude-haiku-4-5-20251001", help="AI 複核用模型")
     p.add_argument("--daily-loss", type=float, default=0.06, help="單日虧損熔斷門檻（0.06=未實現-6%暫停買訊）")
+    p.add_argument("--account-size", type=float, default=None, help="帳戶總額(USD)，給熔斷算百分比用（你部位在國泰/永豐/加密所時填）")
     ARGS = p.parse_args()
     TOKEN = load_token()
 
