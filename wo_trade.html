@@ -721,6 +721,16 @@ function rsiDivergence(bars,rsi,times,w=5){
     if(pl(i)){ const div=ll!=null&&c[i]<c[ll]&&rsi[i]>rsi[ll];   // 每個擺動低點標「底」，出現底背離升級「底背離」
       marks.push({time:times[i],position:'belowBar',color:div?'#16C784':'rgba(22,199,132,.75)',shape:'arrowUp',text:div?'底背離':'底'}); ll=i; }
   }
+  // 即時(未確認)背離：拿「現在這根」跟最近一個已確認的擺動高/低比 RSI＋MACD柱，不必等 5 根確認
+  const mh=macdArr(c).hist, cur=n-1, lb=Math.max(0,cur-w);
+  if(rsi[cur]!=null){
+    const lowNow = c[cur]<=Math.min(...c.slice(lb,cur+1));
+    const highNow= c[cur]>=Math.max(...c.slice(lb,cur+1));
+    if(ll!=null && lowNow && c[cur]<c[ll] && rsi[cur]>rsi[ll] && mh[cur]>mh[ll])
+      marks.push({time:times[cur],position:'belowBar',color:'#7BE0B0',shape:'circle',text:'底背離?'});
+    if(lh!=null && highNow && c[cur]>c[lh] && rsi[cur]<rsi[lh] && mh[cur]<mh[lh])
+      marks.push({time:times[cur],position:'aboveBar',color:'#F2A0A8',shape:'circle',text:'頂背離?'});
+  }
   return marks;
 }
 function barTime(tk,intraday){ if(!tk)return 0; if(!intraday)return tk.slice(0,10); const m=tk.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m?Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5])/1000:Math.floor(Date.parse(tk)/1000); }
