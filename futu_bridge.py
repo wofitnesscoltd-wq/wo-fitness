@@ -44,6 +44,18 @@ HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wo_trade.h
 RAW_URL = "https://raw.githubusercontent.com/wofitnesscoltd-wq/wo-fitness/main/wo_trade.html"
 
 
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".alert_config.json")
+
+
+def load_alert_config():
+    """讀一次性設定檔（Telegram / Claude 金鑰），讓使用者不必每次打指令重貼。"""
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
 def fetch_latest_html():
     """Pull the latest app HTML from GitHub so the user never re-downloads it."""
     try:
@@ -314,11 +326,12 @@ def start_engine():
     if alert_engine is None:
         print("  警示引擎: 找不到 alert_engine.py，略過。")
         return
-    token = ARGS.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat = ARGS.telegram_chat or os.environ.get("TELEGRAM_CHAT_ID")
+    fc = load_alert_config()
+    token = ARGS.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN") or fc.get("telegram_token")
+    chat = ARGS.telegram_chat or os.environ.get("TELEGRAM_CHAT_ID") or fc.get("telegram_chat")
     if not (ARGS.alerts or token):
         return
-    ai_key = ARGS.anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
+    ai_key = ARGS.anthropic_key or os.environ.get("ANTHROPIC_API_KEY") or fc.get("anthropic_key")
     cfg = {
         "telegram_token": token, "telegram_chat": chat,
         "scan_sec": ARGS.scan_sec, "min_grade": ARGS.min_grade,
