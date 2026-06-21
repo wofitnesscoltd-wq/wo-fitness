@@ -39,15 +39,17 @@ header .spacer{margin-left:auto;}
 .pos-acct{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap;}
 .pos-acct b{color:var(--text);}
 .pos-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px;}
-.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;cursor:pointer;overflow:hidden;}
+.pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;cursor:pointer;overflow:hidden;min-width:0;}
 .pos-item:hover{border-color:var(--orange);}
-.pos-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;}
-.pinfo{min-width:0;flex:1;}
-.pos-item .pc{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
-.pos-item .pn{font-size:11.5px;color:var(--muted);margin-top:4px;}
-.pos-item .pr{font-size:14px;font-weight:700;text-align:right;white-space:nowrap;}
-.pos-item .pr .psub{font-size:10px;color:var(--muted);font-weight:400;margin-top:2px;}
-.pcaret{color:var(--muted-2);font-size:11px;flex:0 0 auto;transition:transform .2s;}
+.pos-item.expanded{grid-column:1 / -1;border-color:var(--orange);}
+.pos-head{padding:9px 11px;}
+.phl{display:flex;justify-content:space-between;align-items:baseline;gap:5px;}
+.pos-item .pc{font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pos-item .pr{font-size:13px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:3px;flex:0 0 auto;}
+.pos-item .pn{font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.45;}
+.plim{font-size:10.5px;margin-top:3px;}
+.pcaret{color:var(--muted-2);font-size:10px;transition:transform .2s;}
 .pos-item.expanded .pcaret{transform:rotate(180deg);}
 .pos-detail{display:none;padding:2px 12px 11px;}
 .pos-item.expanded .pos-detail{display:block;}
@@ -1832,22 +1834,18 @@ function renderPositions(){
     card.innerHTML=head+body;
     list.appendChild(card);
   }
+  const grid=document.createElement('div'); grid.className='pos-grid'; list.appendChild(grid);
   cryptoHoldings.forEach(h=>{
     const px=cryptoQuotes[h.s];
     const pnlPct=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
-    const pnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
     const id='c|'+h.s+'|'+h.side; const exp=expandedPos.has(id);
     const sideTxt=h.side==='short'?'空':'多', sideCol=h.side==='short'?'var(--red)':'var(--green)';
     const margin=Math.round(h.m||(h.q*h.e/(h.l||1)));
-    const lim=(h.tp||h.sl)?` ‧ ${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}`:'';
+    const lim=(h.tp||h.sl)?`<div class="plim">${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}</div>`:'';
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
-        <div class="pinfo">
-          <div class="pc">${h.s.replace('USDT','')} <span style="font-size:10px;color:${sideCol}">${h.l}x${sideTxt}</span></div>
-          <div class="pn">進場 ${h.e} ‧ 保證金 $${margin}${lim}</div>
-        </div>
-        <div class="pr">${pnlPct==null?'—':fmtPct(pnlPct.toFixed(1))}<div class="psub">${px?('現價 '+px+(pnlU!=null?' ‧ '+(pnlU>=0?'+':'')+'$'+Math.round(pnlU):'')):'未連線'}</div></div>
-        <span class="pcaret">▾</span>
+        <div class="phl"><span class="pc">${h.s.replace('USDT','')} <span style="font-size:10px;color:${sideCol}">${h.l}x${sideTxt}</span></span><span class="pr">${pnlPct==null?'—':fmtPct(pnlPct.toFixed(1))}<span class="pcaret">▾</span></span></div>
+        <div class="pn">進場 ${h.e} ‧ 保證金 $${margin}${px?' ‧ 現價 '+px:'<span style="color:var(--muted-2)"> ‧ 未連線</span>'}</div>${lim}
       </div>
       <div class="pos-detail">
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
@@ -1860,21 +1858,17 @@ function renderPositions(){
     d.querySelector('.tpsl-save').onclick=()=>setTPSL('crypto',h.s,h.side,det.querySelector('.tp').value,det.querySelector('.sl').value);
     d.querySelector('.pclose').onclick=()=>openCloseDialog('crypto',h.s,h.side);
     d.querySelector('.pdel').onclick=()=>delCryptoHolding(h.s,h.side);
-    list.appendChild(d);
+    grid.appendChild(d);
   });
   holdings.forEach(h=>{
     const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
-    const pl=px?((px/h.c-1)*100):null; const plU=px?(px-h.c)*h.q:null;
+    const pl=px?((px/h.c-1)*100):null;
     const id='s|'+h.s; const exp=expandedPos.has(id);
-    const lim=(h.tp||h.sl)?` ‧ ${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}`:'';
+    const lim=(h.tp||h.sl)?`<div class="plim">${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}</div>`:'';
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
-        <div class="pinfo">
-          <div class="pc">${tkr(h.s)} <span style="font-size:10px;color:var(--muted)">現股</span></div>
-          <div class="pn">成本 ${h.c} ‧ ${h.q} 股${lim}</div>
-        </div>
-        <div class="pr">${pl==null?'—':fmtPct(pl.toFixed(1))}<div class="psub">${px?('現價 '+px+(plU!=null?' ‧ '+(plU>=0?'+':'')+'$'+Math.round(plU):'')):'未連線'}</div></div>
-        <span class="pcaret">▾</span>
+        <div class="phl"><span class="pc">${tkr(h.s)} <span style="font-size:10px;color:var(--muted)">現股</span></span><span class="pr">${pl==null?'—':fmtPct(pl.toFixed(1))}<span class="pcaret">▾</span></span></div>
+        <div class="pn">成本 ${h.c} ‧ ${h.q}股${px?' ‧ 現價 '+px:''}</div>${lim}
       </div>
       <div class="pos-detail">
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
@@ -1887,13 +1881,13 @@ function renderPositions(){
     d.querySelector('.pchart').onclick=()=>selectSymbol(tkr(h.s),'');
     d.querySelector('.pclose').onclick=()=>openCloseDialog('stock',h.s);
     d.querySelector('.pdel').onclick=()=>delHolding(h.s);
-    list.appendChild(d);
+    grid.appendChild(d);
   });
   fpos.forEach(p=>{
     const d=document.createElement('div'); d.className='pos-item';
-    d.innerHTML=`<div class="pos-head"><div class="pc">${(p.code||'').replace('US.','')} <span style="font-size:10px;color:var(--muted)">牛牛</span></div><div class="pr">${p.price??''}　${fmtPct(p.pl_ratio)}</div></div>`;
+    d.innerHTML=`<div class="pos-head"><div class="phl"><span class="pc">${(p.code||'').replace('US.','')} <span style="font-size:10px;color:var(--muted)">牛牛</span></span><span class="pr">${fmtPct(p.pl_ratio)}</span></div><div class="pn">${p.qty}股 ‧ 成本 ${p.cost} ‧ 現價 ${p.price??'—'}</div></div>`;
     d.querySelector('.pos-head').onclick=()=>selectSymbol((p.code||'').replace('US.',''), p.name||'');
-    list.appendChild(d);
+    grid.appendChild(d);
   });
 }
 function tpslChip(h){ return (h.tp||h.sl)?`<span class="tpslchip">${h.tp?'🎯'+h.tp:''}${h.sl?(h.tp?' ':'')+'🛑'+h.sl:''}</span>`:''; }
