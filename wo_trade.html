@@ -45,6 +45,10 @@ header .spacer{margin-left:auto;}
 .hold-add button{background:var(--orange);border:none;border-radius:6px;color:#fff;width:30px;font-size:16px;cursor:pointer;flex-shrink:0;}
 .pos-item .pdel{opacity:.5;color:var(--muted);font-size:14px;background:none;border:none;cursor:pointer;margin-left:6px;}
 .pos-item .pdel:hover{opacity:1;color:var(--red);}
+#holdType button{border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:11.5px;padding:4px 12px;cursor:pointer;}
+#holdType button.on{background:var(--orange);color:#fff;}
+.pos-item.liqwarn{border-left:3px solid var(--red);}
+.pos-item .liqd{font-size:10.5px;color:var(--muted);}
 .up{color:var(--green);}.down{color:var(--red);}
 .layout{display:flex;height:calc(100vh - 52px);}
 /* sidebar */
@@ -265,11 +269,19 @@ header .spacer{margin-left:auto;}
         <div class="news-list" id="alertList" style="display:none">
           <div class="news-empty">警示引擎（買賣點自動掃描）需在本機跑 <b>futu_bridge.py --alerts</b>。<br>開盤期間它會掃自選清單找買點、掃持股找賣點，A/B/C 評分＋佐證，並推 Telegram。這裡顯示最近的訊號與追蹤結果。</div>
         </div>
-        <div class="hold-add" id="holdBox" style="display:none">
-          <input id="hSym" placeholder="代號 NVDA" onkeydown="if(event.key==='Enter')addHolding()">
-          <input id="hQty" type="number" placeholder="股數" onkeydown="if(event.key==='Enter')addHolding()">
-          <input id="hCost" type="number" step="0.01" placeholder="成本" onkeydown="if(event.key==='Enter')addHolding()">
-          <button onclick="addHolding()" title="加入持股">＋</button>
+        <div id="holdBox" style="display:none">
+          <div class="seg" id="holdType" style="display:flex;margin:8px 8px 0;width:fit-content;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;overflow:hidden">
+            <button data-ht="stock" class="on" onclick="setHoldType('stock')">股票</button>
+            <button data-ht="crypto" onclick="setHoldType('crypto')">加密永續</button>
+          </div>
+          <div class="hold-add">
+            <input id="hSym" placeholder="代號 NVDA" onkeydown="if(event.key==='Enter')addHolding()">
+            <input id="hQty" type="number" placeholder="股數" onkeydown="if(event.key==='Enter')addHolding()">
+            <input id="hCost" type="number" step="0.01" placeholder="成本" onkeydown="if(event.key==='Enter')addHolding()">
+            <input id="hLev" type="number" step="1" placeholder="槓桿" style="display:none" onkeydown="if(event.key==='Enter')addHolding()">
+            <select id="hSide" style="display:none;flex:1"><option value="long">多</option><option value="short">空</option></select>
+            <button onclick="addHolding()" title="加入持股">＋</button>
+          </div>
         </div>
         <div class="pos-acct" id="posAcct" style="display:none"></div>
         <div class="pos-list" id="posList" style="display:none">
@@ -974,7 +986,7 @@ async function pollFutu(){
   try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
   try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
   try{ const wc=lists['us'].map(x=>futuCode(x.s)).filter(Boolean); if(wc.length) futuFetch('/setwatch?codes='+encodeURIComponent(wc.join(','))); }catch(e){}
-  pushHoldings();
+  pushHoldings(); pushCryptoHoldings(); await pollCrypto();
   renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(futu.tab==='alert') renderAlerts();
   if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
@@ -992,9 +1004,16 @@ function addHolding(){
   const s=(document.getElementById('hSym').value||'').trim().toUpperCase();
   const q=parseFloat(document.getElementById('hQty').value), c=parseFloat(document.getElementById('hCost').value);
   if(!s||!(q>0)||!(c>0)){ return; }
-  holdings = holdings.filter(h=>h.s!==s); holdings.push({s,q,c});
-  document.getElementById('hSym').value=''; document.getElementById('hQty').value=''; document.getElementById('hCost').value='';
-  saveHoldings(); renderPositions();
+  if(holdType==='crypto'){
+    const l=parseFloat(document.getElementById('hLev').value)||1, side=document.getElementById('hSide').value;
+    cryptoHoldings = cryptoHoldings.filter(h=>h.s!==s); cryptoHoldings.push({s,q,e:c,l,side});
+    saveCryptoHoldings();
+  } else {
+    holdings = holdings.filter(h=>h.s!==s); holdings.push({s,q,c});
+    saveHoldings();
+  }
+  document.getElementById('hSym').value=''; document.getElementById('hQty').value=''; document.getElementById('hCost').value=''; document.getElementById('hLev').value='';
+  renderPositions();
 }
 function delHolding(s){ holdings=holdings.filter(h=>h.s!==s); saveHoldings(); renderPositions(); }
 function pushHoldings(){
@@ -1002,20 +1021,71 @@ function pushHoldings(){
   const h=holdings.map(x=>'US.'+tkr(x.s)+':'+x.q+':'+x.c).join(',');
   try{ futuFetch('/setholdings?h='+encodeURIComponent(h)); }catch(e){}
 }
+/* 加密永續持股（你在幣安/Bitget 的部位） */
+let cryptoHoldings = JSON.parse(localStorage.getItem('wo_crypto_holdings')||'[]');
+let cryptoQuotes = {};
+let holdType = 'stock';
+function setHoldType(t){
+  holdType=t;
+  document.querySelectorAll('#holdType button').forEach(b=>b.classList.toggle('on',b.dataset.ht===t));
+  const cr=t==='crypto';
+  document.getElementById('hLev').style.display=cr?'block':'none';
+  document.getElementById('hSide').style.display=cr?'block':'none';
+  document.getElementById('hSym').placeholder=cr?'幣種 BTCUSDT':'代號 NVDA';
+  document.getElementById('hQty').placeholder=cr?'倉位大小':'股數';
+  document.getElementById('hCost').placeholder=cr?'進場價':'成本';
+}
+function liqPrice(entry,lev,side){ if(!(entry>0)||!(lev>0))return null; const mmr=0.005; return side==='short'? entry*(1+1/lev-mmr) : entry*(1-1/lev+mmr); }
+function saveCryptoHoldings(){ localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings)); pushCryptoHoldings(); }
+function pushCryptoHoldings(){
+  if(!futu.connected) return;
+  const h=cryptoHoldings.map(x=>`${x.s}:${x.q}:${x.e}:${x.l}:${x.side}`).join(',');
+  try{ futuFetch('/setcryptoholdings?h='+encodeURIComponent(h)); }catch(e){}
+}
+async function pollCrypto(){
+  if(!cryptoHoldings.length) return;
+  try{ const r=await futuFetch('/cryptoquote?syms='+encodeURIComponent(cryptoHoldings.map(x=>x.s).join(','))); cryptoQuotes=r.quotes||{}; }catch(e){}
+}
+function delCryptoHolding(s){ cryptoHoldings=cryptoHoldings.filter(h=>h.s!==s); saveCryptoHoldings(); renderPositions(); }
 function holdingsLiveStr(){
-  if(!holdings.length) return '';
-  return '\n我的實際持股（國泰/永豐/加密；牛牛只是數據源）：'+holdings.map(h=>{
-    const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
-    const pl=px?((px/h.c-1)*100).toFixed(1)+'%':'—';
-    return `${tkr(h.s)} ${h.q}股 成本${h.c}${px?(' 現價'+px+' 損益'+pl):''}`;
-  }).join('、')+'。請據此給賣點/減碼/移動停利建議。';
+  let out='';
+  if(holdings.length){
+    out+='\n我的美股現股持股（國泰/永豐複委託；牛牛只是數據源）：'+holdings.map(h=>{
+      const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
+      const pl=px?((px/h.c-1)*100).toFixed(1)+'%':'—';
+      return `${tkr(h.s)} ${h.q}股 成本${h.c}${px?(' 現價'+px+' 損益'+pl):''}`;
+    }).join('、')+'。';
+  }
+  if(cryptoHoldings.length){
+    out+='\n我的加密永續部位（幣安/Bitget）：'+cryptoHoldings.map(h=>{
+      const px=cryptoQuotes[h.s], lp=liqPrice(h.e,h.l,h.side);
+      const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100).toFixed(1)+'%':'—';
+      return `${h.s} ${h.l}x ${h.side==='short'?'空':'多'} 進場${h.e}${px?(' 現價'+px):''} 距爆倉${dist}`;
+    }).join('、')+'。';
+  }
+  if(out) out+='請據此給賣點/減碼/移動停利/降槓桿建議。';
+  return out;
 }
 function renderPositions(){
   const acct=document.getElementById('posAcct'), list=document.getElementById('posList');
   if(futu.account){ acct.innerHTML=`總資產 <b>${futu.account.total_assets??'—'}</b>　現金 <b>${futu.account.cash??'—'}</b>　購買力 <b>${futu.account.power??'—'}</b>`; if(futu.tab==='pos') acct.style.display='flex'; }
   const fpos=futu.positions||[];
-  if(!holdings.length && !fpos.length){ list.innerHTML='<div class="news-empty">輸入你<b>實際的持股</b>（國泰／永豐／加密都行），上面打代號、股數、成本按＋。<br>引擎會用即時報價盯這些部位，到賣點就通知你。</div>'; return; }
+  if(!holdings.length && !cryptoHoldings.length && !fpos.length){ list.innerHTML='<div class="news-empty">輸入你<b>實際的持股</b>（國泰／永豐／加密都行）：上面切「股票／加密永續」，打代號、數量、成本按＋。<br>引擎會用即時報價盯這些部位，到賣點／爆倉距離就通知你。</div>'; return; }
   list.innerHTML='';
+  cryptoHoldings.forEach(h=>{
+    const px=cryptoQuotes[h.s]; const lp=liqPrice(h.e,h.l,h.side);
+    const pnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
+    const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100):null;
+    const warn=dist!=null&&dist<15;
+    const d=document.createElement('div'); d.className='pos-item'+(warn?' liqwarn':'');
+    d.innerHTML=`<div><div class="pc">${h.s} <span style="font-size:10px;color:var(--muted)">${h.l}x ${h.side==='short'?'空':'多'}</span></div>
+      <div class="pn">${h.q}・進場 ${h.e}</div>
+      <div class="liqd">爆倉≈${lp?lp.toFixed(2):'—'}　距離 ${dist!=null?dist.toFixed(1)+'%':'—'}${warn?' ⚠️':''}</div></div>
+      <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
+      <button class="pdel" title="移除">×</button></div>`;
+    d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delCryptoHolding(h.s); };
+    list.appendChild(d);
+  });
   holdings.forEach(h=>{
     const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
     const pl=px?((px/h.c-1)*100):null;

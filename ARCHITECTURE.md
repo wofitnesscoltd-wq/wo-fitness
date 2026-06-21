@@ -183,7 +183,7 @@ L9 可靠性層    心跳監控 · 斷線/當機自我警示 · 資料健檢
 - **Phase 2 警示引擎**：特徵引擎(RSI/MACD/EMA/VWAP/ATR/RVOL/ORB) ✅、訊號庫(買5型/賣5型)＋A/B/C評分 ✅、Telegram推播 ✅、SQLite point-in-time日誌＋結果追蹤(MFE/MAE/命中) ✅、App警示欄 ✅、常駐服務(`alert_engine.py`，網頁關著也掃) ✅、自選同步(`/setwatch`) ✅、**AI 複核(L4)每則訊號過 Claude、fail-open** ✅、**多流派加權集成(§2B，權重存 wo_weights.json)** ✅、**多週期匯流(5m+15m)** ✅、**SPY regime 閘門(risk_on/off)** ✅、**相對強度乘數** ✅
 - **Phase 3 結果與紀律**：結果追蹤(MFE/MAE/命中) ✅、單日虧損熔斷＋risk-off 自動升門檻 ✅、**績效儀表板(勝率/期望值/獲利因子/分等級)** ✅；**待辦**：組合熱度/相關性/集中度
 - **Phase 4 驗證**：**日線回測(`backtest.py`)** ✅、**盤中回測(`backtest_intraday.py`：重用上線引擎 eval_buy/VWAP/ORB/RSI/MACD + 5m/15m + regime，Polygon 多年或富途近年)** ✅；**待辦**：前向紙測（上線即累積，黃金標準）
-- **加密永續監測**（`crypto.py`：幣安/Bitget 公開行情、24h、重用同套訊號引擎、BTC 當 regime、資金費率解讀、共用 Telegram/DB）✅；**待辦**：爆倉距離（需槓桿/部位）、加密持股輸入 UI
+- **加密永續監測**（`crypto.py`：幣安/Bitget 公開行情、24h、重用同套訊號引擎、BTC 當 regime、資金費率解讀、共用 Telegram/DB）✅、**加密持股輸入(網頁 💼 切加密)＋盯賣點＋爆倉距離預警** ✅
 - **Phase 5 進化**：統計歸因 ✅、**走動式權重學習(各流派依實際期望值再加權)** ✅、**收盤每日 AI 報告(教練式檢討推 Telegram)** ✅；**待辦**：冠軍/挑戰者影子驗證
 
 ---
