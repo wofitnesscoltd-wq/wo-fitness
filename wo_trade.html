@@ -1581,7 +1581,8 @@ async function pollCrypto(){
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
 function toggleCryptoSum(){ localStorage.setItem('wo_sumexp', localStorage.getItem('wo_sumexp')==='1'?'0':'1'); renderPositions(); }
 function getCMargin(){ return parseFloat(localStorage.getItem('wo_cmargin'))||0; }
-function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); pushCMargin(); renderPositions(); }
+function forceRenderPositions(){ renderPositions._force=true; try{ renderPositions(); } finally{ renderPositions._force=false; } }
+function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); pushCMargin(); forceRenderPositions(); }
 function pushCMargin(){ if(!futu.connected||!bridgeSynced) return; try{ futuFetch('/setcmargin?v='+(getCMargin()||0)); }catch(e){} }
 function cryptoSummary(){
   let gross=0,net=0,upnl=0,used=0,priced=0;
@@ -1816,6 +1817,9 @@ function renderJournalCard(list){
 }
 function renderPositions(){
   const acct=document.getElementById('posAcct'), list=document.getElementById('posList');
+  // 使用者正在輸入(止盈/止損/部分平倉/可用保證金)時，別重建 DOM，否則會把還沒送出的數字清掉
+  const ae=document.activeElement;
+  if(!renderPositions._force && list && ae && ae.tagName==='INPUT' && list.contains(ae)) return;
   if(futu.account){ acct.innerHTML=`總資產 <b>${futu.account.total_assets??'—'}</b>　現金 <b>${futu.account.cash??'—'}</b>　購買力 <b>${futu.account.power??'—'}</b>`; if(futu.tab==='pos') acct.style.display='flex'; }
   const fpos=futu.positions||[];
   list.innerHTML='';
