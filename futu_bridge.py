@@ -285,7 +285,9 @@ class Handler(BaseHTTPRequestHandler):
             if html is None:
                 self._json({"error": "無法載入 wo_trade.html（沒網路且本機也沒有副本）"}, 502)
                 return
-            inject = '<script>window.__WO_FUTU_TOKEN__=%s;window.__WO_FUTU_URL__="http://127.0.0.1:%d";</script>' % (json.dumps(TOKEN), ARGS.port)
+            # 用「這次請求進來的 Host」當回呼網址：本機開＝127.0.0.1；手機同 WiFi 開＝你的內網IP，都能連回橋接
+            host_hdr = self.headers.get("Host") or ("127.0.0.1:%d" % ARGS.port)
+            inject = '<script>window.__WO_FUTU_TOKEN__=%s;window.__WO_FUTU_URL__="http://%s";</script>' % (json.dumps(TOKEN), host_hdr)
             html = html.replace("</head>", inject + "</head>", 1)
             body = html.encode("utf-8")
             self.send_response(200)
@@ -503,6 +505,7 @@ def main():
     global ARGS, TOKEN
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1", help="橋接監聽位址（預設只綁本機）")
+    p.add_argument("--lan", action="store_true", help="開放區域網路（手機同 WiFi 可連）；等同 --host 0.0.0.0")
     p.add_argument("--port", type=int, default=8888)
     p.add_argument("--futu-host", default="127.0.0.1", help="FutuOpenD 位址")
     p.add_argument("--futu-port", type=int, default=11111, help="FutuOpenD 連接埠")
@@ -526,18 +529,35 @@ def main():
     p.add_argument("--crypto-source", default="binance", choices=["binance", "bitget"], help="加密行情來源")
     p.add_argument("--crypto-symbols", default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT", help="監測幣種，逗號分隔")
     ARGS = p.parse_args()
+    if ARGS.lan:
+        ARGS.host = "0.0.0.0"
     TOKEN = load_token()
+
+    def _lan_ip():
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]
+        except Exception:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+        return ip
 
     print("=" * 56)
     print(" 窩 Trading 大腦 — 富途數據橋接（只讀）")
     print("=" * 56)
-    print(f"  本機網址 : http://{ARGS.host}:{ARGS.port}")
+    print(f"  本機網址 : http://127.0.0.1:{ARGS.port}")
+    if ARGS.host == "0.0.0.0":
+        print(f"  📱 手機開 : http://{_lan_ip()}:{ARGS.port}　（手機與電腦要同一個 WiFi）")
+    else:
+        print("  📱 手機看即時數據：加參數 --lan 重啟，會印出手機用的網址（需同 WiFi）")
     print(f"  Token    : {TOKEN}")
     print("  → 用瀏覽器開上面網址，或在 GitHub Pages 版的 ⚙ 設定貼入網址與 Token")
     print(f"  FutuOpenD: {ARGS.futu_host}:{ARGS.futu_port}（請確認已啟動並登入）")
     start_engine()
     start_crypto()
-    print("  Ctrl+C 結束。只讀、不下單、僅綁定本機。")
+    print("  Ctrl+C 結束。只讀、不下單。" + ("⚠️ 已開放區網(--lan)，端點有 Token 保護；請在自家 WiFi 用。" if ARGS.host == "0.0.0.0" else "僅綁定本機。"))
     print("=" * 56)
 
     srv = ThreadingHTTPServer((ARGS.host, ARGS.port), Handler)
