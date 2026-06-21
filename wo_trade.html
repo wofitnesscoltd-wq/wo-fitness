@@ -667,7 +667,16 @@ let chartSrc = localStorage.getItem('wo_chart_src') || 'auto';   // auto|self|tv
 let selfIv   = localStorage.getItem('wo_chart_iv')  || '5m';
 function isIntraday(iv){ return ['1m','5m','15m','30m','60m'].includes(iv); }
 function aggBars(bars,n){ const out=[]; for(let i=0;i<bars.length;i+=n){ const g=bars.slice(i,i+n); if(!g.length)continue; out.push({time:g[g.length-1].time,open:g[0].open,high:Math.max(...g.map(b=>b.high)),low:Math.min(...g.map(b=>b.low)),close:g[g.length-1].close,volume:g.reduce((a,b)=>a+(b.volume||0),0)}); } return out; }
-async function fetchSelfBars(code,iv){
+/* 加密永續：把使用者輸入對應到幣安/Bitget 的 USDT 永續代號（BTC/比特幣→BTCUSDT；本來就 *USDT 的直接用） */
+const CRYPTO_ALIAS={BITCOIN:'BTCUSDT',BTC:'BTCUSDT',ETHEREUM:'ETHUSDT',ETH:'ETHUSDT',SOLANA:'SOLUSDT',SOL:'SOLUSDT',BNB:'BNBUSDT',XRP:'XRPUSDT',RIPPLE:'XRPUSDT',DOGE:'DOGEUSDT',DOGECOIN:'DOGEUSDT',ADA:'ADAUSDT',AVAX:'AVAXUSDT',LINK:'LINKUSDT'};
+function cryptoChartSym(sym){ if(!sym)return null; let s=tkr(sym).toUpperCase(); if(CRYPTO_ALIAS[s])return CRYPTO_ALIAS[s]; if(/USD$/.test(s)&&!/USDT$/.test(s))s=s.slice(0,-3)+'USDT'; return /^[A-Z0-9]{2,15}USDT$/.test(s)?s:null; }
+async function fetchSelfBars(sym,iv){
+  const cs=cryptoChartSym(sym);
+  if(cs){   // 加密永續走 /cryptokline（橋接抓幣安/Bitget），這樣自製圖也能畫進出場
+    if(iv==='3day'){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=600'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
+    const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=400'); return (r.kline||[]).filter(b=>b.close!=null);
+  }
+  const code=futuCode(sym);
   if(iv==='3day'){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=600&live=1'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
   const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=400&live=1'); return (r.kline||[]).filter(b=>b.close!=null);
 }
@@ -675,7 +684,7 @@ let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:tr
 let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
 
 let selfNoData = {};   // 記住牛牛抓不到盤中K的標的，別一直重試（避免閃爍）
-function canSelf(sym){ return !!(window.LightweightCharts && futu.connected && isUS(sym) && !selfNoData[tkr(sym)]); }
+function canSelf(sym){ if(!(window.LightweightCharts && futu.connected) || selfNoData[tkr(sym)]) return false; return cryptoChartSym(sym) ? true : isUS(sym); }
 function effSrc(sym){ return chartSrc==='auto' ? (canSelf(sym)?'self':'tv') : (chartSrc==='self' && !canSelf(sym) ? 'tv' : chartSrc); }
 
 function loadChart(sym){
@@ -799,11 +808,10 @@ function paneH(key,def){ const v=parseFloat(localStorage.getItem(key)); return v
 async function renderSelfChart(sym){
   destroySelfCharts();
   const host=document.getElementById('chartHost'); host.innerHTML='';
-  const code=futuCode(sym);
-  const loading=document.createElement('div'); loading.className='welcome'; loading.style.margin='auto'; loading.textContent='讀取牛牛 '+selfIv+' K 線中…'; host.appendChild(loading);
+  const loading=document.createElement('div'); loading.className='welcome'; loading.style.margin='auto'; loading.textContent='讀取'+(cryptoChartSym(sym)?'幣安/Bitget ':'牛牛 ')+selfIv+' K 線中…'; host.appendChild(loading);
   let bars=[];
   try{
-    bars=await fetchSelfBars(code, selfIv);
+    bars=await fetchSelfBars(sym, selfIv);
   }catch(e){}
   if(current!==sym) return;           // 使用者已切走，放棄
   if(!bars.length){
@@ -899,7 +907,7 @@ function updateSelfData(bars){
 async function refreshSelf(){
   if(!selfState.sym || current!==selfState.sym || effSrc(current)!=='self'){ return; }
   try{
-    const bars=await fetchSelfBars(futuCode(selfState.sym), selfState.iv);
+    const bars=await fetchSelfBars(selfState.sym, selfState.iv);
     if(bars.length){ selfState.bars=bars; updateSelfData(bars); }
   }catch(e){}
 }

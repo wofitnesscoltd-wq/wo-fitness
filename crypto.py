@@ -157,7 +157,8 @@ def binance_funding(sym):
 
 # ---- Bitget 永續（usdt-futures）----
 def bitget_klines(sym, interval="5m", limit=200):
-    gran = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H"}.get(interval, "5m")
+    gran = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H",
+            "4h": "4H", "1d": "1D", "1w": "1W"}.get(interval, "5m")
     url = (f"https://api.bitget.com/api/v2/mix/market/candles?symbol={sym}"
            f"&productType=usdt-futures&granularity={gran}&limit={limit}")
     d = _get_json(url)
