@@ -314,7 +314,7 @@ function loadChart(sym){
   s.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'; s.async=true;
   s.innerHTML=JSON.stringify({symbol:sym,interval:'D',timezone:'Asia/Taipei',theme:'dark',style:'1',
     locale:'zh_TW',allow_symbol_change:true,hide_side_toolbar:false,withdateranges:true,details:false,
-    studies:['STD;SMA'],autosize:true,backgroundColor:'rgba(14,17,22,1)',gridColor:'rgba(38,44,56,0.6)'});
+    studies:[],autosize:true,backgroundColor:'rgba(14,17,22,1)',gridColor:'rgba(38,44,56,0.6)'});
   wrap.appendChild(s); c.appendChild(wrap);
 }
 
