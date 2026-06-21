@@ -51,6 +51,8 @@ header .spacer{margin-left:auto;}
 .hold-add button{background:var(--orange);border:none;border-radius:6px;color:#fff;flex:0 0 36px;font-size:16px;cursor:pointer;}
 .pos-item .pdel{opacity:.5;color:var(--muted);font-size:14px;background:none;border:none;cursor:pointer;margin-left:6px;}
 .pos-item .pdel:hover{opacity:1;color:var(--red);}
+.pos-item .pclose{opacity:.85;color:var(--green);font-size:12px;font-weight:700;background:none;border:1px solid var(--green);border-radius:6px;cursor:pointer;padding:2px 7px;margin-left:6px;line-height:1.3;}
+.pos-item .pclose:hover{opacity:1;background:rgba(47,185,138,.16);}
 #holdType button{border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:11.5px;padding:4px 12px;cursor:pointer;}
 #holdType button.on{background:var(--orange);color:#fff;}
 .pos-item.liqwarn{border-left:3px solid var(--red);}
@@ -356,6 +358,12 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
             <input id="hLev" type="number" step="1" placeholder="槓桿" style="display:none" onkeydown="if(event.key==='Enter')addHolding()">
             <select id="hSide" style="display:none;flex:1"><option value="long">多</option><option value="short">空</option></select>
             <button onclick="addHolding()" title="加入持股">＋</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;padding:0 8px 8px;font-size:11px;color:var(--muted);flex-wrap:wrap">
+            <span>💾 自動存本機＋同步橋接，改版不會消失</span>
+            <button onclick="exportData()" style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:3px 8px;font-family:inherit;font-size:11px;cursor:pointer">匯出備份</button>
+            <button onclick="document.getElementById('importFile').click()" style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:3px 8px;font-family:inherit;font-size:11px;cursor:pointer">還原備份</button>
+            <input id="importFile" type="file" accept="application/json,.json" style="display:none" onchange="importData(this)">
           </div>
         </div>
         <div class="pos-acct" id="posAcct" style="display:none"></div>
@@ -1290,6 +1298,7 @@ async function connectFutu(){
   if(!futu.on){ futu.connected=false; setFutuStatus(false); return; }
   try{ await futuFetch('/health'); futu.connected=true; setFutuStatus(true); }
   catch(e){ futu.connected=false; setFutuStatus(false); return; }
+  await restoreFromBridge();
   pollFutu(); futu.timer=setInterval(pollFutu,12000);
 }
 async function pollFutu(){
@@ -1341,7 +1350,7 @@ function addHolding(){
 }
 function delHolding(s){ holdings=holdings.filter(h=>h.s!==s); saveHoldings(); renderPositions(); }
 function pushHoldings(){
-  if(!futu.connected) return;
+  if(!futu.connected || !bridgeSynced) return;   // 還沒從橋接拉回資料前不推，避免空資料蓋掉伺服器備份
   const h=holdings.map(x=>'US.'+tkr(x.s)+':'+x.q+':'+x.c).join(',');
   try{ futuFetch('/setholdings?h='+encodeURIComponent(h)); }catch(e){}
 }
@@ -1362,7 +1371,7 @@ function setHoldType(t){
 function liqPrice(entry,lev,side){ if(!(entry>0)||!(lev>0))return null; const mmr=0.005; return side==='short'? entry*(1+1/lev-mmr) : entry*(1-1/lev+mmr); }
 function saveCryptoHoldings(){ localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings)); pushCryptoHoldings(); }
 function pushCryptoHoldings(){
-  if(!futu.connected) return;
+  if(!futu.connected || !bridgeSynced) return;   // 同上，避免空資料覆蓋橋接備份
   const h=cryptoHoldings.map(x=>`${x.s}:${x.q}:${x.e}:${x.l}:${x.side}`).join(',');
   try{ futuFetch('/setcryptoholdings?h='+encodeURIComponent(h)); }catch(e){}
 }
@@ -1400,12 +1409,136 @@ function holdingsLiveStr(){
   if(out) out+='請據此給賣點/減碼/移動停利/降槓桿建議。';
   return out;
 }
+/* ---------- 資料持久化：橋接同步還原（跨來源／清快取／換裝置都不丟） ---------- */
+let bridgeSynced=false;
+async function restoreFromBridge(){
+  // 橋接伺服器一直保存你的部位（wo_holdings.json / wo_crypto_holdings.json）。
+  // 若本機 localStorage 是空的（換了網址、清了快取、換台電腦），就自動拉回來，不用你重 key。
+  try{
+    if(!holdings.length){
+      const r=await futuFetch('/holdings');
+      if(r&&r.holdings&&r.holdings.length){
+        holdings=r.holdings.map(x=>({s:(x.code||'').replace('US.',''),q:x.qty,c:x.cost})).filter(h=>h.s&&h.q>0);
+        localStorage.setItem('wo_holdings',JSON.stringify(holdings));
+      }
+    }
+  }catch(e){}
+  try{
+    if(!cryptoHoldings.length){
+      const r=await futuFetch('/cryptoholdings');
+      if(r&&r.holdings&&r.holdings.length){
+        cryptoHoldings=r.holdings.map(x=>{ const q=x.size,e=x.entry,l=x.lev||1,side=(x.side==='short'?'short':'long');
+          return {s:(x.sym||'').toUpperCase(),q,e,l,side,m:(l>0?q*e/l:0)}; }).filter(h=>h.s&&h.q>0);
+        localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings));
+      }
+    }
+  }catch(e){}
+  bridgeSynced=true;
+  renderPositions();
+}
+/* 手動備份／還原（再加一層保險，存成 JSON 檔） */
+function exportData(){
+  const blob={v:1,ts:Date.now(),holdings,cryptoHoldings,journal,cmargin:getCMargin(),
+    watch:JSON.parse(localStorage.getItem('wo_lists')||'null'), stops:JSON.parse(localStorage.getItem('wo_stops')||'null')};
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(blob,null,2)],{type:'application/json'}));
+  a.download='wo-trade-備份-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+function importData(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{
+    const d=JSON.parse(rd.result);
+    if(Array.isArray(d.holdings)){ holdings=d.holdings; localStorage.setItem('wo_holdings',JSON.stringify(holdings)); }
+    if(Array.isArray(d.cryptoHoldings)){ cryptoHoldings=d.cryptoHoldings; localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings)); }
+    if(Array.isArray(d.journal)){ journal=d.journal; saveJournal(); }
+    if(d.cmargin!=null) localStorage.setItem('wo_cmargin',d.cmargin);
+    if(d.watch) localStorage.setItem('wo_lists',JSON.stringify(d.watch));
+    if(d.stops) localStorage.setItem('wo_stops',JSON.stringify(d.stops));
+    pushHoldings(); pushCryptoHoldings(); renderPositions();
+    alert('已還原備份 ✓');
+  }catch(e){ alert('還原失敗：檔案格式不對'); } };
+  rd.readAsText(f); input.value='';
+}
+/* ---------- 累積已實現損益（平倉日誌） ---------- */
+let journal = JSON.parse(localStorage.getItem('wo_journal')||'[]');
+let showJournalDetail=false;
+function saveJournal(){ localStorage.setItem('wo_journal',JSON.stringify(journal)); }
+function addJournal(e){ journal.push(e); saveJournal(); }
+function journalStats(){
+  const now=new Date();
+  const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  const startWeek=startToday-((now.getDay()+6)%7)*86400000;   // 週一為一週起點
+  let today=0,week=0,total=0,nT=0,nW=0,wins=0;
+  journal.forEach(e=>{ total+=e.pnl; if(e.pnl>0)wins++; if(e.t>=startToday){today+=e.pnl;nT++;} if(e.t>=startWeek){week+=e.pnl;nW++;} });
+  return {today,week,total,nAll:journal.length,nT,nW,winRate:journal.length?Math.round(wins/journal.length*100):0};
+}
+function toggleJournalDetail(){ showJournalDetail=!showJournalDetail; renderPositions(); }
+function clearJournal(){ if(confirm('清空所有平倉紀錄？此動作無法復原。')){ journal=[]; saveJournal(); renderPositions(); } }
+function delJournal(i){ journal.splice(i,1); saveJournal(); renderPositions(); }
+function closeAndLog(kind,s,side){
+  let h,live,sym;
+  if(kind==='crypto'){
+    h=cryptoHoldings.find(x=>x.s===s&&x.side===side); if(!h)return;
+    live=cryptoQuotes[h.s]||h.e; sym=h.s;
+  }else{
+    h=holdings.find(x=>x.s===s); if(!h)return;
+    const q=futu.quotes['US.'+tkr(h.s)]; live=(q&&q.last!=null)?q.last:h.c; sym=tkr(h.s);
+  }
+  const inp=prompt(`平倉 ${sym}${side==='short'?'（空）':side==='long'?'（多）':''}\n出場價（預設＝目前現價，可自行改）：`, live);
+  if(inp==null)return;
+  const px=parseFloat(inp); if(!(px>0)){ alert('出場價要是正數'); return; }
+  let pnl;
+  if(kind==='crypto'){
+    pnl=(side==='short'?(h.e-px):(px-h.e))*h.q;   // USDT 已實現損益（h.q＝幣量）
+    cryptoHoldings=cryptoHoldings.filter(x=>!(x.s===s&&x.side===side)); saveCryptoHoldings();
+  }else{
+    pnl=(px-h.c)*h.q;                              // 美股：(出場−成本)×股數
+    holdings=holdings.filter(x=>x.s!==s); saveHoldings();
+  }
+  addJournal({t:Date.now(),kind,sym,side:side||'',entry:kind==='crypto'?h.e:h.c,exit:px,qty:h.q,pnl});
+  renderPositions();
+}
+function renderJournalCard(list){
+  const js=journalStats();
+  const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
+  const col=v=>v>0?'var(--green)':v<0?'var(--red)':'var(--text)';
+  const money=v=>(v>=0?'+':'−')+'$'+Math.abs(Math.round(v)).toLocaleString();
+  let detail='';
+  if(showJournalDetail){
+    const rows=journal.slice().reverse().slice(0,30).map((e,ri)=>{
+      const realIdx=journal.length-1-ri;
+      const d=new Date(e.t); const dt=`${d.getMonth()+1}/${d.getDate()}`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-top:1px solid var(--border)">
+        <span style="color:var(--muted)">${dt} ${e.sym}${e.side==='short'?' 空':e.side==='long'?' 多':''} ${e.entry}→${e.exit}</span>
+        <span><b style="color:${col(e.pnl)}">${money(e.pnl)}</b>
+        <button onclick="delJournal(${realIdx})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-left:4px">×</button></span></div>`;
+    }).join('');
+    detail=`<div style="margin-top:6px">${rows||'<span style="font-size:11px;color:var(--muted)">尚無紀錄</span>'}</div>
+      ${journal.length?`<button onclick="clearJournal()" style="margin-top:6px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:3px 9px;font-family:inherit;font-size:11px;cursor:pointer">清空紀錄</button>`:''}`;
+  }
+  card.innerHTML=`<div style="font-size:12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+      <span><b>累積已實現損益</b> <span style="color:var(--muted)">平倉紀錄</span></span>
+      <button onclick="toggleJournalDetail()" style="background:none;border:none;color:var(--blue);cursor:pointer;font-family:inherit;font-size:11px">${showJournalDetail?'收起':'明細'}</button></div>
+    <div style="display:flex;gap:14px;font-size:12px;line-height:1.5;flex-wrap:wrap">
+      <div>今日<br><b style="color:${col(js.today)};font-size:14px">${money(js.today)}</b> <span style="color:var(--muted)">${js.nT}筆</span></div>
+      <div>本週<br><b style="color:${col(js.week)};font-size:14px">${money(js.week)}</b> <span style="color:var(--muted)">${js.nW}筆</span></div>
+      <div>總計<br><b style="color:${col(js.total)};font-size:14px">${money(js.total)}</b> <span style="color:var(--muted)">${js.nAll}筆</span></div>
+      <div>勝率<br><b style="font-size:14px">${js.winRate}%</b></div>
+    </div>${detail}`;
+  list.appendChild(card);
+}
 function renderPositions(){
   const acct=document.getElementById('posAcct'), list=document.getElementById('posList');
   if(futu.account){ acct.innerHTML=`總資產 <b>${futu.account.total_assets??'—'}</b>　現金 <b>${futu.account.cash??'—'}</b>　購買力 <b>${futu.account.power??'—'}</b>`; if(futu.tab==='pos') acct.style.display='flex'; }
   const fpos=futu.positions||[];
-  if(!holdings.length && !cryptoHoldings.length && !fpos.length){ list.innerHTML='<div class="news-empty">輸入你<b>實際的持股</b>（國泰／永豐／加密都行）：上面切「股票／加密永續」，打代號、數量、成本按＋。<br>引擎會用即時報價盯這些部位，到賣點／爆倉距離就通知你。</div>'; return; }
   list.innerHTML='';
+  if(journal.length) renderJournalCard(list);
+  if(!holdings.length && !cryptoHoldings.length && !fpos.length){
+    list.insertAdjacentHTML('beforeend','<div class="news-empty"'+(journal.length?' style="margin-top:8px"':'')+'>輸入你<b>實際的持股</b>（國泰／永豐／加密都行）：上面切「股票／加密永續」，打代號、數量、成本按＋。<br>引擎會用即時報價盯這些部位，到賣點／爆倉距離就通知你。</div>');
+    return;
+  }
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
     const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
@@ -1432,7 +1565,9 @@ function renderPositions(){
       <div class="pn">保證金 $${Math.round(h.m||(h.q*h.e/(h.l||1)))}・名目 $${Math.round(h.q*(px||h.e))}・進場 ${h.e}</div>
       <div class="liqd">單倉爆倉≈${lp?lp.toFixed(2):'—'}　距離 ${dist!=null?dist.toFixed(1)+'%':'—'}${warn?' ⚠️':''}</div></div>
       <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
-      <button class="pdel" title="移除">×</button></div>`;
+      <button class="pclose" title="平倉並記錄已實現損益">平</button>
+      <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
+    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); closeAndLog('crypto',h.s,h.side); };
     d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delCryptoHolding(h.s,h.side); };
     list.appendChild(d);
   });
@@ -1442,8 +1577,10 @@ function renderPositions(){
     const d=document.createElement('div'); d.className='pos-item';
     d.innerHTML=`<div><div class="pc">${tkr(h.s)}</div><div class="pn">${h.q} 股・成本 ${h.c}</div></div>
       <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pl==null?'':fmtPct(pl.toFixed(1))}</div>
-      <button class="pdel" title="移除">×</button></div>`;
+      <button class="pclose" title="平倉並記錄已實現損益">平</button>
+      <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
     d.querySelector('.pc').onclick=()=>selectSymbol(tkr(h.s),'');
+    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); closeAndLog('stock',h.s); };
     d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delHolding(h.s); };
     list.appendChild(d);
   });
