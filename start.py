@@ -54,7 +54,7 @@ def main():
     print("=" * 56)
     ensure_deps()
     first_run_setup()
-    cmd = [sys.executable, os.path.join(HERE, "futu_bridge.py"), "--alerts", "--min-grade", "B"]
+    cmd = [sys.executable, os.path.join(HERE, "futu_bridge.py"), "--alerts", "--min-grade", "B", "--crypto"]
     if len(sys.argv) > 1:                       # 允許附加參數，如 --firm FUTUINC
         cmd += sys.argv[1:]
     print("• 啟動橋接＋警示引擎…（Ctrl+C 結束）")

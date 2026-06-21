@@ -74,6 +74,17 @@ python futu_bridge.py --alerts \
 - **去重**：同檔同型態同方向，一個交易日只發一次。
 - **結果追蹤**：每輪更新 MFE/MAE、先碰目標(命中)或停損(未命中) → 之後做勝率/期望值歸因與權重再校準。
 
+## 加密永續監測（幣安 / Bitget，24 小時）
+一鍵啟動已自動開（`start.py` 帶 `--crypto`）。手動跑可加：
+```bash
+python futu_bridge.py --alerts --crypto --crypto-source binance \
+  --crypto-symbols BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT --telegram-token "<t>" --telegram-chat "<id>"
+```
+- 24h 不分盤，重用同一套訊號引擎（VWAP/ORB/RSI/MACD/EMA＋多週期），market regime 用 **BTC** 當大盤。
+- 每則加上**資金費率**解讀（多頭過熱付費＝留意反轉）。
+- 換 Bitget：`--crypto-source bitget`。加密訊號跟美股一起進 🚨 警示分頁與 Telegram。
+- 公開行情免 API 金鑰、只讀不下單。⚠️ 永續槓桿可能爆倉，務必設停損。
+
 ## 績效、自我優化與每日報告
 - **🚨 警示分頁頂部**會顯示績效：已結算筆數、勝率、期望值(R)、獲利因子，分 A/B/C 等級，以及目前市場 regime。
 - **每個交易日收盤後（美東 16:00–20:00）自動跑一次**：

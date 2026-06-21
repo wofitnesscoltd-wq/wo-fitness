@@ -5,4 +5,5 @@ wo_alerts.db
 wo_watch.json
 wo_weights.json
 wo_holdings.json
+crypto_watch.json
 .alert_config.json
