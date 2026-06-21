@@ -1327,8 +1327,9 @@ function addHolding(){
   if(!s||!(q>0)||!(c>0)){ return; }
   if(holdType==='crypto'){
     const l=parseFloat(document.getElementById('hLev').value)||1, side=document.getElementById('hSide').value;
+    const margin=q, notional=margin*l, qty=c>0?notional/c:0;   // 加密這格＝保證金 USDT；名目=保證金×槓桿
     const isNew=!cryptoHoldings.some(h=>h.s===s&&h.side===side);
-    cryptoHoldings = cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); cryptoHoldings.push({s,q,e:c,l,side});
+    cryptoHoldings = cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); cryptoHoldings.push({s,q:qty,e:c,l,side,m:margin});
     saveCryptoHoldings(); if(isNew) noteEntry();
   } else {
     const isNew=!holdings.some(h=>h.s===s);
@@ -1355,8 +1356,8 @@ function setHoldType(t){
   document.getElementById('hLev').style.display=cr?'block':'none';
   document.getElementById('hSide').style.display=cr?'block':'none';
   document.getElementById('hSym').placeholder=cr?'幣種 BTCUSDT':'代號 NVDA';
-  document.getElementById('hQty').placeholder=cr?'倉位大小':'股數';
-  document.getElementById('hCost').placeholder=cr?'進場價':'成本';
+  document.getElementById('hQty').placeholder=cr?'保證金 USDT':'股數';
+  document.getElementById('hCost').placeholder=cr?'進場均價':'成本';
 }
 function liqPrice(entry,lev,side){ if(!(entry>0)||!(lev>0))return null; const mmr=0.005; return side==='short'? entry*(1+1/lev-mmr) : entry*(1-1/lev+mmr); }
 function saveCryptoHoldings(){ localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings)); pushCryptoHoldings(); }
@@ -1374,9 +1375,9 @@ function getCMargin(){ return parseFloat(localStorage.getItem('wo_cmargin'))||0;
 function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); renderPositions(); }
 function cryptoSummary(){
   let gross=0,net=0,upnl=0,used=0,priced=0;
-  cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]; if(!px)return; priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; upnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; used+=n/(h.l||1); });
-  const wallet=getCMargin(), equity=wallet+upnl, maint=0.005*gross, an=Math.abs(net);
-  return {gross,net:an,upnl,equity,used,avail:equity-used,priced,
+  cryptoHoldings.forEach(h=>{ const live=cryptoQuotes[h.s]; const px=live||h.e; if(live)priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; upnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; used+=(h.m||(h.q*h.e/(h.l||1))); });
+  const avail=getCMargin(), equity=avail+used, maint=0.005*gross, an=Math.abs(net);
+  return {gross,net:an,upnl,equity,used,avail,priced,
     grossLev: equity>0?gross/equity:0, netLev: equity>0?an/equity:0,
     buffer: (an>1&&equity>maint)?(equity-maint)/an*100:(an<=1?null:0)};
 }
@@ -1410,14 +1411,15 @@ function renderPositions(){
     const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
     const bufHtml = sm.buffer==null?'<b style="color:var(--green)">已對沖・淨曝險極低</b>' : `<b style="color:${sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)'}">${sm.buffer.toFixed(1)}%</b>`;
     card.innerHTML=`<div style="font-size:12px;margin-bottom:6px"><b>加密全倉總覽</b> <span style="color:var(--muted)">cross</span></div>
-      <input type="number" value="${getCMargin()||''}" placeholder="全倉錢包餘額 USD" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin-bottom:8px">
+      <input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin-bottom:8px">
       <div style="font-size:12px;line-height:1.9">
-        帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b>（未實現 ${sm.upnl>=0?'+':''}$${Math.round(sm.upnl)}）<br>
+        帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">= 可用 $${Math.round(sm.avail)} ＋ 已用保證金 $${Math.round(sm.used)}</span><br>
+        未實現損益 <b style="color:${sm.upnl>=0?'var(--green)':'var(--red)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b><br>
         總名目 $${Math.round(sm.gross).toLocaleString()}　淨曝險 $${Math.round(sm.net).toLocaleString()}<br>
         整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b><span style="color:var(--muted)">（名目）</span>　淨 ${sm.netLev.toFixed(1)}x<br>
         距全倉爆倉緩衝 ${bufHtml}<span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
       </div>
-      ${getCMargin()<=0?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入錢包餘額才能算權益/爆倉緩衝</div>':''}`;
+      ${getCMargin()<=0?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
     list.appendChild(card);
   }
   cryptoHoldings.forEach(h=>{
@@ -1427,7 +1429,7 @@ function renderPositions(){
     const warn=dist!=null&&dist<15;
     const d=document.createElement('div'); d.className='pos-item'+(warn?' liqwarn':'');
     d.innerHTML=`<div><div class="pc">${h.s} <span style="font-size:10px;color:${h.side==='short'?'var(--red)':'var(--green)'}">${h.l}x ${h.side==='short'?'空':'多'}</span></div>
-      <div class="pn">${h.q}・進場 ${h.e}</div>
+      <div class="pn">保證金 $${Math.round(h.m||(h.q*h.e/(h.l||1)))}・名目 $${Math.round(h.q*(px||h.e))}・進場 ${h.e}</div>
       <div class="liqd">單倉爆倉≈${lp?lp.toFixed(2):'—'}　距離 ${dist!=null?dist.toFixed(1)+'%':'—'}${warn?' ⚠️':''}</div></div>
       <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
       <button class="pdel" title="移除">×</button></div>`;
