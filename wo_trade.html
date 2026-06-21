@@ -77,7 +77,7 @@ header .spacer{margin-left:auto;}
 .wl-aft{display:block;font-size:10px;color:var(--muted);}
 /* main */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;}
-.chart-area{height:48vh;min-height:320px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;}
+.chart-area{height:48vh;min-height:180px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;}
 .chart-host{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}
 .chart-host .tradingview-widget-container{height:100%;width:100%;}
 .chart-tools{display:flex;align-items:center;gap:5px;padding:5px 9px;border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:12px;background:var(--panel);}
@@ -174,7 +174,17 @@ header .spacer{margin-left:auto;}
 .modal .save{background:var(--orange);color:white;}
 .modal .cancel{background:var(--panel-2);color:var(--muted);border:1px solid var(--border)!important;}
 .disclaimer{font-size:11px;color:var(--muted);text-align:center;padding:6px;border-top:1px solid var(--border);line-height:1.5;}
+/* 可拖拉分隔線 */
+.splitter-v{flex:0 0 6px;cursor:col-resize;background:transparent;position:relative;z-index:6;}
+.splitter-h{flex:0 0 6px;cursor:row-resize;background:transparent;position:relative;z-index:6;}
+.splitter-v::after{content:'';position:absolute;top:50%;left:2px;width:2px;height:30px;transform:translateY(-50%);border-left:2px dotted var(--muted);opacity:.45;}
+.splitter-h::after{content:'';position:absolute;left:50%;top:2px;height:2px;width:30px;transform:translateX(-50%);border-top:2px dotted var(--muted);opacity:.45;}
+.splitter-v:hover,.splitter-h:hover,.splitter-v.dragging,.splitter-h.dragging{background:var(--orange);}
+.splitter-v:hover::after,.splitter-h:hover::after,.dragging::after{opacity:0;}
+#dragOverlay{position:fixed;inset:0;z-index:190;display:none;}
+#dragOverlay.show{display:block;}
 @media(max-width:920px){
+  .splitter-v,.splitter-h{display:none;}
   body{overflow:auto;height:auto;}
   .layout{flex-direction:column;height:auto;}
   .sidebar{width:100%;max-height:200px;}
@@ -199,13 +209,14 @@ header .spacer{margin-left:auto;}
 </header>
 
 <div class="layout">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="add-bar">
       <input id="addInput" placeholder="新增代號 例 NVDA / 2454" onkeydown="if(event.key==='Enter')addSymbol()">
       <button onclick="addSymbol()">+</button>
     </div>
     <div class="watchlist" id="watchlist"></div>
   </aside>
+  <div class="splitter-v" id="splitSide" title="拖拉調整清單寬度"></div>
 
   <main class="main">
     <div class="chart-area" id="chartArea">
@@ -226,6 +237,7 @@ header .spacer{margin-left:auto;}
       </div>
       <div class="chart-host" id="chartHost"></div>
     </div>
+    <div class="splitter-h" id="splitChart" title="拖拉調整圖表高度"></div>
     <div class="work">
       <section class="brain">
         <div class="brain-bar">
@@ -253,7 +265,8 @@ header .spacer{margin-left:auto;}
         </div>
       </section>
 
-      <aside class="news">
+      <div class="splitter-v" id="splitNews" title="拖拉調整右欄寬度"></div>
+      <aside class="news" id="news">
         <div class="news-bar">
           <div class="tab-row">
             <div class="tab active" id="tabNews" onclick="switchTab('news')">⚡ 新聞</div>
@@ -292,6 +305,7 @@ header .spacer{margin-left:auto;}
   </main>
 </div>
 
+<div id="dragOverlay"></div>
 <div class="disclaimer">⚠️ 本工具僅供研究參考，非投資建議。短線槓桿風險高，AI 可能出錯，最終決策與風險由你自行負責，務必設停損。</div>
 
 <!-- settings modal -->
@@ -562,6 +576,35 @@ function initChartTools(){
   document.querySelectorAll('#intvSeg button').forEach(b=>{ b.onclick=()=>{ selfIv=b.dataset.iv; localStorage.setItem('wo_chart_iv',selfIv); if(current) delete selfNoData[tkr(current)]; loadChart(current); }; });
   document.querySelectorAll('#srcSeg button').forEach(b=>{ b.onclick=()=>{ chartSrc=b.dataset.src; localStorage.setItem('wo_chart_src',chartSrc); if(b.dataset.src==='self'&&current) delete selfNoData[tkr(current)]; loadChart(current); }; });
   ['ema','vwap','rsi','macd'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
+}
+/* ---------- 可拖拉版面（記住大小、圖自動縮放） ---------- */
+function setupResizers(){
+  const ov=document.getElementById('dragOverlay');
+  function drag(handle,target,axis,sign,min,max,key){
+    if(!handle||!target)return;
+    const saved=parseFloat(localStorage.getItem(key));
+    if(saved&&saved>=min&&saved<=max) target.style[axis==='x'?'width':'height']=saved+'px';
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      const start=axis==='x'?e.clientX:e.clientY;
+      const startSize=axis==='x'?target.offsetWidth:target.offsetHeight;
+      handle.classList.add('dragging'); ov.classList.add('show');
+      ov.style.cursor=axis==='x'?'col-resize':'row-resize';
+      function move(ev){
+        const cur=axis==='x'?ev.clientX:ev.clientY;
+        let size=Math.max(min,Math.min(max,startSize+sign*(cur-start)));
+        target.style[axis==='x'?'width':'height']=size+'px';
+        localStorage.setItem(key,size);
+      }
+      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); handle.classList.remove('dragging'); ov.classList.remove('show'); }
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    });
+    handle.addEventListener('dblclick',()=>{ target.style[axis==='x'?'width':'height']=''; localStorage.removeItem(key); });
+  }
+  const maxH=Math.max(320,window.innerHeight-220);
+  drag(document.getElementById('splitSide'),document.getElementById('sidebar'),'x',1,160,520,'wo_w_side');
+  drag(document.getElementById('splitNews'),document.getElementById('news'),'x',-1,240,760,'wo_w_news');
+  drag(document.getElementById('splitChart'),document.getElementById('chartArea'),'y',1,180,maxH,'wo_h_chart');
 }
 /* 牛牛連線狀態改變時，auto 模式自動在 TV / 自製圖之間切換 */
 function maybeSwitchChart(){
@@ -1169,7 +1212,7 @@ let alertTimer=null;
   if(window.__WO_FUTU_URL__){ localStorage.setItem('wo_futu_url', window.__WO_FUTU_URL__); }
   if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
-  initChartTools();
+  initChartTools(); setupResizers();
   renderWatchlist();
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
   if(!localStorage.getItem('wo_key')) setTimeout(openSettings,400);
