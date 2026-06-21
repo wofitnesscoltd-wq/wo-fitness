@@ -359,6 +359,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "count": len(items)})
             elif path == "/cryptoholdings":
                 self._json({"holdings": crypto_mod.load_crypto_holdings() if crypto_mod else []})
+            elif path == "/setcmargin":
+                # 可用保證金（全倉）—引擎用來算帳戶層級爆倉緩衝
+                try:
+                    v = float(q.get("v", ["0"])[0])
+                except ValueError:
+                    v = 0.0
+                if crypto_mod:
+                    crypto_mod.save_cmargin(v)
+                self._json({"ok": True, "avail": v})
             elif path == "/cryptoquote":
                 out = {}
                 if crypto_mod:
