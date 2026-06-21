@@ -257,14 +257,22 @@ class CryptoScanner:
         holds = load_crypto_holdings()
         hmap = {h.get("sym"): h for h in holds if h.get("sym")}
         all_syms = list(dict.fromkeys(list(watch) + list(hmap)))
-        stock_open = us_market_active()
         cooldown_sec = float(self.cfg.get("alert_cooldown_sec", 4 * 3600))   # 同檔買點冷卻，預設 4 小時
         now_ts = time.time()
         pushed = 0
         price_of = {}
         for sym in all_syms:
-            # tokenized 美股永續：美股收盤/週末是低流動雜訊，整檔跳過（不掃買點也不抓資料）
-            if is_stock_perp(sym) and not stock_open:
+            # tokenized 美股永續（COHRUSDT/QCOMUSDT…）：價格跟著美股走，但 Bitget 上的『量』是稀薄 crypto 量、
+            # K 棒沒跳空，RSI/量都不代表真實個股 → 不在這裡發技術訊號。真實技術面看個股(牛牛引擎)。
+            # 持倉者仍抓現價（給帳戶層級爆倉緩衝用，槓桿風險 24h 都在）。
+            if is_stock_perp(sym):
+                if sym in hmap:
+                    try:
+                        kb = self.kl(sym, "5m", 2)
+                        if kb and kb[-1].get("close") is not None:
+                            price_of[sym] = kb[-1]["close"]
+                    except Exception:
+                        pass
                 continue
             try:
                 bars = [b for b in self.kl(sym, "5m", 160) if b.get("close") is not None]
