@@ -39,24 +39,37 @@ header .spacer{margin-left:auto;}
 .pos-acct{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap;}
 .pos-acct b{color:var(--text);}
 .pos-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px;}
-.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;}
+.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;cursor:pointer;overflow:hidden;}
 .pos-item:hover{border-color:var(--orange);}
-.pos-item .pc{font-size:14px;font-weight:600;}
-.pos-item .pn{font-size:11.5px;color:var(--muted);margin-top:3px;}
-.pos-item .pr{font-size:14px;font-weight:700;text-align:right;line-height:1.5;}
+.pos-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;}
+.pos-item .pc{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.pos-item .pn{font-size:11.5px;color:var(--muted);margin-top:4px;}
+.pos-item .pr{font-size:13.5px;font-weight:700;text-align:right;white-space:nowrap;}
+.pos-detail{display:none;padding:2px 12px 11px;}
+.pos-item.expanded .pos-detail{display:block;}
+.pos-item.expanded{border-color:var(--orange);}
+.tpslchip{font-size:10px;color:var(--muted);font-weight:400;}
+.tpsl-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px;font-size:11.5px;color:var(--muted);}
+.tpsl-row input{width:78px;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:6px 7px;color:var(--text);font-family:inherit;font-size:12px;}
+.tpsl-row input.tp{border-color:rgba(47,185,138,.45);}
+.tpsl-row input.sl{border-color:rgba(224,102,114,.45);}
+.tpsl-row .tpsl-save{background:var(--orange);color:#fff;border:none;border-radius:6px;padding:6px 11px;font-family:inherit;font-size:12px;cursor:pointer;}
+.tpsl-hint{font-size:10.5px;color:var(--muted-2);margin-top:4px;}
+.detail-actions{display:flex;gap:7px;margin-top:10px;}
+.detail-actions button{flex:1;border-radius:7px;padding:7px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--text);}
+.detail-actions .pclose{color:var(--green);border-color:rgba(47,185,138,.5);}
+.detail-actions .pdel{color:var(--muted);}
 .hold-add{display:flex;flex-wrap:wrap;gap:5px;padding:8px;border-bottom:1px solid var(--border);}
 .hold-add input,.hold-add select{flex:1 1 76px;min-width:64px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:7px 8px;color:var(--text);font-family:inherit;font-size:12.5px;outline:none;}
 .hold-add input:focus,.hold-add select:focus{border-color:var(--orange);}
 .hold-add #hSym{flex:1 1 100%;text-transform:uppercase;}
 .hold-add button{background:var(--orange);border:none;border-radius:6px;color:#fff;flex:0 0 36px;font-size:16px;cursor:pointer;}
-.pos-item .pdel{opacity:.5;color:var(--muted);font-size:14px;background:none;border:none;cursor:pointer;margin-left:6px;}
-.pos-item .pdel:hover{opacity:1;color:var(--red);}
-.pos-item .pclose{opacity:.85;color:var(--green);font-size:12px;font-weight:700;background:none;border:1px solid var(--green);border-radius:6px;cursor:pointer;padding:2px 7px;margin-left:6px;line-height:1.3;}
-.pos-item .pclose:hover{opacity:1;background:rgba(47,185,138,.16);}
+.detail-actions .pchart{color:var(--blue);}
 #holdType button{border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:11.5px;padding:4px 12px;cursor:pointer;}
 #holdType button.on{background:var(--orange);color:#fff;}
-.pos-item.liqwarn{border-left:3px solid var(--red);}
-.pos-item .liqd{font-size:10.5px;color:var(--muted);}
+.pos-item .liqd{font-size:10.5px;color:var(--muted);margin-top:3px;}
+#posToast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--orange);color:var(--text);padding:11px 17px;border-radius:10px;font-size:13px;z-index:300;opacity:0;pointer-events:none;transition:opacity .3s;max-width:90vw;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.45);}
+#posToast.show{opacity:1;}
 .up{color:var(--green);}.down{color:var(--red);}
 .layout{display:flex;height:calc(var(--apph,100vh) - 52px - var(--hudh,40px));}
 /* sidebar */
@@ -1474,6 +1487,7 @@ async function pollFutu(){
   try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
   try{ const wc=lists['us'].map(x=>futuCode(x.s)).filter(Boolean); if(wc.length) futuFetch('/setwatch?codes='+encodeURIComponent(wc.join(','))); }catch(e){}
   pushHoldings(); pushCryptoHoldings(); pushCMargin(); await pollCrypto();
+  checkAutoClose();
   renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(futu.tab==='alert') renderAlerts();
   renderHud();
@@ -1803,35 +1817,104 @@ function renderPositions(){
   cryptoHoldings.forEach(h=>{
     const px=cryptoQuotes[h.s]; const lp=liqPrice(h.e,h.l,h.side);
     const pnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
-    const d=document.createElement('div'); d.className='pos-item';   // 全倉下單腿不會獨立爆倉，爆倉風險看上方全倉緩衝
-    d.innerHTML=`<div><div class="pc">${h.s} <span style="font-size:10px;color:${h.side==='short'?'var(--red)':'var(--green)'}">${h.l}x ${h.side==='short'?'空':'多'}</span></div>
-      <div class="pn">保證金 $${Math.round(h.m||(h.q*h.e/(h.l||1)))}・名目 $${Math.round(h.q*(px||h.e))}・進場 ${h.e}</div>
-      <div class="liqd">孤立估爆倉≈${lp?lp.toFixed(2):'—'}（全倉不適用，爆倉看上方帳戶緩衝）</div></div>
-      <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
-      <button class="pclose" title="平倉並記錄已實現損益">平</button>
-      <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
-    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); openCloseDialog('crypto',h.s,h.side); };
-    d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delCryptoHolding(h.s,h.side); };
+    const id='c|'+h.s+'|'+h.side; const exp=expandedPos.has(id);
+    const sideTxt=h.side==='short'?'空':'多', sideCol=h.side==='short'?'var(--red)':'var(--green)';
+    const chip=tpslChip(h);
+    const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');   // 全倉下單腿不會獨立爆倉，看上方全倉緩衝
+    d.innerHTML=`<div class="pos-head">
+        <div class="pc">${h.s} <span style="font-size:10px;color:${sideCol}">${h.l}x ${sideTxt}</span>${chip}</div>
+        <div class="pr">${px??'—'}　${pnl==null?'':fmtPct(pnl.toFixed(1))}</div></div>
+      <div class="pos-detail">
+        <div class="pn">保證金 $${Math.round(h.m||(h.q*h.e/(h.l||1)))}・名目 $${Math.round(h.q*(px||h.e))}・進場 ${h.e}・幣量 ${(+h.q).toFixed(4)}</div>
+        <div class="liqd">孤立估爆倉≈${lp?lp.toFixed(2):'—'}（全倉不適用，爆倉看上方帳戶緩衝）</div>
+        <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
+        <div class="tpsl-hint">到價自動以該價平倉並記入盈虧（${h.side==='short'?'空：跌破止盈/漲破止損':'多：漲破止盈/跌破止損'}）</div>
+        <div class="detail-actions"><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
+      </div>`;
+    d.querySelector('.pos-head').onclick=()=>togglePos(id);
+    const det=d.querySelector('.pos-detail'); det.onclick=e=>e.stopPropagation();
+    d.querySelector('.tpsl-save').onclick=()=>setTPSL('crypto',h.s,h.side,det.querySelector('.tp').value,det.querySelector('.sl').value);
+    d.querySelector('.pclose').onclick=()=>openCloseDialog('crypto',h.s,h.side);
+    d.querySelector('.pdel').onclick=()=>delCryptoHolding(h.s,h.side);
     list.appendChild(d);
   });
   holdings.forEach(h=>{
     const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
     const pl=px?((px/h.c-1)*100):null;
-    const d=document.createElement('div'); d.className='pos-item';
-    d.innerHTML=`<div><div class="pc">${tkr(h.s)}</div><div class="pn">${h.q} 股・成本 ${h.c}</div></div>
-      <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pl==null?'':fmtPct(pl.toFixed(1))}</div>
-      <button class="pclose" title="平倉並記錄已實現損益">平</button>
-      <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
-    d.querySelector('.pc').onclick=()=>selectSymbol(tkr(h.s),'');
-    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); openCloseDialog('stock',h.s); };
-    d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delHolding(h.s); };
+    const id='s|'+h.s; const exp=expandedPos.has(id);
+    const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
+    d.innerHTML=`<div class="pos-head">
+        <div class="pc">${tkr(h.s)}${tpslChip(h)}</div>
+        <div class="pr">${px??'—'}　${pl==null?'':fmtPct(pl.toFixed(1))}</div></div>
+      <div class="pos-detail">
+        <div class="pn">${h.q} 股・成本 ${h.c}</div>
+        <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
+        <div class="tpsl-hint">到價自動以該價平倉並記入盈虧</div>
+        <div class="detail-actions"><button class="pchart">看圖</button><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
+      </div>`;
+    d.querySelector('.pos-head').onclick=()=>togglePos(id);
+    const det=d.querySelector('.pos-detail'); det.onclick=e=>e.stopPropagation();
+    d.querySelector('.tpsl-save').onclick=()=>setTPSL('stock',h.s,'',det.querySelector('.tp').value,det.querySelector('.sl').value);
+    d.querySelector('.pchart').onclick=()=>selectSymbol(tkr(h.s),'');
+    d.querySelector('.pclose').onclick=()=>openCloseDialog('stock',h.s);
+    d.querySelector('.pdel').onclick=()=>delHolding(h.s);
     list.appendChild(d);
   });
   fpos.forEach(p=>{
     const d=document.createElement('div'); d.className='pos-item';
-    d.innerHTML=`<div><div class="pc">${(p.code||'').replace('US.','')}</div><div class="pn">${p.qty} 股・成本 ${p.cost}・牛牛</div></div><div class="pr">${p.price??''}<br>${fmtPct(p.pl_ratio)}</div>`;
-    d.onclick=()=>selectSymbol((p.code||'').replace('US.',''), p.name||'');
+    d.innerHTML=`<div class="pos-head"><div class="pc">${(p.code||'').replace('US.','')} <span style="font-size:10px;color:var(--muted)">牛牛</span></div><div class="pr">${p.price??''}　${fmtPct(p.pl_ratio)}</div></div>`;
+    d.querySelector('.pos-head').onclick=()=>selectSymbol((p.code||'').replace('US.',''), p.name||'');
     list.appendChild(d);
+  });
+}
+function tpslChip(h){ return (h.tp||h.sl)?`<span class="tpslchip">${h.tp?'🎯'+h.tp:''}${h.sl?(h.tp?' ':'')+'🛑'+h.sl:''}</span>`:''; }
+let expandedPos=new Set();
+function togglePos(id){ if(expandedPos.has(id))expandedPos.delete(id); else expandedPos.add(id); renderPositions(); }
+function findHold(kind,s,side){ return kind==='crypto'?cryptoHoldings.find(x=>x.s===s&&x.side===side):holdings.find(x=>x.s===s); }
+function setTPSL(kind,s,side,tp,sl){
+  const h=findHold(kind,s,side); if(!h)return;
+  const px=kind==='crypto'?cryptoQuotes[s]:(()=>{const q=futu.quotes['US.'+tkr(s)];return q&&q.last!=null?q.last:null;})();
+  const long = kind!=='crypto' || side!=='short';
+  let tpv=parseFloat(tp), slv=parseFloat(sl);
+  if(px){
+    if(tpv>0 && (long?tpv<=px:tpv>=px)){ alert(`止盈價方向不對：${long?'做多止盈要高於現價':'做空止盈要低於現價'}（現價 ${px}），否則一設就觸發。`); return; }
+    if(slv>0 && (long?slv>=px:slv<=px)){ alert(`止損價方向不對：${long?'做多止損要低於現價':'做空止損要高於現價'}（現價 ${px}），否則一設就觸發。`); return; }
+  }
+  h.tp=tpv>0?tpv:undefined; h.sl=slv>0?slv:undefined;
+  if(kind==='crypto')saveCryptoHoldings(); else saveHoldings();
+  if(('Notification'in window)&&Notification.permission==='default'&&(h.tp||h.sl)){ try{Notification.requestPermission();}catch(e){} }
+  posToast((h.tp||h.sl)?`已設定 ${kind==='crypto'?s:tkr(s)}${side?(side==='short'?' 空':' 多'):''}　${h.tp?'🎯止盈 '+h.tp:''}${h.sl?'　🛑止損 '+h.sl:''}　到價自動平倉記錄`:'已清除止盈止損');
+  expandedPos.delete((kind==='crypto'?'c|'+s+'|'+side:'s|'+s)); renderPositions();
+}
+function posToast(msg){
+  let t=document.getElementById('posToast');
+  if(!t){ t=document.createElement('div'); t.id='posToast'; document.body.appendChild(t); }
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(posToast._t); posToast._t=setTimeout(()=>t.classList.remove('show'),6500);
+  try{ if(('Notification'in window)&&Notification.permission==='granted') new Notification('窩 Trading',{body:msg}); }catch(e){}
+}
+function triggerAutoClose(kind,h,exitPx,which){
+  const feeRate=feeDefault(kind)/100; let net,sym,side='';
+  if(kind==='crypto'){ side=h.side; sym=h.s;
+    const gross=(side==='short'?(h.e-exitPx):(exitPx-h.e))*h.q; net=gross-(h.e+exitPx)*h.q*feeRate;
+    cryptoHoldings=cryptoHoldings.filter(x=>!(x.s===h.s&&x.side===h.side)); saveCryptoHoldings();
+  }else{ sym=tkr(h.s);
+    const gross=(exitPx-h.c)*h.q; net=gross-(h.c+exitPx)*h.q*feeRate;
+    holdings=holdings.filter(x=>x.s!==h.s); saveHoldings();
+  }
+  addJournal({t:Date.now(),kind,sym,side,entry:kind==='crypto'?h.e:h.c,exit:exitPx,qty:h.q,pnl:net,auto:which});
+  posToast(`${which==='tp'?'🎯 止盈':'🛑 止損'}觸發：${sym}${side?(side==='short'?' 空':' 多'):''} @ ${exitPx} 自動平倉，已實現 ${net>=0?'+':''}$${Math.round(net)}（已記入盈虧）`);
+}
+function checkAutoClose(){
+  cryptoHoldings.slice().forEach(h=>{
+    const px=cryptoQuotes[h.s]; if(!px)return;
+    if(h.tp&&(h.side==='short'?px<=h.tp:px>=h.tp)){ triggerAutoClose('crypto',h,h.tp,'tp'); return; }
+    if(h.sl&&(h.side==='short'?px>=h.sl:px<=h.sl)){ triggerAutoClose('crypto',h,h.sl,'sl'); }
+  });
+  holdings.slice().forEach(h=>{
+    const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null; if(!px)return;
+    if(h.tp&&px>=h.tp){ triggerAutoClose('stock',h,h.tp,'tp'); return; }
+    if(h.sl&&px<=h.sl){ triggerAutoClose('stock',h,h.sl,'sl'); }
   });
 }
 function switchTab(t){
