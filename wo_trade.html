@@ -395,6 +395,8 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
       <div><label>帳戶總額 USD</label><input id="riskAcct" type="number"></div>
       <div><label>當沖硬出場（美東 HH:MM）</label><input id="riskExit" placeholder="15:55"></div>
     </div>
+    <label>獲利提取門檻 USD<span style="font-size:10px;color:var(--muted)">（當日帳面達標提醒轉出）</span></label>
+    <input id="riskExtract" type="number" placeholder="例 1000">
     <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 2px">
     <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--text)">
       <input type="checkbox" id="futuOn" style="width:auto"> 啟用富途牛牛即時數據（需在本機跑 futu_bridge.py）
@@ -498,7 +500,10 @@ function bumpScale(d){ uiScale = Math.max(0.85, Math.min(1.7, Math.round((uiScal
 /* 專注模式 */
 function toggleFocus(){ document.body.classList.toggle('focus'); localStorage.setItem('wo_focus', document.body.classList.contains('focus')?'1':'0'); window.dispatchEvent(new Event('resize')); }
 /* 規則 HUD（外部化記憶＋行為護欄） */
-function riskCfg(){ try{ return Object.assign({dailyLoss:0,fixedPos:0,acct:0,exit:'15:55'}, JSON.parse(localStorage.getItem('wo_risk')||'{}')); }catch(e){ return {dailyLoss:0,fixedPos:0,acct:0,exit:'15:55'}; } }
+function riskCfg(){ try{ return Object.assign({dailyLoss:0,fixedPos:0,acct:0,exit:'15:55',extract:0}, JSON.parse(localStorage.getItem('wo_risk')||'{}')); }catch(e){ return {dailyLoss:0,fixedPos:0,acct:0,exit:'15:55',extract:0}; } }
+let entryLog=[];   // 進場（加持股）時間，用於冷卻訊號
+function noteEntry(){ entryLog.push(Date.now()); entryLog=entryLog.filter(t=>Date.now()-t<3600000); renderHud(); }
+function coolingActive(){ const recent=entryLog.filter(t=>Date.now()-t<20*60000); return recent.length>=3; }
 function openPnl(){
   let pnl=0;
   (holdings||[]).forEach(h=>{ const q=futu.quotes['US.'+tkr(h.s)]; if(q&&q.last!=null) pnl+=(q.last-h.c)*h.q; });
@@ -529,6 +534,8 @@ function renderHud(){
   else { clk.textContent='已過硬出場線'; clk.style.color='var(--red)'; }
   // 狀態 pill
   if(document.body.classList.contains('locked')){ st.textContent='🛑 今日達損失上限・收工'; st.className='hud-pill stop'; }
+  else if(coolingActive()){ st.textContent='🧊 短時間多次進場，考慮暫停一下'; st.className='hud-pill warn'; }
+  else if(c.extract>0 && pnl>=c.extract){ st.textContent=`💰 達提取門檻 +$${Math.round(pnl)}（可轉出獲利）`; st.className='hud-pill ok'; }
   else if(c.dailyLoss>0 && pnl<0 && -pnl/c.dailyLoss>=0.7){ st.textContent='⚠️ 接近每日上限'; st.className='hud-pill warn'; }
   else { st.textContent='✓ 在紀律內'; st.className='hud-pill ok'; }
 }
@@ -645,6 +652,15 @@ async function renderSelfChart(sym){
   const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
   const candle=pc.addCandlestickSeries({upColor:'#16C784',downColor:'#EA3943',borderVisible:false,wickUpColor:'#16C784',wickDownColor:'#EA3943'});
   selfState.series.candle=candle;
+  // 強制停損視覺化：停損/進場/目標線 ＋ 前日收盤硬出場線
+  try{
+    const st=(JSON.parse(localStorage.getItem('wo_stops')||'{}'))[tkr(sym)];
+    if(st&&st.stop){ candle.createPriceLine({price:st.stop,color:'#E06672',lineWidth:1,axisLabelVisible:true,title:'停損'});
+      if(st.entry) candle.createPriceLine({price:st.entry,color:'#7E8796',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'進場'});
+      if(st.target) candle.createPriceLine({price:st.target,color:'#2FB98A',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'目標'}); }
+    const days=[...new Set(bars.map(b=>(b.time||'').slice(0,10)))];
+    if(days.length>=2){ const pv=bars.filter(b=>(b.time||'').slice(0,10)===days[days.length-2]).slice(-1)[0]; if(pv) candle.createPriceLine({price:pv.close,color:'rgba(224,165,59,.55)',lineWidth:1,lineStyle:3,axisLabelVisible:true,title:'前日收盤'}); }
+  }catch(e){}
   const vol=pc.addHistogramSeries({priceScaleId:'vol',priceFormat:{type:'volume'}});
   pc.priceScale('vol').applyOptions({scaleMargins:{top:0.82,bottom:0}});
   selfState.series.vol=vol;
@@ -788,12 +804,16 @@ function calcCompute(){
   if(shares*entry>maxPos){ shares=Math.floor(maxPos/entry); capped=true; }
   const finalVal=shares*entry, finalRisk=shares*perShare, stopPct=perShare/entry*100;
   const t2=long?entry+perShare*2:entry-perShare*2, t3=long?entry+perShare*3:entry-perShare*3;
+  const fixed=riskCfg().fixedPos, overFixed=fixed>0 && finalVal>fixed*1.05;
+  // 存停損→畫在自製圖上（強制停損視覺化）
+  if(current){ try{ const m=JSON.parse(localStorage.getItem('wo_stops')||'{}'); m[tkr(current)]={stop,entry,target:long?t2:t2,side:long?'long':'short'}; localStorage.setItem('wo_stops',JSON.stringify(m)); if(effSrc(current)==='self') renderSelfChart(current); }catch(e){} }
   out.innerHTML=`
     <div>方向：<b>${long?'做多':'做空'}</b>　每股風險 <b>$${perShare.toFixed(2)}</b>（停損距 ${stopPct.toFixed(2)}%）</div>
     <div>建議股數 <span class="big">${shares}</span> 股</div>
-    <div>部位金額 <b>$${Math.round(finalVal).toLocaleString()}</b>（佔帳戶 ${acct?(finalVal/acct*100).toFixed(0):'—'}%${lev>1?'，槓桿上限 '+lev+'x':''}）</div>
+    <div>部位金額 <b style="${overFixed?'color:var(--amber)':''}">$${Math.round(finalVal).toLocaleString()}</b>（佔帳戶 ${acct?(finalVal/acct*100).toFixed(0):'—'}%${lev>1?'，槓桿上限 '+lev+'x':''}）</div>
     <div>實際風險 <b>$${Math.round(finalRisk).toLocaleString()}</b> ≈ 帳戶 <b>${(finalRisk/acct*100).toFixed(2)}%</b></div>
     <div style="color:var(--muted);font-size:12px">2R 目標 ≈ $${t2.toFixed(2)}　3R 目標 ≈ $${t3.toFixed(2)}（賺賠比 2:1 / 3:1）</div>
+    ${overFixed?`<div class="warn" style="color:var(--amber)">超過固定部位規則（$${Math.round(fixed).toLocaleString()}/筆）——部位隨帳戶放大正是要避免的失敗點。</div>`:''}
     ${capped?'<div class="warn">⚠️ 風險%算出的部位超過槓桿上限，已壓到上限股數——代表停損太遠或風險%太高，建議收緊停損或降風險。</div>':''}
     ${stopPct>12?'<div class="warn">⚠️ 停損距離 >12%，對短線槓桿偏遠，部位會很小或風險偏高。</div>':''}`;
 }
@@ -982,6 +1002,7 @@ function openSettings(){
   document.getElementById('riskPos').value=rc.fixedPos||'';
   document.getElementById('riskAcct').value=rc.acct||'';
   document.getElementById('riskExit').value=rc.exit||'15:55';
+  document.getElementById('riskExtract').value=rc.extract||'';
   document.getElementById('futuOn').checked=localStorage.getItem('wo_futu_on')==='1';
   document.getElementById('futuUrl').value=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888';
   document.getElementById('futuToken').value=localStorage.getItem('wo_futu_token')||'';
@@ -998,7 +1019,7 @@ function saveSettings(){
   localStorage.setItem('wo_key',document.getElementById('keyInput').value.trim());
   localStorage.setItem('wo_model',document.getElementById('modelInput').value);
   localStorage.setItem('wo_ema',(document.getElementById('emaInput').value.trim()||'20,50'));
-  localStorage.setItem('wo_risk',JSON.stringify({dailyLoss:parseFloat(document.getElementById('riskLoss').value)||0,fixedPos:parseFloat(document.getElementById('riskPos').value)||0,acct:parseFloat(document.getElementById('riskAcct').value)||0,exit:(document.getElementById('riskExit').value.trim()||'15:55')}));
+  localStorage.setItem('wo_risk',JSON.stringify({dailyLoss:parseFloat(document.getElementById('riskLoss').value)||0,fixedPos:parseFloat(document.getElementById('riskPos').value)||0,acct:parseFloat(document.getElementById('riskAcct').value)||0,exit:(document.getElementById('riskExit').value.trim()||'15:55'),extract:parseFloat(document.getElementById('riskExtract').value)||0}));
   renderHud();
   localStorage.setItem('wo_futu_on',document.getElementById('futuOn').checked?'1':'0');
   localStorage.setItem('wo_futu_url',document.getElementById('futuUrl').value.trim());
@@ -1306,11 +1327,13 @@ function addHolding(){
   if(!s||!(q>0)||!(c>0)){ return; }
   if(holdType==='crypto'){
     const l=parseFloat(document.getElementById('hLev').value)||1, side=document.getElementById('hSide').value;
+    const isNew=!cryptoHoldings.some(h=>h.s===s);
     cryptoHoldings = cryptoHoldings.filter(h=>h.s!==s); cryptoHoldings.push({s,q,e:c,l,side});
-    saveCryptoHoldings();
+    saveCryptoHoldings(); if(isNew) noteEntry();
   } else {
+    const isNew=!holdings.some(h=>h.s===s);
     holdings = holdings.filter(h=>h.s!==s); holdings.push({s,q,c});
-    saveHoldings();
+    saveHoldings(); if(isNew) noteEntry();
   }
   document.getElementById('hSym').value=''; document.getElementById('hQty').value=''; document.getElementById('hCost').value=''; document.getElementById('hLev').value='';
   renderPositions();
