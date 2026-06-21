@@ -24,7 +24,7 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from futu import (OpenQuoteContext, OpenSecTradeContext, RET_OK,
-                      TrdEnv, TrdMarket, SecurityFirm, KLType)
+                      TrdEnv, TrdMarket, SecurityFirm, KLType, SubType)
 except ImportError:
     raise SystemExit("找不到富途 SDK，請先安裝：pip install futu-api")
 
@@ -182,11 +182,32 @@ def _ktype(name):
     return getattr(KLType, table.get(name, "K_DAY"), KLType.K_DAY)
 
 
-def do_kline(code, n, ktype="day"):
+def _subtype(ktype):
+    table = {"1m": "K_1M", "3m": "K_3M", "5m": "K_5M", "15m": "K_15M",
+             "30m": "K_30M", "60m": "K_60M"}
+    return getattr(SubType, table.get(ktype, "K_5M"), SubType.K_5M)
+
+
+def do_kline(code, n, ktype="day", live=False):
     kt = _ktype(ktype)
+    intraday = ktype in ("1m", "3m", "5m", "15m", "30m", "60m")
     with LOCK:
-        res = get_quote().request_history_kline(code, ktype=kt, max_count=n)
-    ret, data = res[0], res[1]
+        q = get_quote()
+        if live and intraday:
+            # 盤中即時K：用「即時行情訂閱額度」(你的付費權限)，不吃有限的歷史K額度
+            try:
+                q.subscribe([code], [_subtype(ktype)], subscribe_push=False)
+            except TypeError:
+                try:
+                    q.subscribe([code], [_subtype(ktype)])
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            ret, data = q.get_cur_kline(code, min(n, 1000), kt)
+        else:
+            res = q.request_history_kline(code, ktype=kt, max_count=n)
+            ret, data = res[0], res[1]
     if ret != RET_OK:
         return {"error": str(data)}
     out = []
@@ -276,7 +297,8 @@ class Handler(BaseHTTPRequestHandler):
                 code = q.get("code", [""])[0]
                 n = int(q.get("num", ["300"])[0])
                 ktype = q.get("ktype", ["day"])[0]
-                self._json(do_kline(code, n, ktype) if code else {"error": "missing code"})
+                live = q.get("live", ["0"])[0] == "1"
+                self._json(do_kline(code, n, ktype, live) if code else {"error": "missing code"})
             elif path == "/setwatch":
                 codes = [c for c in q.get("codes", [""])[0].split(",") if c]
                 if alert_engine and codes:
