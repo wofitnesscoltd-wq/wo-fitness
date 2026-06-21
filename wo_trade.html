@@ -1002,7 +1002,18 @@ async function renderAlerts(){
   try{ data=await futuFetch('/alerts?num=60'); }catch(e){ list.innerHTML='<div class="news-empty">⚠️ 讀取警示失敗：'+e.message+'</div>'; return; }
   if(data.engine!=='on'){ list.innerHTML='<div class="news-empty">警示引擎未啟動。重開橋接時加參數：<br><b>python futu_bridge.py --alerts</b><br>（要推 Telegram 再加 <b>--telegram-token</b> 與 <b>--telegram-chat</b>）</div>'; return; }
   const st=data.status||{}; const al=data.alerts||[];
-  const head=`<div style="font-size:11px;color:var(--muted);padding:2px 4px 6px">引擎狀態：${st.phase||'—'}　本輪掃 ${st.scanned??'—'} 檔　推播 ${st.pushed??0}　${st.ts||''}</div>`;
+  let perf=null; try{ perf=await futuFetch('/stats'); }catch(e){}
+  const rg=st.regime?({risk_on:'🟢 risk-on',neutral:'⚪ 中性',risk_off:'🔴 risk-off'}[st.regime]||st.regime):'';
+  let head=`<div style="font-size:11px;color:var(--muted);padding:2px 4px 4px">引擎：${st.phase||'—'}　${rg}${st.halt_buys?'　🛑 買訊熔斷':''}　掃 ${st.scanned??'—'} 檔　推播 ${st.pushed??0}　${st.ts||''}</div>`;
+  if(perf&&perf.ALL&&perf.ALL.n){
+    const a=perf.ALL, A=perf['grade:A'], B=perf['grade:B'], C=perf['grade:C'];
+    const cell=(g,o)=>o&&o.n?`<span style="margin-right:8px">${g} ${o.win_rate}%·${o.expectancy_R}R(${o.n})</span>`:'';
+    head+=`<div class="calc-out show" style="margin:0 0 8px;padding:9px 11px">
+      <div style="font-size:12px"><b>績效</b>　結算 ${a.n}　勝率 <b>${a.win_rate}%</b>　期望 <b>${a.expectancy_R}R</b>　獲利因子 ${a.profit_factor}　追蹤中 ${perf.open||0}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">${cell('A',A)}${cell('B',B)}${cell('C',C)}</div></div>`;
+  } else if(perf){
+    head+=`<div style="font-size:11px;color:var(--muted);padding:0 4px 6px">績效：尚無已結算訊號（追蹤中 ${perf.open||0}）。累積後會顯示勝率/期望值/獲利因子，並自動學習各流派權重。</div>`;
+  }
   if(!al.length){ list.innerHTML=head+'<div class="news-empty">目前尚無訊號（非開盤時段或還沒掃到觸發）。開盤後會自動出現。</div>'; return; }
   list.innerHTML=head;
   al.forEach(a=>{
