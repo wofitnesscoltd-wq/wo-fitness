@@ -72,7 +72,7 @@ header .spacer{margin-left:auto;}
 .wl-group{display:flex;align-items:center;justify-content:space-between;gap:6px;}
 .wl-sort{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:2px 7px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0;text-transform:none;}
 .wl-sort:hover{color:var(--orange);border-color:var(--orange);}
-.wl-sec{font-size:12.5px;font-weight:700;color:var(--orange-light);padding:10px 11px 5px;letter-spacing:.03em;border-top:1px solid var(--border);margin-top:2px;display:flex;align-items:center;gap:6px;}
+.wl-sec{font-size:12.5px;font-weight:700;color:var(--orange-light);padding:10px 11px 5px;letter-spacing:.03em;border-top:1px solid var(--border);margin-top:2px;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;}
 .wl-sec:first-of-type{border-top:none;}
 .wl-q{flex-shrink:0;text-align:right;min-width:78px;cursor:pointer;}
 .wl-px{font-size:13.5px;font-weight:600;line-height:1.35;}
@@ -748,15 +748,15 @@ function effChange(q){
   }
   return q.change_rate!=null?q.change_rate:null;
 }
-let wlBasis = localStorage.getItem('wo_wlbasis')||'combo';   // combo綜合 / reg盤中 / ext盤前後
+let wlBasis = (localStorage.getItem('wo_wlbasis')==='ext')?'ext':'reg';   // reg盤中 / ext盤前後
+let wlDir = (localStorage.getItem('wo_wldir')==='asc')?'asc':'desc';      // desc強→弱 / asc弱→強
 function wlExt(q){ if(!q)return null; if(q.after_rate!=null&&q.after_rate!=='')return q.after_rate; if(q.pre_rate!=null&&q.pre_rate!=='')return q.pre_rate; return null; }
-function wlChg(it){
-  const q=futu.quotes[futuCode(it.s)]; if(!q)return null;
-  if(wlBasis==='reg') return q.change_rate!=null?q.change_rate:null;
-  if(wlBasis==='ext') return wlExt(q);
-  return effChange(q);
-}
-function cycleWlBasis(){ wlBasis = wlBasis==='combo'?'reg':wlBasis==='reg'?'ext':'combo'; localStorage.setItem('wo_wlbasis',wlBasis); renderWatchlist(); }
+function wlReg(it){ const q=futu.quotes[futuCode(it.s)]; return q&&q.change_rate!=null?q.change_rate:null; }
+function wlExtOf(it){ return wlExt(futu.quotes[futuCode(it.s)]); }
+function wlChg(it){ return wlBasis==='ext'?wlExtOf(it):wlReg(it); }
+function avgList(a){ const v=a.filter(x=>x!=null); return v.length?v.reduce((x,y)=>x+y,0)/v.length:null; }
+function toggleWlBasis(){ wlBasis = wlBasis==='reg'?'ext':'reg'; localStorage.setItem('wo_wlbasis',wlBasis); renderWatchlist(); }
+function toggleWlDir(){ wlDir = wlDir==='desc'?'asc':'desc'; localStorage.setItem('wo_wldir',wlDir); renderWatchlist(); }
 function renderWlRow(it){
   const row=document.createElement('div');
   row.className='wl-item'+(it.s===current?' active':'');
@@ -772,27 +772,30 @@ function renderWatchlist(){
   const list=lists[region];
   el.innerHTML='';
   const head=document.createElement('div'); head.className='wl-group';
-  const basisLbl={combo:'📈 綜合',reg:'📈 盤中',ext:'📈 盤前後'}[wlBasis];
   head.innerHTML=`<span>${region==='us'?'美股':'台股'}（${list.length}）</span>
     <span style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
-      <button class="wl-sort" onclick="cycleWlBasis()" title="排序依據：綜合 / 盤中 / 盤前後">${basisLbl}</button>
-      <button class="wl-sort" onclick="toggleWlGroup()">${wlGroup?'📊 分板塊':'↕ 純排序'}</button>
+      <button class="wl-sort" onclick="toggleWlBasis()" title="排序依據">${wlBasis==='ext'?'📈 盤前後':'📈 盤中'}</button>
+      <button class="wl-sort" onclick="toggleWlDir()" title="排序方向">${wlDir==='desc'?'強→弱':'弱→強'}</button>
+      <button class="wl-sort" onclick="toggleWlGroup()">${wlGroup?'📊 分板塊':'↕ 不分'}</button>
       ${region==='us'?'<button class="wl-sort" id="aiSecBtn" onclick="aiClassifySectors()" title="用 AI 把清單依板塊歸類">🤖 歸類</button>':''}
     </span>`;
   el.appendChild(head);
-  const byStrong=(a,b)=>{ const va=wlChg(a),vb=wlChg(b); return (vb==null?-1e9:vb)-(va==null?-1e9:va); };
+  const SINK=(wlDir==='desc'?-1e9:1e9);
+  const key=(a,b)=>{ const va=wlChg(a),vb=wlChg(b); const A=va==null?SINK:va, B=vb==null?SINK:vb; return wlDir==='desc'?B-A:A-B; };
+  const fmtPctLbl=(v,lbl)=> v==null?'':`<span class="${v>=0?'up':'down'}" style="font-size:11px;font-weight:700">${lbl}${v>=0?'+':''}${v.toFixed(1)}%</span>`;
   if(!wlGroup){
-    list.slice().sort(byStrong).forEach(it=>el.appendChild(renderWlRow(it)));
+    list.slice().sort(key).forEach(it=>el.appendChild(renderWlRow(it)));
   } else {
     const groups={}; list.forEach(it=>{ const s=getSector(it.s); (groups[s]=groups[s]||[]).push(it); });
-    const avg=g=>{ const v=groups[g].map(wlChg).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+    const avgBasis=g=>avgList(groups[g].map(wlChg));
     const hasQ=list.some(it=>wlChg(it)!=null);
-    const names=Object.keys(groups).sort((a,b)=>{ if(hasQ){ const va=avg(a),vb=avg(b); return (vb==null?-1e9:vb)-(va==null?-1e9:va); } return (SECTOR_ORDER.indexOf(a)+1||99)-(SECTOR_ORDER.indexOf(b)+1||99); });
+    const names=Object.keys(groups).sort((a,b)=>{ if(hasQ){ const A=avgBasis(a)==null?SINK:avgBasis(a), B=avgBasis(b)==null?SINK:avgBasis(b); return wlDir==='desc'?B-A:A-B; } return (SECTOR_ORDER.indexOf(a)+1||99)-(SECTOR_ORDER.indexOf(b)+1||99); });
     names.forEach(s=>{
-      const a=avg(s); const lbl=(a!=null)?` <span class="${a>=0?'up':'down'}" style="font-size:11px;font-weight:700">${a>=0?'+':''}${a.toFixed(1)}%</span>`:'';
-      const gh=document.createElement('div'); gh.className='wl-sec'; gh.innerHTML=`${s} <span style="color:var(--muted);font-weight:400">(${groups[s].length})</span>${lbl}`;
+      const ra=avgList(groups[s].map(wlReg)), ea=avgList(groups[s].map(wlExtOf));
+      const gh=document.createElement('div'); gh.className='wl-sec';
+      gh.innerHTML=`<span>${s} <span style="color:var(--muted);font-weight:400">(${groups[s].length})</span></span> <span style="display:flex;gap:6px;flex-wrap:wrap">${fmtPctLbl(ra,'盤中')}${fmtPctLbl(ea,'盤後')}</span>`;
       el.appendChild(gh);
-      groups[s].slice().sort(byStrong).forEach(it=>el.appendChild(renderWlRow(it)));
+      groups[s].slice().sort(key).forEach(it=>el.appendChild(renderWlRow(it)));
     });
   }
   updateWatchlistQuotes(); renderStockPick();
