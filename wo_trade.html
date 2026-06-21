@@ -102,6 +102,14 @@ header .spacer{margin-left:auto;}
 .brain-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);}
 .brain-bar select{background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 8px;font-family:inherit;font-size:12.5px;max-width:150px;}
 .brain-bar select:focus{border-color:var(--orange);outline:none;}
+.combo{position:relative;}
+.combo input{background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;font-family:inherit;font-size:12.5px;outline:none;width:150px;}
+.combo input:focus{border-color:var(--orange);}
+.combo-list{position:absolute;top:calc(100% + 4px);left:0;min-width:210px;max-height:320px;overflow-y:auto;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;z-index:60;box-shadow:0 10px 28px rgba(0,0,0,.45);}
+.combo-item{padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:baseline;}
+.combo-item span{font-size:11px;color:var(--muted);font-weight:400;}
+.combo-item:hover{background:var(--orange-pale);color:var(--orange);}
+.combo-empty{padding:10px;color:var(--muted);font-size:12px;text-align:center;}
 .chips{display:flex;flex-wrap:wrap;gap:5px;}
 .chips .chip{background:var(--panel-2);border:1px solid var(--blue);color:var(--blue);border-radius:7px;padding:4px 8px;font-size:12px;display:inline-flex;align-items:center;gap:4px;}
 .chips .chip b{cursor:pointer;color:var(--muted);font-weight:700;}
@@ -249,10 +257,14 @@ header .spacer{margin-left:auto;}
           <div class="cur" id="curLabel">—</div>
           <div class="spacer" style="flex:1"></div>
           <div id="analyzeChips" class="chips"></div>
-          <select id="stockPick" onchange="addAnalyze(this.value)" title="加入個股分析（可複選）"></select>
+          <div class="combo" id="stockCombo">
+            <input id="stockSearch" placeholder="＋ 加入個股（可搜尋）" autocomplete="off" oninput="filterStockList()" onfocus="filterStockList()" onblur="setTimeout(hideStockList,160)">
+            <div class="combo-list" id="stockList" style="display:none"></div>
+          </div>
           <button class="btn-primary" id="stockBtn" onclick="stockAnalysis()" style="background:var(--panel-2);border:1px solid var(--blue);color:var(--blue)">🔬 個股分析</button>
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
+          <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
         </div>
         <div class="feed" id="feed">
           <div class="welcome" id="welcome">
@@ -729,11 +741,16 @@ function updateWatchlistQuotes(){
     } else { px.textContent=''; ch.textContent=''; }
   });
 }
-function renderStockPick(){
-  const sel=document.getElementById('stockPick'); if(!sel)return;
-  sel.innerHTML='<option value="">＋ 加入個股</option>'+lists[region].map(it=>`<option value="${it.s}">${tkr(it.s)}${it.n?'　'+it.n:''}</option>`).join('');
-  sel.value='';
+function renderStockPick(){ if(document.activeElement===document.getElementById('stockSearch')) filterStockList(); }
+function filterStockList(){
+  const inp=document.getElementById('stockSearch'), box=document.getElementById('stockList'); if(!inp||!box)return;
+  const q=(inp.value||'').trim().toUpperCase();
+  const items=lists[region].filter(it=>!q || tkr(it.s).includes(q) || (it.n||'').toUpperCase().includes(q));
+  box.innerHTML=items.slice(0,80).map(it=>`<div class="combo-item" data-s="${it.s}">${tkr(it.s)}<span>${it.n||''}</span></div>`).join('')||'<div class="combo-empty">查無此標的，可在左上「新增代號」加入</div>';
+  box.querySelectorAll('.combo-item').forEach(el=>{ el.onmousedown=e=>{ e.preventDefault(); addAnalyze(el.getAttribute('data-s')); inp.value=''; filterStockList(); }; });
+  box.style.display='block';
 }
+function hideStockList(){ const b=document.getElementById('stockList'); if(b)b.style.display='none'; }
 function pickStock(sym){
   const it=lists[region].find(x=>x.s===sym);
   selectSymbol(sym, it?it.n:'');
@@ -854,15 +871,26 @@ async function callClaude(userText, {json=false, maxTokens=3000}={}){
     messages:[{role:'user',content:userText}],
     tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}]
   };
-  const res=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify(body)
-  });
-  if(!res.ok){ const t=await res.text(); throw new Error('API 錯誤 '+res.status+'：'+t.slice(0,300)); }
-  const data=await res.json();
-  return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+  currentAbort=new AbortController();
+  const stopB=document.getElementById('stopBtn'); if(stopB) stopB.style.display='inline-block';
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify(body), signal:currentAbort.signal
+    });
+    if(!res.ok){ const t=await res.text(); throw new Error('API 錯誤 '+res.status+'：'+t.slice(0,300)); }
+    const data=await res.json();
+    return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+  }catch(e){
+    if(e.name==='AbortError') throw new Error('⏹ 已停止');
+    throw e;
+  }finally{
+    currentAbort=null; if(stopB) stopB.style.display='none';
+  }
 }
+let currentAbort=null;
+function stopAI(){ if(currentAbort) currentAbort.abort(); }
 
 /* ---------- markdown 迷你渲染 ---------- */
 function md(t){
