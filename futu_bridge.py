@@ -285,9 +285,11 @@ class Handler(BaseHTTPRequestHandler):
             if html is None:
                 self._json({"error": "無法載入 wo_trade.html（沒網路且本機也沒有副本）"}, 502)
                 return
-            # 用「這次請求進來的 Host」當回呼網址：本機開＝127.0.0.1；手機同 WiFi 開＝你的內網IP，都能連回橋接
+            # 回呼網址跟著「這次請求」走：本機＝127.0.0.1、同WiFi＝內網IP、外網通道(Cloudflare/Tailscale)＝該網域。
+            # 用 X-Forwarded-Proto 判斷 http/https，避免 HTTPS 通道下的 mixed-content 被瀏覽器擋掉。
             host_hdr = self.headers.get("Host") or ("127.0.0.1:%d" % ARGS.port)
-            inject = '<script>window.__WO_FUTU_TOKEN__=%s;window.__WO_FUTU_URL__="http://%s";</script>' % (json.dumps(TOKEN), host_hdr)
+            proto = self.headers.get("X-Forwarded-Proto", "http").split(",")[0].strip() or "http"
+            inject = '<script>window.__WO_FUTU_TOKEN__=%s;window.__WO_FUTU_URL__="%s://%s";</script>' % (json.dumps(TOKEN), proto, host_hdr)
             html = html.replace("</head>", inject + "</head>", 1)
             body = html.encode("utf-8")
             self.send_response(200)
