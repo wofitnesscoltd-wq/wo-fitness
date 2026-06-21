@@ -326,6 +326,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="stockBtn" onclick="stockAnalysis()" style="background:var(--panel-2);border:1px solid var(--blue);color:var(--blue)">🔬 個股分析</button>
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
+          <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
           <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
         </div>
         <div class="funnel" id="funnel">
@@ -517,7 +518,7 @@ let current = null, currentName = '';
 let analyzeList = [];
 let wlSort = 'none';
 let busy = false;
-function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
+function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn','doctorBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
 function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
 function tkr(s){ return s&&s.includes(':') ? s.split(':')[1] : (s||''); }
 /* 介面整體縮放：字和間距一起放大，不會變擠 */
@@ -1248,6 +1249,61 @@ async function marketBrief(){
   setBusy(false);
 }
 
+/* ---------- 持倉診斷（部位作戰會議） ---------- */
+function positionCtx(){
+  let s='';
+  if(holdings.length){
+    s+='\n【美股現股部位（國泰/永豐複委託）】\n';
+    holdings.forEach(h=>{ const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
+      const pl=px?((px/h.c-1)*100).toFixed(1):'—';
+      s+=`・${tkr(h.s)}：${h.q}股，成本${h.c}${px?`，現價${px}，未實現${pl}%`:''}\n`; });
+  }
+  if(cryptoHoldings.length){
+    const sm=cryptoSummary();
+    s+='\n【加密永續部位（幣安/Bitget，全倉）】\n';
+    cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||null; const lp=liqPrice(h.e,h.l,h.side);
+      const upnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100).toFixed(1):'—';
+      const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100).toFixed(1):'—';
+      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px?`，現價${px}`:''}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，單倉未實現${upnl}%，估爆倉${lp?lp.toFixed(2):'—'}（距${dist}%）\n`; });
+    const pairs={}; cryptoHoldings.forEach(h=>{ pairs[h.s]=(pairs[h.s]||0)+1; });
+    const hedged=Object.keys(pairs).filter(k=>pairs[k]>1);
+    if(hedged.length) s+=`（多空對鎖中：${hedged.join('、')} 同時持有多單與空單）\n`;
+    s+=`\n【加密全倉總覽】可用保證金${Math.round(sm.avail)}U，帳戶權益${Math.round(sm.equity)}U，未實現${Math.round(sm.upnl)}U，總名目${Math.round(sm.gross)}U，淨曝險${Math.round(sm.net)}U，整體槓桿${sm.grossLev.toFixed(1)}x（淨${sm.netLev.toFixed(1)}x），距全倉爆倉緩衝${sm.buffer==null?'已對沖、極低':sm.buffer.toFixed(1)+'%'}。\n`;
+  }
+  const c=riskCfg();
+  s+=`\n【我的紀律規則】每日虧損上限${c.dailyLoss>0?'$'+c.dailyLoss:'未設'}，固定部位${c.fixedPos>0?'$'+c.fixedPos+'/筆':'未設'}，當沖硬出場${c.exit}（美東），獲利提取門檻${c.extract>0?'$'+c.extract:'未設'}。我是專業永續操盤手：每單目標≥5%（不含槓桿）、看錯就認賠、做波段不抄短線、不是賭槓桿仔。\n`;
+  return s;
+}
+async function positionDoctor(){
+  if(busy)return;
+  if(!holdings.length && !cryptoHoldings.length){ addBubble('還沒有部位可診斷。先到右側 💼 持股 加入你的現股或加密永續部位。','ai'); return; }
+  setBusy(true);
+  addBubble('🩺 <b>持倉診斷</b>：即時體檢我所有部位…','user');
+  const tp=addTyping();
+  try{
+    const txt=await callClaude(`${positionCtx()}
+請對我「上面這些實際部位」做一次即時、可執行的持倉診斷（操盤手等級，不是教科書）。先用 web 搜尋確認今天日期/星期、美股與加密最新狀態、每個標的最新報價與近期消息。最上面標一行【資料截至：日期 週X 時間／市場狀態】。
+
+整合下列維度逐一分析（缺資料就明說、別亂編數字）：
+1. **市場溫度／regime**：跨資產(VIX、美元、利率、油價、BTC)與市場廣度——現在 risk-on 還 risk-off？這對我「整體淨曝險方向」是順風還逆風？加密用 BTC 當大盤。
+2. **基本面**：每個標的的基本面與估值位階（tokenized 美股永續對應真實個股，如 COHR 光通訊、QCOM 高通、RKLB 火箭實驗室）。
+3. **消息面（即時）**：近期與即將到來的催化劑、財報日、總經事件（附日期）；有無會立刻改變部位的新聞。
+4. **技術面（當下）**：價格相對 EMA/VWAP、均線排列、RSI/MACD、關鍵支撐壓力、ORB；目前順勢或逆勢。
+5. **永續特有**：資金費率（過熱／逆向收費）、爆倉距離、整體槓桿與淨曝險是否過大、保證金是否吃緊（我可用保證金不多）。
+6. **你想到我沒想到的**：相關性／部位擁擠度、財報前後 IV、流動性、週末加密風險、對鎖的資金效率等。
+
+接著給**明確指令**（逐倉＋投組層級），用客觀描述、不說教：
+- **逐倉**：續抱／加倉／減倉／平倉／反向／移動停損——給價位與理由，標信心（高／中／低）。
+- **對鎖策略**：哪些該維持對鎖、哪些該「拆一邊吃單邊趨勢」、反轉時是否在另一邊加倉吃回來（也可不加倉只翻邊）；講清楚這個對鎖是為了降爆倉風險、還是為了吃雙邊趨勢。
+- **投組層級**：目前淨曝險方向對不對、整體槓桿要不要降、爆倉緩衝夠不夠、要不要先落袋到提取門檻。
+- 全程尊重我的紀律規則。
+
+用 Markdown：先「## 大盤＆投組總評」，再每個部位一段「## 代號 方向」，最後「## 今天就執行的 3 件事」。粗體標關鍵價位與動作，精簡可執行。`,{maxTokens:6000});
+    tp.remove(); addBubble(md(txt),'ai');
+  }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
+  setBusy(false);
+}
+
 /* ---------- 個股分析（從關注清單選） ---------- */
 async function stockAnalysis(){
   if(busy)return;
@@ -1503,7 +1559,20 @@ function seedPositionsOnce(){
   localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings));
   if(getCMargin()<=0) localStorage.setItem('wo_cmargin','1787.08');
 }
-/* 手動備份／還原（再加一層保險，存成 JSON 檔） */
+/* 修正舊格式加密資料：改版前把「保證金」誤存成「幣量」且沒有 m 欄位 → 名目暴增 ~槓桿倍。
+   偵測到沒有 m 的舊資料，就把存著的 q 當成保證金、回推正確幣量。不用你重 key。 */
+function migrateCryptoHoldings(){
+  let changed=false;
+  cryptoHoldings=cryptoHoldings.map(h=>{
+    if(h && h.m===undefined && h.q>0 && h.e>0){
+      const l=h.l||1, margin=h.q, qty=margin*l/h.e;
+      changed=true;
+      return {s:h.s,q:qty,e:h.e,l,side:(h.side==='short'?'short':'long'),m:margin};
+    }
+    return h;
+  });
+  if(changed){ localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings)); }
+}
 function exportData(){
   const blob={v:1,ts:Date.now(),holdings,cryptoHoldings,journal,cmargin:getCMargin(),
     watch:JSON.parse(localStorage.getItem('wo_lists')||'null'), stops:JSON.parse(localStorage.getItem('wo_stops')||'null')};
@@ -1720,7 +1789,7 @@ let alertTimer=null;
   if(window.__WO_FUTU_URL__){ localStorage.setItem('wo_futu_url', window.__WO_FUTU_URL__); }
   if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
-  seedPositionsOnce();
+  migrateCryptoHoldings(); seedPositionsOnce();
   applyScale();
   if(localStorage.getItem('wo_focus')==='1') document.body.classList.add('focus');
   renderHud(); setInterval(renderHud, 20000);
