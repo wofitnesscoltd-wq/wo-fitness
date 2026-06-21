@@ -153,18 +153,35 @@ def _grade(conf, f, daily_aligned):
     return "A" if score >= 4 else "B" if score >= 3 else "C"
 
 
-def _plan(side, f):
-    """用 ATR 反推停損/目標/風險報酬。"""
+def _plan(side, f, min_move=0.05, min_rr=1.6, k=1.6):
+    """波段型：目標至少 min_move（如 5%），停損用 ATR 認賠；R:R 不足就回 None（不發訊號）。
+    這擋掉「抄短線」的小波動單，只留有足夠漲幅空間、賺賠比夠好的波段機會。"""
+    px = f["close"]
+    a = f.get("atr") or (px * 0.01)
+    if side == "long":
+        target = px * (1 + min_move)
+        stop = px - k * a
+        risk, reward = px - stop, target - px
+    else:
+        target = px * (1 - min_move)
+        stop = px + k * a
+        risk, reward = stop - px, px - target
+    if risk <= 0:
+        return None
+    rr = reward / risk
+    if rr < min_rr:                      # 停損太寬/空間不夠 → 不是好波段，不發
+        return None
+    return round(stop, 4), round(target, 4), round(rr, 1)
+
+
+def _exit_plan(side, f):
+    """賣出/減碼用：不擋，照算停損與參考目標（保護持股優先）。"""
     px, a = f["close"], f.get("atr") or (f["close"] * 0.01)
     if side == "long":
-        stop = round(min(f["vwap"], px - 1.5 * a), 2)
-        risk = max(px - stop, a * 0.5)
-        target = round(px + 2 * risk, 2)
-    else:  # short / exit reference
-        stop = round(max(f["vwap"], px + 1.5 * a), 2)
-        risk = max(stop - px, a * 0.5)
-        target = round(px - 2 * risk, 2)
-    rr = round(abs(target - px) / risk, 1) if risk else None
+        stop = round(min(f["vwap"], px - 1.5 * a), 2); target = round(px + 2 * (px - stop), 2)
+    else:
+        stop = round(max(f["vwap"], px + 1.5 * a), 2); target = round(px - 2 * (stop - px), 2)
+    rr = round(abs(target - px) / max(abs(px - stop), 1e-9), 1)
     return stop, target, rr
 
 
@@ -273,23 +290,32 @@ def eval_buy(bars5, daily_chg=None, bars15=None, ctx=None, weights=None):
     rv = f.get("rvol") or 1.0
     rvol_mult = _clamp(1 + (rv - 1) * 0.1, 0.9, 1.3)
 
-    # 閘門：市場 regime / 流動性 / 日線逆向
+    # 硬閘門：流動性太差（如週日/夜深）直接不發——不在爛量裡硬上波段
+    if rv < ctx.get("min_rvol", 0.7):
+        return []
+
+    # 閘門：市場 regime / 日線逆向
     regime = ctx.get("regime", "neutral")
     regime_gate = {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.6}.get(regime, 0.9)
-    liq_gate = 0.5 if rv < 0.5 else 1.0
     daily_gate = 0.85 if (daily_chg is not None and daily_chg < -1) else 1.0
 
-    conviction = _clamp(base * mt_mult * rs_mult * rvol_mult * regime_gate * liq_gate * daily_gate, 0, 1)
-    grade = ("A" if conviction >= 0.68 else "B" if conviction >= 0.5
-             else "C" if conviction >= 0.36 else None)
+    conviction = _clamp(base * mt_mult * rs_mult * rvol_mult * regime_gate * daily_gate, 0, 1)
+    # 提高門檻：少而精，不洗版
+    grade = ("A" if conviction >= 0.72 else "B" if conviction >= 0.6
+             else "C" if conviction >= 0.5 else None)
     if grade is None:
         return []
 
-    stop, target, rr = _plan("long", f)
+    # 波段空間/賺賠比閘門：目標至少 min_move（預設5%），不夠就不是好波段 → 不發
+    plan = _plan("long", f, ctx.get("min_move", 0.05), ctx.get("min_rr", 1.6))
+    if not plan:
+        return []
+    stop, target, rr = plan
+    move_pct = (target / f["close"] - 1) * 100
     contributors = sorted([k for k in s if s[k] >= 0.5 and k in SCHOOL_LABEL],
                           key=lambda k: -s[k] * weights[k])
     type_str = "＋".join(SCHOOL_LABEL[k] for k in contributors) or "多訊號匯流"
-    reason = "；".join(triggered) + f"；綜合信心 {conviction:.2f}（regime={regime}{mt_note}，RS×{rs_mult:.2f}，RVOL {rv:.1f}）"
+    reason = "；".join(triggered) + f"；目標約 +{move_pct:.1f}%、R:R {rr}；信心 {conviction:.2f}（{regime}{mt_note}，RS×{rs_mult:.2f}，RVOL {rv:.1f}）"
     return [{
         "side": "long", "type": type_str, "grade": grade,
         "price": round(f["close"], 2), "stop": stop, "target": target, "rr": rr,
@@ -320,7 +346,7 @@ def eval_sell(bars5, pos=None, ctx=None):
         triggers.append(("跌破 EMA50", "失守 EMA50，趨勢轉弱"))
     if not triggers:
         return []
-    stop, target, rr = _plan("short", f)
+    stop, target, rr = _exit_plan("short", f)
     n = len(triggers)
     if ctx.get("regime") == "risk_off":     # 大盤轉弱：賣訊更敏感，升一級
         n += 1
@@ -784,7 +810,10 @@ class AlertEngine:
 
         # 市場 regime（每輪算一次）
         regime, spy_ret = self._regime()
-        ctx = {"regime": regime, "spy_ret": spy_ret}
+        ctx = {"regime": regime, "spy_ret": spy_ret,
+               "min_move": float(self.cfg.get("min_move", 0.05)),
+               "min_rr": float(self.cfg.get("min_rr", 1.6)),
+               "min_rvol": float(self.cfg.get("min_rvol", 0.7))}
 
         # 持股：每輪都掃（賣點最重要）。你真正的部位＝手動輸入（國泰/永豐/加密），
         # 牛牛只是數據源；若牛牛剛好也有部位就一併納入。

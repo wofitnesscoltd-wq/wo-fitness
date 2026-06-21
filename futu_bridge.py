@@ -425,6 +425,7 @@ def start_engine():
         "anthropic_key": ai_key, "ai_model": ARGS.ai_model,
         "get_account": _provider_account, "daily_loss": ARGS.daily_loss,
         "account_size": ARGS.account_size or fc.get("account_size"),
+        "min_move": ARGS.min_move, "min_rr": ARGS.min_rr, "min_rvol": ARGS.min_rvol,
     }
     ENGINE = alert_engine.AlertEngine(_provider_kline, _provider_snapshot, _provider_positions, cfg)
     ENGINE.start()
@@ -449,7 +450,9 @@ def start_crypto():
     syms = [s.strip().upper() for s in (ARGS.crypto_symbols or "").split(",") if s.strip()] or None
     cfg = {"source": ARGS.crypto_source, "symbols": syms, "min_grade": ARGS.min_grade,
            "scan_sec": ARGS.scan_sec, "telegram_token": token, "telegram_chat": chat,
-           "anthropic_key": ai_key, "ai_model": ARGS.ai_model}
+           "anthropic_key": ai_key, "ai_model": ARGS.ai_model,
+           "min_move": max(ARGS.min_move, 0.06), "min_rr": max(ARGS.min_rr, 1.8),
+           "min_rvol": max(ARGS.min_rvol, 0.8)}
     CRYPTO = crypto_mod.CryptoScanner(cfg)
     CRYPTO.start()
     print(f"  加密監測: 已啟動（{ARGS.crypto_source}）24h　幣種 {syms or '預設主流幣'}")
@@ -468,7 +471,10 @@ def main():
     p.add_argument("--telegram-token", default=None, help="Telegram bot token（或設環境變數 TELEGRAM_BOT_TOKEN）")
     p.add_argument("--telegram-chat", default=None, help="Telegram chat id（或設環境變數 TELEGRAM_CHAT_ID）")
     p.add_argument("--scan-sec", type=int, default=60, help="掃描間隔秒數")
-    p.add_argument("--min-grade", default="C", choices=["A", "B", "C"], help="推播的最低訊號等級")
+    p.add_argument("--min-grade", default="A", choices=["A", "B", "C"], help="推播的最低訊號等級（預設A：少而精）")
+    p.add_argument("--min-move", type=float, default=0.05, help="目標最小漲幅（0.05=5%；波段而非抄短線）")
+    p.add_argument("--min-rr", type=float, default=1.6, help="最低風險報酬比")
+    p.add_argument("--min-rvol", type=float, default=0.7, help="最低相對量（過濾低流動性，如週日）")
     p.add_argument("--batch", type=int, default=25, help="每輪掃描的自選股數（round-robin，尊重行情速率）")
     p.add_argument("--phases", default="regular", help="掃描時段，逗號分隔：pre,regular,post")
     p.add_argument("--anthropic-key", default=None, help="Claude 金鑰，開啟每則訊號 AI 複核（或設環境變數 ANTHROPIC_API_KEY）")
