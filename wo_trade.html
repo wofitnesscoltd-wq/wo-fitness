@@ -1436,6 +1436,22 @@ async function restoreFromBridge(){
   bridgeSynced=true;
   renderPositions();
 }
+/* 一次性把你交易所截圖的真實部位灌進來（只在本機是空的、且沒灌過時跑一次；不蓋你之後的修改） */
+function seedPositionsOnce(){
+  if(localStorage.getItem('wo_seed_v1')) return;
+  localStorage.setItem('wo_seed_v1','1');
+  if(cryptoHoldings.length) return;   // 你已有資料就完全不動
+  const seed=[
+    {s:'RKLBUSDT',side:'short',q:20.01, e:105.65,l:20,m:106.38},
+    {s:'RKLBUSDT',side:'long', q:106.86,e:110.40,l:20,m:568.12},
+    {s:'QCOMUSDT',side:'short',q:14.63, e:221.32,l:15,m:227.82},
+    {s:'QCOMUSDT',side:'long', q:53.63, e:229.00,l:15,m:835.13},
+    {s:'COHRUSDT',side:'long', q:30.97, e:412.42,l:15,m:811.70}
+  ];
+  cryptoHoldings=seed.map(p=>({s:p.s,q:p.q,e:p.e,l:p.l,side:p.side,m:p.m}));
+  localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings));
+  if(getCMargin()<=0) localStorage.setItem('wo_cmargin','1787.08');
+}
 /* 手動備份／還原（再加一層保險，存成 JSON 檔） */
 function exportData(){
   const blob={v:1,ts:Date.now(),holdings,cryptoHoldings,journal,cmargin:getCMargin(),
@@ -1653,6 +1669,7 @@ let alertTimer=null;
   if(window.__WO_FUTU_URL__){ localStorage.setItem('wo_futu_url', window.__WO_FUTU_URL__); }
   if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
+  seedPositionsOnce();
   applyScale();
   if(localStorage.getItem('wo_focus')==='1') document.body.classList.add('focus');
   renderHud(); setInterval(renderHud, 20000);
