@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>窩 Trading 大腦｜美股・台股 AI 看盤副駕</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
 :root{
@@ -65,8 +66,25 @@ header .spacer{margin-left:auto;}
 .wl-aft{display:block;font-size:10px;color:var(--muted);}
 /* main */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;}
-.chart-area{height:40vh;min-height:240px;border-bottom:1px solid var(--border);}
-.chart-area>div,.chart-area .tradingview-widget-container{height:100%;width:100%;}
+.chart-area{height:48vh;min-height:320px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;}
+.chart-host{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}
+.chart-host .tradingview-widget-container{height:100%;width:100%;}
+.chart-tools{display:flex;align-items:center;gap:5px;padding:5px 9px;border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:12px;background:var(--panel);}
+.chart-tools .seg{display:flex;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+.chart-tools .seg button{border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:11.5px;padding:4px 8px;cursor:pointer;}
+.chart-tools .seg button.on{background:var(--orange);color:#fff;}
+.chart-tools .tg{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 8px;font-family:inherit;font-size:11.5px;cursor:pointer;}
+.chart-tools .tg.on{border-color:var(--orange);color:var(--orange-light);}
+.chart-tools .src{margin-left:auto;}
+.chart-tools .lbl{color:var(--muted);font-size:11px;}
+.pane{position:relative;width:100%;min-height:0;}
+.pane .ptag{position:absolute;top:3px;left:7px;z-index:3;font-size:10.5px;color:var(--muted);pointer-events:none;background:rgba(14,17,22,.55);padding:1px 5px;border-radius:4px;}
+.calc-out{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-top:14px;font-size:13px;line-height:1.9;display:none;}
+.calc-out.show{display:block;}
+.calc-out .big{font-size:22px;font-weight:700;color:var(--orange-light);}
+.calc-out .warn{color:var(--red);font-size:12px;margin-top:6px;}
+.calc-row{display:flex;gap:10px;}
+.calc-row>div{flex:1;}
 .work{flex:1;display:flex;min-height:0;}
 /* brain */
 .brain{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border);}
@@ -170,7 +188,24 @@ header .spacer{margin-left:auto;}
   </aside>
 
   <main class="main">
-    <div class="chart-area" id="chartArea"></div>
+    <div class="chart-area" id="chartArea">
+      <div class="chart-tools" id="chartTools">
+        <span class="lbl" id="chartIntvWrap"><div class="seg" id="intvSeg">
+          <button data-iv="1m">1分</button><button data-iv="5m">5分</button><button data-iv="15m">15分</button>
+          <button data-iv="30m">30分</button><button data-iv="60m">60分</button><button data-iv="day">日</button>
+        </div></span>
+        <button class="tg" id="tgEMA" data-ind="ema">EMA</button>
+        <button class="tg" id="tgVWAP" data-ind="vwap">VWAP</button>
+        <button class="tg" id="tgRSI" data-ind="rsi">RSI</button>
+        <button class="tg" id="tgMACD" data-ind="macd">MACD</button>
+        <span class="lbl" id="chartHint"></span>
+        <div class="seg src" id="srcSeg">
+          <button data-src="self">自製圖·牛牛</button><button data-src="tv">TradingView</button>
+        </div>
+        <button class="tg" id="calcBtn" onclick="openCalc()" title="部位計算機">🧮 部位</button>
+      </div>
+      <div class="chart-host" id="chartHost"></div>
+    </div>
     <div class="work">
       <section class="brain">
         <div class="brain-bar">
@@ -250,6 +285,29 @@ header .spacer{margin-left:auto;}
   </div>
 </div>
 
+<!-- position calculator modal -->
+<div class="modal-bg" id="calcModal">
+  <div class="modal">
+    <h2>🧮 部位計算機 <span style="font-size:12px;color:var(--muted);font-weight:400">風險優先・先算能虧多少</span></h2>
+    <p>頂尖操盤手的第一步：<b>先決定一筆能虧多少（停損），再反推股數</b>，不是先想買幾股。波動越大、停損越遠 → 自動買越少。</p>
+    <div class="calc-row">
+      <div><label>帳戶總資產（USD）</label><input id="cAcct" type="number" placeholder="自動帶入購買力/總資產"></div>
+      <div><label>單筆風險 %（建議 0.5–1）</label><input id="cRisk" type="number" value="1" step="0.25"></div>
+    </div>
+    <div class="calc-row">
+      <div><label>進場價</label><input id="cEntry" type="number" placeholder="自動帶入現價" step="0.01"></div>
+      <div><label>停損價</label><input id="cStop" type="number" placeholder="你的出場價" step="0.01"></div>
+    </div>
+    <label>槓桿上限（融資；1=純現股，2=2倍）</label>
+    <input id="cLev" type="number" value="1" step="0.5">
+    <div class="calc-out" id="calcOut"></div>
+    <div class="row">
+      <button class="cancel" onclick="closeCalc()">關閉</button>
+      <button class="save" onclick="calcCompute()">計算</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ---------- 關注清單 ---------- */
 const DEFAULTS = {
@@ -304,9 +362,28 @@ function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn'].forEach(id=>{cons
 function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
 function tkr(s){ return s&&s.includes(':') ? s.split(':')[1] : (s||''); }
 
-/* ---------- TradingView 圖 ---------- */
+/* ====================================================================
+   圖表系統：自製圖（用牛牛即時K線，無延遲、指標不限）＋ TradingView 後備
+   ==================================================================== */
+let chartSrc = localStorage.getItem('wo_chart_src') || 'auto';   // auto|self|tv
+let selfIv   = localStorage.getItem('wo_chart_iv')  || '5m';
+let ind = Object.assign({ema:true,vwap:true,rsi:true,macd:true}, JSON.parse(localStorage.getItem('wo_ind')||'{}'));
+let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
+
+function canSelf(sym){ return !!(window.LightweightCharts && futu.connected && isUS(sym)); }
+function effSrc(sym){ return chartSrc==='auto' ? (canSelf(sym)?'self':'tv') : (chartSrc==='self' && !canSelf(sym) ? 'tv' : chartSrc); }
+
 function loadChart(sym){
-  const c = document.getElementById('chartArea'); c.innerHTML='';
+  if(selfState.timer){ clearInterval(selfState.timer); selfState.timer=null; }
+  updateChartToolsUI(sym);
+  if(effSrc(sym)==='self') renderSelfChart(sym);
+  else renderTVChart(sym);
+}
+
+/* ---- TradingView 後備（指數、台股、未連牛牛時用）---- */
+function renderTVChart(sym){
+  destroySelfCharts();
+  const host=document.getElementById('chartHost'); host.innerHTML='';
   const wrap=document.createElement('div'); wrap.className='tradingview-widget-container';
   const inner=document.createElement('div'); inner.className='tradingview-widget-container__widget'; inner.style.height='100%';
   wrap.appendChild(inner);
@@ -315,7 +392,172 @@ function loadChart(sym){
   s.innerHTML=JSON.stringify({symbol:sym,interval:'D',timezone:'Asia/Taipei',theme:'dark',style:'1',
     locale:'zh_TW',allow_symbol_change:true,hide_side_toolbar:false,withdateranges:true,details:false,
     studies:[],autosize:true,backgroundColor:'rgba(14,17,22,1)',gridColor:'rgba(38,44,56,0.6)'});
-  wrap.appendChild(s); c.appendChild(wrap);
+  wrap.appendChild(s); host.appendChild(wrap);
+}
+
+/* ---- 指標數學 ---- */
+function emaArr(vals,p){ const k=2/(p+1); let prev; const out=[]; for(let i=0;i<vals.length;i++){ const v=vals[i]; prev=i===0?v:v*k+prev*(1-k); out.push(prev); } return out; }
+function rsiArr(c,p=14){ const out=new Array(c.length).fill(null); let g=0,l=0; for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],gg=Math.max(d,0),ll=Math.max(-d,0); if(i<=p){ g+=gg; l+=ll; if(i===p){ g/=p; l/=p; out[i]=l===0?100:100-100/(1+g/l);} } else { g=(g*(p-1)+gg)/p; l=(l*(p-1)+ll)/p; out[i]=l===0?100:100-100/(1+g/l);} } return out; }
+function macdArr(c,f=12,s=26,sig=9){ const ef=emaArr(c,f),es=emaArr(c,s),m=c.map((_,i)=>ef[i]-es[i]),si=emaArr(m,sig); return {macd:m,signal:si,hist:m.map((x,i)=>x-si[i])}; }
+function vwapArr(bars){ const out=[]; let pv=0,vv=0,day=null; for(const b of bars){ const d=(b.time||'').slice(0,10); if(d!==day){day=d;pv=0;vv=0;} const tp=(b.high+b.low+b.close)/3,v=b.volume||0; pv+=tp*v; vv+=v; out.push(vv>0?pv/vv:b.close); } return out; }
+function barTime(tk,intraday){ if(!tk)return 0; if(!intraday)return tk.slice(0,10); const m=tk.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m?Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5])/1000:Math.floor(Date.parse(tk)/1000); }
+
+function baseChartOpts(extra){
+  return Object.assign({
+    layout:{background:{color:'#0E1116'},textColor:'#8A93A3',fontFamily:'Noto Sans TC,sans-serif'},
+    grid:{vertLines:{color:'rgba(38,44,56,0.45)'},horzLines:{color:'rgba(38,44,56,0.45)'}},
+    rightPriceScale:{borderColor:'#262C38'},
+    timeScale:{borderColor:'#262C38',timeVisible:selfIv!=='day'&&selfIv!=='week',secondsVisible:false,rightOffset:3},
+    crosshair:{mode:0,vertLine:{color:'#8A93A3',labelBackgroundColor:'#E8620A'},horzLine:{color:'#8A93A3',labelBackgroundColor:'#E8620A'}},
+    handleScale:true,handleScroll:true,autoSize:true,
+  },extra||{});
+}
+function mkPane(host,flex,tag){ const d=document.createElement('div'); d.className='pane'; d.style.flex=flex; if(tag){ const t=document.createElement('div'); t.className='ptag'; t.textContent=tag; d.appendChild(t);} host.appendChild(d); return d; }
+
+async function renderSelfChart(sym){
+  destroySelfCharts();
+  const host=document.getElementById('chartHost'); host.innerHTML='';
+  const code=futuCode(sym);
+  const loading=document.createElement('div'); loading.className='welcome'; loading.style.margin='auto'; loading.textContent='讀取牛牛 '+selfIv+' K 線中…'; host.appendChild(loading);
+  let bars=[];
+  try{
+    const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+selfIv+'&num=400');
+    bars=(r.kline||[]).filter(b=>b.close!=null);
+  }catch(e){}
+  if(current!==sym) return;           // 使用者已切走，放棄
+  if(!bars.length){
+    host.innerHTML='';
+    const w=document.createElement('div'); w.className='welcome'; w.style.margin='auto';
+    w.innerHTML='牛牛沒回傳這檔的 '+selfIv+' K 線（可能盤中權限或該代號不支援）。<br>已自動切回 TradingView。';
+    host.appendChild(w);
+    setTimeout(()=>{ if(current===sym){ const old=chartSrc; chartSrc='tv'; renderTVChart(sym); chartSrc=old; } },1200);
+    return;
+  }
+  host.innerHTML='';
+  selfState.sym=sym; selfState.iv=selfIv; selfState.bars=bars; selfState.charts=[]; selfState.series={};
+  const intraday=selfIv!=='day'&&selfIv!=='week';
+
+  // ---- 價格 pane（K棒＋EMA＋VWAP＋量）----
+  const pxEl=mkPane(host,(ind.rsi||ind.macd)?'3 1 0':'1 1 0', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA20/50':'')+(ind.vwap&&intraday?'  VWAP':''));
+  const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
+  const candle=pc.addCandlestickSeries({upColor:'#16C784',downColor:'#EA3943',borderVisible:false,wickUpColor:'#16C784',wickDownColor:'#EA3943'});
+  selfState.series.candle=candle;
+  const vol=pc.addHistogramSeries({priceScaleId:'vol',priceFormat:{type:'volume'}});
+  pc.priceScale('vol').applyOptions({scaleMargins:{top:0.82,bottom:0}});
+  selfState.series.vol=vol;
+  if(ind.ema){ selfState.series.ema20=pc.addLineSeries({color:'#F5874A',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false}); selfState.series.ema50=pc.addLineSeries({color:'#4C8DFF',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false}); }
+  if(ind.vwap&&intraday){ selfState.series.vwap=pc.addLineSeries({color:'#C792EA',lineWidth:1.5,lineStyle:2,priceLineVisible:false,lastValueVisible:false}); }
+  selfState.charts.push(pc);
+
+  // ---- RSI pane ----
+  if(ind.rsi){
+    const rEl=mkPane(host,'1 1 0','RSI 14');
+    const rc=LightweightCharts.createChart(rEl,baseChartOpts({rightPriceScale:{borderColor:'#262C38',scaleMargins:{top:0.1,bottom:0.1}}}));
+    const rsiS=rc.addLineSeries({color:'#E8620A',lineWidth:1.5,priceLineVisible:false,lastValueVisible:true});
+    rsiS.createPriceLine({price:70,color:'rgba(234,57,67,.5)',lineWidth:1,lineStyle:2,axisLabelVisible:true});
+    rsiS.createPriceLine({price:30,color:'rgba(22,199,132,.5)',lineWidth:1,lineStyle:2,axisLabelVisible:true});
+    rsiS.createPriceLine({price:50,color:'rgba(138,147,163,.3)',lineWidth:1,lineStyle:3,axisLabelVisible:false});
+    selfState.series.rsi=rsiS; selfState.charts.push(rc);
+  }
+  // ---- MACD pane ----
+  if(ind.macd){
+    const mEl=mkPane(host,'1 1 0','MACD 12/26/9');
+    const mc=LightweightCharts.createChart(mEl,baseChartOpts());
+    selfState.series.macdHist=mc.addHistogramSeries({priceLineVisible:false,lastValueVisible:false});
+    selfState.series.macdLine=mc.addLineSeries({color:'#4C8DFF',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false});
+    selfState.series.macdSig=mc.addLineSeries({color:'#E8620A',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false});
+    selfState.charts.push(mc);
+  }
+
+  updateSelfData(bars);
+  syncCharts(selfState.charts);
+  selfState.charts[0].timeScale().fitContent();
+  selfState.timer=setInterval(refreshSelf,20000);
+}
+
+function updateSelfData(bars){
+  const intraday=selfState.iv!=='day'&&selfState.iv!=='week';
+  const closes=bars.map(b=>b.close);
+  const t=bars.map(b=>barTime(b.time,intraday));
+  const S=selfState.series;
+  S.candle.setData(bars.map((b,i)=>({time:t[i],open:b.open,high:b.high,low:b.low,close:b.close})));
+  if(S.vol) S.vol.setData(bars.map((b,i)=>({time:t[i],value:b.volume||0,color:b.close>=b.open?'rgba(22,199,132,.35)':'rgba(234,57,67,.35)'})));
+  if(S.ema20){ const e20=emaArr(closes,20),e50=emaArr(closes,50); S.ema20.setData(t.map((x,i)=>({time:x,value:e20[i]}))); S.ema50.setData(t.map((x,i)=>({time:x,value:e50[i]}))); }
+  if(S.vwap){ const vw=vwapArr(bars); S.vwap.setData(t.map((x,i)=>({time:x,value:vw[i]}))); }
+  if(S.rsi){ const rs=rsiArr(closes,14); S.rsi.setData(t.map((x,i)=>rs[i]==null?null:({time:x,value:rs[i]})).filter(Boolean)); }
+  if(S.macdHist){ const mk=macdArr(closes); S.macdHist.setData(t.map((x,i)=>({time:x,value:mk.hist[i],color:mk.hist[i]>=0?'rgba(22,199,132,.6)':'rgba(234,57,67,.6)'}))); S.macdLine.setData(t.map((x,i)=>({time:x,value:mk.macd[i]}))); S.macdSig.setData(t.map((x,i)=>({time:x,value:mk.signal[i]}))); }
+}
+
+async function refreshSelf(){
+  if(!selfState.sym || current!==selfState.sym || effSrc(current)!=='self'){ return; }
+  try{
+    const r=await futuFetch('/kline?code='+encodeURIComponent(futuCode(selfState.sym))+'&ktype='+selfState.iv+'&num=400');
+    const bars=(r.kline||[]).filter(b=>b.close!=null);
+    if(bars.length){ selfState.bars=bars; updateSelfData(bars); }
+  }catch(e){}
+}
+
+function syncCharts(charts){
+  if(charts.length<2) return; let lock=false;
+  charts.forEach(src=>{ src.timeScale().subscribeVisibleLogicalRangeChange(r=>{ if(lock||!r)return; lock=true; charts.forEach(o=>{ if(o!==src) o.timeScale().setVisibleLogicalRange(r); }); lock=false; }); });
+}
+function destroySelfCharts(){ if(selfState.timer){ clearInterval(selfState.timer); selfState.timer=null; } (selfState.charts||[]).forEach(c=>{ try{c.remove();}catch(e){} }); selfState.charts=[]; selfState.series={}; }
+
+/* ---- 工具列 ---- */
+function updateChartToolsUI(sym){
+  sym=sym||current;
+  const eff=effSrc(sym), self=eff==='self';
+  document.querySelectorAll('#srcSeg button').forEach(b=>b.classList.toggle('on', b.dataset.src===(chartSrc==='auto'?eff:chartSrc)));
+  document.querySelectorAll('#intvSeg button').forEach(b=>b.classList.toggle('on', b.dataset.iv===selfIv));
+  ['ema','vwap','rsi','macd'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.classList.toggle('on', !!ind[k]); });
+  document.getElementById('chartIntvWrap').style.display = self?'':'none';
+  ['tgEMA','tgVWAP','tgRSI','tgMACD'].forEach(id=>{ document.getElementById(id).style.display = self?'':'none'; });
+  const hint=document.getElementById('chartHint');
+  if(chartSrc!=='tv' && !canSelf(sym)){
+    hint.textContent = !window.LightweightCharts ? '（圖表庫未載入）' : (!futu.connected ? '（未連牛牛→用TV，連上即用即時自製圖）' : '（此標的牛牛無資料→用TV）');
+  } else hint.textContent = self ? '即時·無延遲·你的牛牛數據' : '';
+}
+function initChartTools(){
+  document.querySelectorAll('#intvSeg button').forEach(b=>{ b.onclick=()=>{ selfIv=b.dataset.iv; localStorage.setItem('wo_chart_iv',selfIv); loadChart(current); }; });
+  document.querySelectorAll('#srcSeg button').forEach(b=>{ b.onclick=()=>{ chartSrc=b.dataset.src; localStorage.setItem('wo_chart_src',chartSrc); loadChart(current); }; });
+  ['ema','vwap','rsi','macd'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else updateChartToolsUI(current); }; });
+}
+/* 牛牛連線狀態改變時，auto 模式自動在 TV / 自製圖之間切換 */
+function maybeSwitchChart(){
+  if(!current) return;
+  const want=effSrc(current), shown=selfState.charts.length?'self':'tv';
+  if(want!==shown) loadChart(current); else updateChartToolsUI(current);
+}
+
+/* ---------- 部位計算機（風險優先） ---------- */
+function openCalc(){
+  const acct=document.getElementById('cAcct'), entry=document.getElementById('cEntry');
+  if(!acct.value){ if(futu.account&&futu.account.power) acct.value=Math.round(futu.account.power); else if(futu.account&&futu.account.total_assets) acct.value=Math.round(futu.account.total_assets); }
+  const c=(futu.connected&&current&&isUS(current))?futu.quotes[futuCode(current)]:null;
+  if(c&&c.last!=null&&!entry.value) entry.value=c.last;
+  document.getElementById('calcModal').classList.add('show');
+}
+function closeCalc(){ document.getElementById('calcModal').classList.remove('show'); }
+function calcCompute(){
+  const acct=parseFloat(document.getElementById('cAcct').value), riskPct=parseFloat(document.getElementById('cRisk').value);
+  const entry=parseFloat(document.getElementById('cEntry').value), stop=parseFloat(document.getElementById('cStop').value);
+  const lev=Math.max(parseFloat(document.getElementById('cLev').value)||1,1);
+  const out=document.getElementById('calcOut'); out.className='calc-out show';
+  if(!(acct>0)||!(riskPct>0)||!(entry>0)||!(stop>0)){ out.innerHTML='請完整填入帳戶、風險%、進場價、停損價。'; return; }
+  if(stop===entry){ out.innerHTML='停損價不能等於進場價。'; return; }
+  const long=stop<entry, perShare=Math.abs(entry-stop), riskAmt=acct*riskPct/100;
+  let shares=Math.floor(riskAmt/perShare); const maxPos=acct*lev; let capped=false;
+  if(shares*entry>maxPos){ shares=Math.floor(maxPos/entry); capped=true; }
+  const finalVal=shares*entry, finalRisk=shares*perShare, stopPct=perShare/entry*100;
+  const t2=long?entry+perShare*2:entry-perShare*2, t3=long?entry+perShare*3:entry-perShare*3;
+  out.innerHTML=`
+    <div>方向：<b>${long?'做多':'做空'}</b>　每股風險 <b>$${perShare.toFixed(2)}</b>（停損距 ${stopPct.toFixed(2)}%）</div>
+    <div>建議股數 <span class="big">${shares}</span> 股</div>
+    <div>部位金額 <b>$${Math.round(finalVal).toLocaleString()}</b>（佔帳戶 ${acct?(finalVal/acct*100).toFixed(0):'—'}%${lev>1?'，槓桿上限 '+lev+'x':''}）</div>
+    <div>實際風險 <b>$${Math.round(finalRisk).toLocaleString()}</b> ≈ 帳戶 <b>${(finalRisk/acct*100).toFixed(2)}%</b></div>
+    <div style="color:var(--muted);font-size:12px">2R 目標 ≈ $${t2.toFixed(2)}　3R 目標 ≈ $${t3.toFixed(2)}（賺賠比 2:1 / 3:1）</div>
+    ${capped?'<div class="warn">⚠️ 風險%算出的部位超過槓桿上限，已壓到上限股數——代表停損太遠或風險%太高，建議收緊停損或降風險。</div>':''}
+    ${stopPct>12?'<div class="warn">⚠️ 停損距離 >12%，對短線槓桿偏遠，部位會很小或風險偏高。</div>':''}`;
 }
 
 /* ---------- 關注清單渲染 ---------- */
@@ -694,7 +936,7 @@ async function connectFutu(){
 }
 async function pollFutu(){
   try{ await futuFetch('/health'); }
-  catch(e){ futu.connected=false; setFutuStatus(false); return; }
+  catch(e){ futu.connected=false; setFutuStatus(false); maybeSwitchChart(); return; }
   futu.connected=true; setFutuStatus(true);
   try{
     const codes=lists['us'].map(x=>futuCode(x.s)).filter(Boolean);
@@ -704,7 +946,7 @@ async function pollFutu(){
   }catch(e){}
   try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
   try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
-  renderPositions(); updateCurQuote();
+  renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
 }
 function updateCurQuote(){
@@ -721,7 +963,7 @@ function renderPositions(){
   futu.positions.forEach(p=>{
     const d=document.createElement('div'); d.className='pos-item';
     d.innerHTML=`<div><div class="pc">${(p.code||'').replace('US.','')}</div><div class="pn">${p.qty} 股・成本 ${p.cost}</div></div><div class="pr">${p.price??''}<br>${fmtPct(p.pl_ratio)}</div>`;
-    d.onclick=()=>selectSymbol('NASDAQ:'+(p.code||'').replace('US.',''), p.name||'');
+    d.onclick=()=>selectSymbol((p.code||'').replace('US.',''), p.name||'');
     list.appendChild(d);
   });
 }
@@ -743,6 +985,7 @@ function switchTab(t){
   if(window.__WO_FUTU_URL__){ localStorage.setItem('wo_futu_url', window.__WO_FUTU_URL__); }
   if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
+  initChartTools();
   renderWatchlist();
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
   if(!localStorage.getItem('wo_key')) setTimeout(openSettings,400);

@@ -151,9 +151,17 @@ def do_account():
     }}
 
 
-def do_kline(code, n):
+def _ktype(name):
+    """Map our short interval codes to Futu KLType, defaulting to daily."""
+    table = {"1m": "K_1M", "3m": "K_3M", "5m": "K_5M", "15m": "K_15M",
+             "30m": "K_30M", "60m": "K_60M", "day": "K_DAY", "week": "K_WEEK"}
+    return getattr(KLType, table.get(name, "K_DAY"), KLType.K_DAY)
+
+
+def do_kline(code, n, ktype="day"):
+    kt = _ktype(ktype)
     with LOCK:
-        res = get_quote().request_history_kline(code, ktype=KLType.K_DAY, max_count=n)
+        res = get_quote().request_history_kline(code, ktype=kt, max_count=n)
     ret, data = res[0], res[1]
     if ret != RET_OK:
         return {"error": str(data)}
@@ -164,7 +172,7 @@ def do_kline(code, n):
             "high": num(r.get("high")), "low": num(r.get("low")),
             "close": num(r.get("close")), "volume": num(r.get("volume")),
         })
-    return {"kline": out}
+    return {"kline": out, "ktype": ktype}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -242,8 +250,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(do_account())
             elif path == "/kline":
                 code = q.get("code", [""])[0]
-                n = int(q.get("num", ["120"])[0])
-                self._json(do_kline(code, n) if code else {"error": "missing code"})
+                n = int(q.get("num", ["300"])[0])
+                ktype = q.get("ktype", ["day"])[0]
+                self._json(do_kline(code, n, ktype) if code else {"error": "missing code"})
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except Exception as e:
