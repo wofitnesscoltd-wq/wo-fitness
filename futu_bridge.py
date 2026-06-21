@@ -65,23 +65,35 @@ def load_alert_config():
 API_URL = "https://api.github.com/repos/wofitnesscoltd-wq/wo-fitness/contents/wo_trade.html?ref=main"
 
 
+_HTML_CACHE = {"html": None, "ts": 0.0}
+
+
 def fetch_latest_html():
-    """Pull the latest app HTML from GitHub. Use the API (no CDN cache lag) first so
-    updates show on refresh instantly; fall back to the raw URL with a cache-buster."""
+    """Pull the latest app HTML from GitHub. Short in-process cache so refresh bursts
+    don't burn GitHub's 60/hr unauthenticated API limit (which caused stale fallbacks).
+    API first (no CDN lag) with cache-buster; fall back to raw; last-known on failure."""
+    import time as _t
+    now = _t.time()
+    if _HTML_CACHE["html"] and (now - _HTML_CACHE["ts"]) < 8:
+        return _HTML_CACHE["html"]
+    cb = str(int(now * 1000))
     attempts = [
-        (API_URL, {"User-Agent": "wo-bridge", "Accept": "application/vnd.github.raw",
-                   "Cache-Control": "no-cache"}),
-        (RAW_URL + "?t=" + str(int(__import__("time").time())),
+        (API_URL + "&t=" + cb, {"User-Agent": "wo-bridge", "Accept": "application/vnd.github.raw",
+                                "Cache-Control": "no-cache"}),
+        (RAW_URL + "?t=" + cb,
          {"User-Agent": "wo-bridge", "Cache-Control": "no-cache", "Pragma": "no-cache"}),
     ]
     for url, headers in attempts:
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=6) as r:
-                return r.read().decode("utf-8")
+                html = r.read().decode("utf-8")
+                _HTML_CACHE["html"] = html
+                _HTML_CACHE["ts"] = now
+                return html
         except Exception:
             continue
-    return None
+    return _HTML_CACHE["html"]
 
 
 def load_token():
