@@ -1327,8 +1327,8 @@ function addHolding(){
   if(!s||!(q>0)||!(c>0)){ return; }
   if(holdType==='crypto'){
     const l=parseFloat(document.getElementById('hLev').value)||1, side=document.getElementById('hSide').value;
-    const isNew=!cryptoHoldings.some(h=>h.s===s);
-    cryptoHoldings = cryptoHoldings.filter(h=>h.s!==s); cryptoHoldings.push({s,q,e:c,l,side});
+    const isNew=!cryptoHoldings.some(h=>h.s===s&&h.side===side);
+    cryptoHoldings = cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); cryptoHoldings.push({s,q,e:c,l,side});
     saveCryptoHoldings(); if(isNew) noteEntry();
   } else {
     const isNew=!holdings.some(h=>h.s===s);
@@ -1369,7 +1369,17 @@ async function pollCrypto(){
   if(!cryptoHoldings.length) return;
   try{ const r=await futuFetch('/cryptoquote?syms='+encodeURIComponent(cryptoHoldings.map(x=>x.s).join(','))); cryptoQuotes=r.quotes||{}; }catch(e){}
 }
-function delCryptoHolding(s){ cryptoHoldings=cryptoHoldings.filter(h=>h.s!==s); saveCryptoHoldings(); renderPositions(); }
+function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
+function getCMargin(){ return parseFloat(localStorage.getItem('wo_cmargin'))||0; }
+function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); renderPositions(); }
+function cryptoSummary(){
+  let gross=0,net=0,upnl=0,used=0,priced=0;
+  cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]; if(!px)return; priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; upnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; used+=n/(h.l||1); });
+  const wallet=getCMargin(), equity=wallet+upnl, maint=0.005*gross, an=Math.abs(net);
+  return {gross,net:an,upnl,equity,used,avail:equity-used,priced,
+    grossLev: equity>0?gross/equity:0, netLev: equity>0?an/equity:0,
+    buffer: (an>1&&equity>maint)?(equity-maint)/an*100:(an<=1?null:0)};
+}
 function holdingsLiveStr(){
   let out='';
   if(holdings.length){
@@ -1395,18 +1405,33 @@ function renderPositions(){
   const fpos=futu.positions||[];
   if(!holdings.length && !cryptoHoldings.length && !fpos.length){ list.innerHTML='<div class="news-empty">輸入你<b>實際的持股</b>（國泰／永豐／加密都行）：上面切「股票／加密永續」，打代號、數量、成本按＋。<br>引擎會用即時報價盯這些部位，到賣點／爆倉距離就通知你。</div>'; return; }
   list.innerHTML='';
+  if(cryptoHoldings.length){
+    const sm=cryptoSummary();
+    const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
+    const bufHtml = sm.buffer==null?'<b style="color:var(--green)">已對沖・淨曝險極低</b>' : `<b style="color:${sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)'}">${sm.buffer.toFixed(1)}%</b>`;
+    card.innerHTML=`<div style="font-size:12px;margin-bottom:6px"><b>加密全倉總覽</b> <span style="color:var(--muted)">cross</span></div>
+      <input type="number" value="${getCMargin()||''}" placeholder="全倉錢包餘額 USD" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin-bottom:8px">
+      <div style="font-size:12px;line-height:1.9">
+        帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b>（未實現 ${sm.upnl>=0?'+':''}$${Math.round(sm.upnl)}）<br>
+        總名目 $${Math.round(sm.gross).toLocaleString()}　淨曝險 $${Math.round(sm.net).toLocaleString()}<br>
+        整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b><span style="color:var(--muted)">（名目）</span>　淨 ${sm.netLev.toFixed(1)}x<br>
+        距全倉爆倉緩衝 ${bufHtml}<span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
+      </div>
+      ${getCMargin()<=0?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入錢包餘額才能算權益/爆倉緩衝</div>':''}`;
+    list.appendChild(card);
+  }
   cryptoHoldings.forEach(h=>{
     const px=cryptoQuotes[h.s]; const lp=liqPrice(h.e,h.l,h.side);
     const pnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
     const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100):null;
     const warn=dist!=null&&dist<15;
     const d=document.createElement('div'); d.className='pos-item'+(warn?' liqwarn':'');
-    d.innerHTML=`<div><div class="pc">${h.s} <span style="font-size:10px;color:var(--muted)">${h.l}x ${h.side==='short'?'空':'多'}</span></div>
+    d.innerHTML=`<div><div class="pc">${h.s} <span style="font-size:10px;color:${h.side==='short'?'var(--red)':'var(--green)'}">${h.l}x ${h.side==='short'?'空':'多'}</span></div>
       <div class="pn">${h.q}・進場 ${h.e}</div>
-      <div class="liqd">爆倉≈${lp?lp.toFixed(2):'—'}　距離 ${dist!=null?dist.toFixed(1)+'%':'—'}${warn?' ⚠️':''}</div></div>
+      <div class="liqd">單倉爆倉≈${lp?lp.toFixed(2):'—'}　距離 ${dist!=null?dist.toFixed(1)+'%':'—'}${warn?' ⚠️':''}</div></div>
       <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
       <button class="pdel" title="移除">×</button></div>`;
-    d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delCryptoHolding(h.s); };
+    d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delCryptoHolding(h.s,h.side); };
     list.appendChild(d);
   });
   holdings.forEach(h=>{
