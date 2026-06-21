@@ -722,13 +722,13 @@ function rsiDivergence(bars,rsi,times,w=5){
     if(ph(i)){ if(lh!=null && c[i]>c[lh] && rsi[i]<rsi[lh] && mh[i]<mh[lh]) marks.push({time:times[i],position:'aboveBar',color:'#EA3943',shape:'arrowDown',text:'頂背離'}); lh=i; }
     if(pl(i)){ if(ll!=null && c[i]<c[ll] && rsi[i]>rsi[ll] && mh[i]>mh[ll]) marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'底背離'}); ll=i; }
   }
-  // 即時(未確認)背離：用「現在這根」跟最近確認的擺動低/高比，不必等 5 根確認 → 標「?」表示形成中
+  // 即時背離：用「現在這根」跟最近確認的擺動低/高比 RSI＋MACD柱，不必等 5 根確認
   const cur=n-1, lb=Math.max(0,cur-w);
   if(rsi[cur]!=null){
     if(ll!=null && c[cur]<=Math.min(...c.slice(lb,cur+1)) && c[cur]<c[ll] && rsi[cur]>rsi[ll] && mh[cur]>mh[ll])
-      marks.push({time:times[cur],position:'belowBar',color:'#7BE0B0',shape:'circle',text:'底背離?'});
+      marks.push({time:times[cur],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'底背離'});
     if(lh!=null && c[cur]>=Math.max(...c.slice(lb,cur+1)) && c[cur]>c[lh] && rsi[cur]<rsi[lh] && mh[cur]<mh[lh])
-      marks.push({time:times[cur],position:'aboveBar',color:'#F2A0A8',shape:'circle',text:'頂背離?'});
+      marks.push({time:times[cur],position:'aboveBar',color:'#EA3943',shape:'arrowDown',text:'頂背離'});
   }
   return marks;
 }
