@@ -397,6 +397,21 @@ class Handler(BaseHTTPRequestHandler):
                         except Exception:
                             pass
                 self._json({"quotes": out})
+            elif path == "/cryptokline":
+                # 加密永續 K 線（給自製圖畫進出場/背離用）。iv 對齊網頁時間週期。
+                sym = q.get("sym", [""])[0].upper()
+                iv = q.get("iv", ["day"])[0]
+                num = int(q.get("num", ["400"])[0])
+                out = []
+                if crypto_mod and sym:
+                    ivmap = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+                             "60m": "1h", "day": "1d", "week": "1w"}
+                    kl = (CRYPTO.kl if CRYPTO else crypto_mod.SOURCES[ARGS.crypto_source][0])
+                    try:
+                        out = kl(sym, ivmap.get(iv, "1d"), min(num, 1000))
+                    except Exception:
+                        out = []
+                self._json({"kline": out})
             elif path == "/cryptofunding":
                 # 目前資金費率（每結算週期）；先試 Bitget 再試 Binance（tokenized 美股永續多在 Bitget）
                 out = {}
