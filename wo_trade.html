@@ -740,6 +740,8 @@ function switchTab(t){
   if(localStorage.getItem('wo_import')!=='v2'){ lists.us=IMPORT_US.slice(); region='us'; localStorage.setItem('wo_import','v2'); save(); }
   document.getElementById('btnUS').classList.toggle('active',region==='us');
   document.getElementById('btnTW').classList.toggle('active',region==='tw');
+  if(window.__WO_FUTU_URL__){ localStorage.setItem('wo_futu_url', window.__WO_FUTU_URL__); }
+  if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
   renderWatchlist();
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
