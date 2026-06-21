@@ -709,17 +709,26 @@ function rsiArr(c,p=14){ const out=new Array(c.length).fill(null); let g=0,l=0; 
 function macdArr(c,f=12,s=26,sig=9){ const ef=emaArr(c,f),es=emaArr(c,s),m=c.map((_,i)=>ef[i]-es[i]),si=emaArr(m,sig); return {macd:m,signal:si,hist:m.map((x,i)=>x-si[i])}; }
 function vwapArr(bars){ const out=[]; let pv=0,vv=0,day=null; for(const b of bars){ const d=(b.time||'').slice(0,10); if(d!==day){day=d;pv=0;vv=0;} const tp=(b.high+b.low+b.close)/3,v=b.volume||0; pv+=tp*v; vv+=v; out.push(vv>0?pv/vv:b.close); } return out; }
 function bollArr(c,p=20,k=2){ const up=[],mid=[],low=[]; for(let i=0;i<c.length;i++){ if(i<p-1){up.push(null);mid.push(null);low.push(null);continue;} let s=0; for(let j=i-p+1;j<=i;j++)s+=c[j]; const m=s/p; let v=0; for(let j=i-p+1;j<=i;j++)v+=(c[j]-m)**2; const sd=Math.sqrt(v/p); mid.push(m);up.push(m+k*sd);low.push(m-k*sd);} return {up,mid,low}; }
-/* RSI 背離：價創新高但 RSI 走低＝頂背離(可能做頭)；價創新低但 RSI 走高＝底背離(可能打底) */
+/* 只標「真正的背離」：現價 vs 最近確認的擺動低/高，RSI＋MACD柱同時背離才標（不再回標一堆頂/底雜訊）。
+   頂背離＝價創新高但 RSI 與 MACD 柱走低(動能衰竭,可能做頭)；底背離＝價創新低但 RSI 與 MACD 柱墊高(可能打底)。 */
 function rsiDivergence(bars,rsi,times,w=5){
   const c=bars.map(b=>b.close), n=c.length, marks=[];
   const ph=i=>{ if(i<w||i>=n-w)return false; for(let j=i-w;j<=i+w;j++) if(j!==i&&c[j]>=c[i])return false; return true; };
   const pl=i=>{ if(i<w||i>=n-w)return false; for(let j=i-w;j<=i+w;j++) if(j!==i&&c[j]<=c[i])return false; return true; };
+  const mh=macdArr(c).hist;
+  // 走一遍歷史：在每個「已確認的擺動高/低」上，若相對前一個同型擺動點出現 RSI＋MACD 背離 → 標
   let lh=null,ll=null;
   for(let i=0;i<n;i++){ if(rsi[i]==null)continue;
-    if(ph(i)){ const div=lh!=null&&c[i]>c[lh]&&rsi[i]<rsi[lh];   // 每個擺動高點標「頂」，出現頂背離升級「頂背離」
-      marks.push({time:times[i],position:'aboveBar',color:div?'#EA3943':'rgba(234,57,67,.75)',shape:'arrowDown',text:div?'頂背離':'頂'}); lh=i; }
-    if(pl(i)){ const div=ll!=null&&c[i]<c[ll]&&rsi[i]>rsi[ll];   // 每個擺動低點標「底」，出現底背離升級「底背離」
-      marks.push({time:times[i],position:'belowBar',color:div?'#16C784':'rgba(22,199,132,.75)',shape:'arrowUp',text:div?'底背離':'底'}); ll=i; }
+    if(ph(i)){ if(lh!=null && c[i]>c[lh] && rsi[i]<rsi[lh] && mh[i]<mh[lh]) marks.push({time:times[i],position:'aboveBar',color:'#EA3943',shape:'arrowDown',text:'頂背離'}); lh=i; }
+    if(pl(i)){ if(ll!=null && c[i]<c[ll] && rsi[i]>rsi[ll] && mh[i]>mh[ll]) marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'底背離'}); ll=i; }
+  }
+  // 即時(未確認)背離：用「現在這根」跟最近確認的擺動低/高比，不必等 5 根確認 → 標「?」表示形成中
+  const cur=n-1, lb=Math.max(0,cur-w);
+  if(rsi[cur]!=null){
+    if(ll!=null && c[cur]<=Math.min(...c.slice(lb,cur+1)) && c[cur]<c[ll] && rsi[cur]>rsi[ll] && mh[cur]>mh[ll])
+      marks.push({time:times[cur],position:'belowBar',color:'#7BE0B0',shape:'circle',text:'底背離?'});
+    if(lh!=null && c[cur]>=Math.max(...c.slice(lb,cur+1)) && c[cur]>c[lh] && rsi[cur]<rsi[lh] && mh[cur]<mh[lh])
+      marks.push({time:times[cur],position:'aboveBar',color:'#F2A0A8',shape:'circle',text:'頂背離?'});
   }
   return marks;
 }
