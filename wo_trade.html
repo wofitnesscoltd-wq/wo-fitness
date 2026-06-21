@@ -42,9 +42,13 @@ header .spacer{margin-left:auto;}
 .pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;cursor:pointer;overflow:hidden;}
 .pos-item:hover{border-color:var(--orange);}
 .pos-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;}
+.pinfo{min-width:0;flex:1;}
 .pos-item .pc{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
 .pos-item .pn{font-size:11.5px;color:var(--muted);margin-top:4px;}
-.pos-item .pr{font-size:13.5px;font-weight:700;text-align:right;white-space:nowrap;}
+.pos-item .pr{font-size:14px;font-weight:700;text-align:right;white-space:nowrap;}
+.pos-item .pr .psub{font-size:10px;color:var(--muted);font-weight:400;margin-top:2px;}
+.pcaret{color:var(--muted-2);font-size:11px;flex:0 0 auto;transition:transform .2s;}
+.pos-item.expanded .pcaret{transform:rotate(180deg);}
 .pos-detail{display:none;padding:2px 12px 11px;}
 .pos-item.expanded .pos-detail{display:block;}
 .pos-item.expanded{border-color:var(--orange);}
@@ -1815,20 +1819,26 @@ function renderPositions(){
     list.appendChild(card);
   }
   cryptoHoldings.forEach(h=>{
-    const px=cryptoQuotes[h.s]; const lp=liqPrice(h.e,h.l,h.side);
-    const pnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
+    const px=cryptoQuotes[h.s];
+    const pnlPct=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
+    const pnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
     const id='c|'+h.s+'|'+h.side; const exp=expandedPos.has(id);
     const sideTxt=h.side==='short'?'空':'多', sideCol=h.side==='short'?'var(--red)':'var(--green)';
-    const chip=tpslChip(h);
-    const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');   // 全倉下單腿不會獨立爆倉，看上方全倉緩衝
+    const margin=Math.round(h.m||(h.q*h.e/(h.l||1)));
+    const lim=(h.tp||h.sl)?` ‧ ${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}`:'';
+    const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
-        <div class="pc">${h.s} <span style="font-size:10px;color:${sideCol}">${h.l}x ${sideTxt}</span>${chip}</div>
-        <div class="pr">${px??'—'}　${pnl==null?'':fmtPct(pnl.toFixed(1))}</div></div>
+        <div class="pinfo">
+          <div class="pc">${h.s.replace('USDT','')} <span style="font-size:10px;color:${sideCol}">${h.l}x${sideTxt}</span></div>
+          <div class="pn">進場 ${h.e} ‧ 保證金 $${margin}${lim}</div>
+        </div>
+        <div class="pr">${pnlPct==null?'—':fmtPct(pnlPct.toFixed(1))}<div class="psub">${px?('現價 '+px+(pnlU!=null?' ‧ '+(pnlU>=0?'+':'')+'$'+Math.round(pnlU):'')):'未連線'}</div></div>
+        <span class="pcaret">▾</span>
+      </div>
       <div class="pos-detail">
-        <div class="pn">保證金 $${Math.round(h.m||(h.q*h.e/(h.l||1)))}・名目 $${Math.round(h.q*(px||h.e))}・進場 ${h.e}・幣量 ${(+h.q).toFixed(4)}</div>
-        <div class="liqd">孤立估爆倉≈${lp?lp.toFixed(2):'—'}（全倉不適用，爆倉看上方帳戶緩衝）</div>
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
-        <div class="tpsl-hint">到價自動以該價平倉並記入盈虧（${h.side==='short'?'空：跌破止盈/漲破止損':'多：漲破止盈/跌破止損'}）</div>
+        <div class="tpsl-hint">到價自動以該價平倉並記盈虧（本軟體記錄＋通知，非交易所下單）</div>
+        <div class="liqd">名目 $${Math.round(h.q*(px||h.e))} ‧ 幣量 ${(+h.q).toFixed(4)} ‧ 孤立爆倉≈${liqPrice(h.e,h.l,h.side)?liqPrice(h.e,h.l,h.side).toFixed(2):'—'}（全倉看上方緩衝）</div>
         <div class="detail-actions"><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
       </div>`;
     d.querySelector('.pos-head').onclick=()=>togglePos(id);
@@ -1840,16 +1850,21 @@ function renderPositions(){
   });
   holdings.forEach(h=>{
     const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
-    const pl=px?((px/h.c-1)*100):null;
+    const pl=px?((px/h.c-1)*100):null; const plU=px?(px-h.c)*h.q:null;
     const id='s|'+h.s; const exp=expandedPos.has(id);
+    const lim=(h.tp||h.sl)?` ‧ ${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}`:'';
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
-        <div class="pc">${tkr(h.s)}${tpslChip(h)}</div>
-        <div class="pr">${px??'—'}　${pl==null?'':fmtPct(pl.toFixed(1))}</div></div>
+        <div class="pinfo">
+          <div class="pc">${tkr(h.s)} <span style="font-size:10px;color:var(--muted)">現股</span></div>
+          <div class="pn">成本 ${h.c} ‧ ${h.q} 股${lim}</div>
+        </div>
+        <div class="pr">${pl==null?'—':fmtPct(pl.toFixed(1))}<div class="psub">${px?('現價 '+px+(plU!=null?' ‧ '+(plU>=0?'+':'')+'$'+Math.round(plU):'')):'未連線'}</div></div>
+        <span class="pcaret">▾</span>
+      </div>
       <div class="pos-detail">
-        <div class="pn">${h.q} 股・成本 ${h.c}</div>
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
-        <div class="tpsl-hint">到價自動以該價平倉並記入盈虧</div>
+        <div class="tpsl-hint">到價自動以該價平倉並記盈虧</div>
         <div class="detail-actions"><button class="pchart">看圖</button><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
       </div>`;
     d.querySelector('.pos-head').onclick=()=>togglePos(id);
