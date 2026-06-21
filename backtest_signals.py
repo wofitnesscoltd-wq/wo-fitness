@@ -140,6 +140,9 @@ def backtest(bars, fee=0.04, name=""):
     print("  最近 6 筆:")
     for t in tr[-6:]:
         print(f"    {t['dir']:<5} 進 {t['px_in']:.2f} → 出 {t['px_out']:.2f}  {t['ret']*100:+6.2f}%  (持 {t['i_out']-t['i_in']} 根)")
+    if len(bars) < 250 or len(tr) < 25:
+        print("\n  ⚠️ 樣本太小（K棒 < 250 或 交易 < 25 筆），這些數字「沒有統計意義」，別當真。")
+        print("     改用長歷史資料：BTCUSDT/ETHUSDT(幣安有數年) 或 透過橋接測真實個股(US.MU/US.NVDA…)。")
 
 
 # ---------- 取資料 ----------
