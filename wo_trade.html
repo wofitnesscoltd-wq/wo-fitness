@@ -1387,6 +1387,25 @@ async function positionDoctor(){
 }
 
 /* ---------- 個股分析（從關注清單選） ---------- */
+/* 從牛牛即時 K 線算好技術指標餵給 AI（這樣 AI 不用再叫使用者去 TradingView 抓） */
+async function techSnapshot(tk){
+  if(!futu.connected || !isUS(tk)) return '';
+  const code=futuCode(tk); if(!code) return '';
+  let day=[], intr=[];
+  try{ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=260&live=1'); day=(r.kline||[]).filter(b=>b.close!=null); }catch(e){}
+  if(day.length<30) return '';
+  try{ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=15m&num=140&live=1'); intr=(r.kline||[]).filter(b=>b.close!=null); }catch(e){}
+  const c=day.map(b=>b.close), last=c[c.length-1];
+  const e20=emaArr(c,20).pop(), e60=emaArr(c,60).pop(), rs=rsiArr(c,14).pop();
+  const mk=macdArr(c), ml=mk.macd.pop(), msig=mk.signal.pop(), mh=mk.hist.pop();
+  const vols=day.map(b=>b.volume||0), v20=(vols.slice(-21,-1).reduce((a,b)=>a+b,0)/20)||1, vtoday=vols[vols.length-1];
+  const todayOpen=day[day.length-1].open;
+  const hi52=Math.max(...c.slice(-252)), lo20=Math.min(...day.slice(-20).map(b=>b.low)), hi20=Math.max(...day.slice(-20).map(b=>b.high));
+  let vwapStr='';
+  if(intr.length>10){ const v=vwapArr(intr).pop(); const ip=intr[intr.length-1].close; if(v) vwapStr=`、盤中VWAP ${v.toFixed(2)}（價在VWAP ${ip>=v?'上方':'下方'}）`; }
+  const align=(last>e20&&e20>e60)?'多頭排列(價>EMA20>EMA60)':(last<e20&&e20<e60)?'空頭排列(價<EMA20<EMA60)':'均線糾結/盤整';
+  return `\n・${tk}：現價 ${last}、今開 ${todayOpen}、今量為20日均量 ${(vtoday/v20).toFixed(2)} 倍${vwapStr}；日線 RSI14=${rs?rs.toFixed(0):'—'}、MACD ${ml.toFixed(2)}/訊號 ${msig.toFixed(2)}/柱 ${mh.toFixed(2)}；EMA20=${e20.toFixed(2)}、EMA60=${e60.toFixed(2)}（${align}）；近20日高 ${hi20.toFixed(2)}/低 ${lo20.toFixed(2)}、52週高 ${hi52.toFixed(2)}`;
+}
 async function stockAnalysis(){
   if(busy)return;
   const targets = analyzeList.length ? analyzeList.slice() : (current?[{s:current,n:currentName}]:[]);
@@ -1396,17 +1415,19 @@ async function stockAnalysis(){
   const namesStr=targets.map(t=>tkr(t.s)+(t.n?'（'+t.n+'）':'')).join('、');
   addBubble('🔬 個股分析：<b>'+namesStr+'</b>','user');
   const tp=addTyping();
+  let snaps='';
+  if(futu.connected){ for(const t of targets){ try{ snaps+=await techSnapshot(t.s); }catch(e){} } }
   try{
-    const txt=await callClaude(`${ctx()}
-請針對以下個股做「個股」分析（不是大盤）：${namesStr}。先用 web 搜尋確認今天日期/星期、各股最新報價與最近消息。
-最上面標一行【資料截至：日期 週X／美股狀態】，數據附時間。
+    const txt=await callClaude(`${ctx()}${snaps?'\n【系統已用牛牛即時 K 線算好下列報價與技術指標，請直接採用，不要再叫我去 TradingView 抓任何數據】'+snaps+'\n':''}
+請針對以下個股做「個股」分析（不是大盤）：${namesStr}。${snaps?'報價與技術指標已附在上面，你只需用 web 搜尋補「今天日期/星期、最近消息與催化劑」。':'先用 web 搜尋確認今天日期/星期、各股最新報價與最近消息。'}
+最上面標一行【資料截至：日期 週X／美股狀態】。
 ${multi?'每一檔分開、各自用「## 代號 名稱」當標題分段，每檔給：':'輸出（Markdown、粗體、精簡）：'}
-- 現況：最新價/漲跌/量(附時間)、近期走勢與均線位階、相對大盤與所屬類股強弱
+- 現況：價/量位階、均線排列、相對大盤與所屬類股強弱（用上面附的數據）
 - 催化劑：近期或即將到來的財報、事件、消息(附日期)
 - 短線計畫：進場區、停損、目標、風險報酬比、建議部位(考量我的購買力與持股)、屬當沖/隔日沖/短波段；若美股休市以下一交易日/下週為進場時點並說明觸發條件
 - 風險：會讓你立刻出場的訊號
 ${multi?'最後加「## 綜合比較」：這幾檔裡現在最值得短線的排序與理由。':''}
-若需要更精準數據才能定進出場，最後用一行「👉 請從 TradingView 看…」列出要我提供的數值。`,{maxTokens:multi?5000:3500});
+數據已附齊，請直接給出可執行結論，**不要列一串叫我去 TradingView 抓數據**（軟體已有即時圖與指標）。`,{maxTokens:multi?5000:3500});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
@@ -1417,8 +1438,10 @@ async function deepResearch(title,why){
   if(busy)return; busy=true; setFunnelStep(3);
   addBubble('深入研究：<b>'+title+'</b>','user');
   const tp=addTyping();
+  let snaps='';
+  if(futu.connected){ const m=(title||'').toUpperCase().match(/\b[A-Z]{1,5}\b/g)||[]; const seen={}; for(const t of m){ if(seen[t]||!isUS(t))continue; seen[t]=1; try{ const s=await techSnapshot(t); if(s) snaps+=s; }catch(e){} } }
   try{
-    const txt=await callClaude(`${ctx()}
+    const txt=await callClaude(`${ctx()}${snaps?'\n【系統已用牛牛即時 K 線算好下列技術指標，直接採用，不要叫我去 TradingView 抓】'+snaps+'\n':''}
 請針對這個研究方向做深入研究並用 web 搜尋最新資料：「${title}」（背景：${why||''}）。
 最上面先標一行【資料截至：日期 週X／美股狀態】。若美股休市（週末/假日），進場時點請以「下一個交易日/下週」為準，並說明觸發條件。
 請給出結構化結論，包含：
@@ -1426,7 +1449,7 @@ async function deepResearch(title,why){
 2. 重點觀察的個股（代號）與目前價位
 3. 具體短線操作計畫：進場區間、停損價、目標價、風險報酬比、建議部位大小、屬於（當沖/隔日沖/短波段）
 4. 風險與會讓你立刻出場的訊號
-若需要更精準的即時數據才能定進出場，最後用一行「👉 請從 TradingView 幫我看：…」明確列出要我提供哪些數值（標的、週期、指標）。
+請直接定進出場；**不要列一串叫我去 TradingView 抓數據**（軟體已有即時圖與指標，缺特定數字才簡短說明）。
 用 Markdown，標題用 ##，重點用粗體，精簡。`,{maxTokens:3500});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
