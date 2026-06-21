@@ -181,6 +181,10 @@ header .spacer{margin-left:auto;}
 .splitter-h::after{content:'';position:absolute;left:50%;top:2px;height:2px;width:30px;transform:translateX(-50%);border-top:2px dotted var(--muted);opacity:.45;}
 .splitter-v:hover,.splitter-h:hover,.splitter-v.dragging,.splitter-h.dragging{background:var(--orange);}
 .splitter-v:hover::after,.splitter-h:hover::after,.dragging::after{opacity:0;}
+.pane-divider{flex:0 0 6px;cursor:row-resize;background:transparent;position:relative;z-index:4;}
+.pane-divider::after{content:'';position:absolute;left:50%;top:2px;width:28px;height:2px;transform:translateX(-50%);border-top:2px dotted var(--muted);opacity:.4;}
+.pane-divider:hover,.pane-divider.dragging{background:var(--orange);}
+.pane-divider:hover::after{opacity:0;}
 #dragOverlay{position:fixed;inset:0;z-index:190;display:none;}
 #dragOverlay.show{display:block;}
 @media(max-width:920px){
@@ -469,6 +473,22 @@ function baseChartOpts(extra){
   },extra||{});
 }
 function mkPane(host,flex,tag){ const d=document.createElement('div'); d.className='pane'; d.style.flex=flex; if(tag){ const t=document.createElement('div'); t.className='ptag'; t.textContent=tag; d.appendChild(t);} host.appendChild(d); return d; }
+/* 指標分欄可拖拉：divider 在 pane 上方，往上拉＝該欄變高 */
+function paneResize(host, pane, key, min, max){
+  const dv=document.createElement('div'); dv.className='pane-divider'; dv.title='拖拉調整此指標欄高度（雙擊還原）';
+  host.insertBefore(dv, pane);
+  const ov=document.getElementById('dragOverlay');
+  dv.addEventListener('mousedown',e=>{
+    e.preventDefault();
+    const startY=e.clientY, startH=pane.offsetHeight;
+    dv.classList.add('dragging'); ov.classList.add('show'); ov.style.cursor='row-resize';
+    function move(ev){ const h=Math.max(min,Math.min(max,startH-(ev.clientY-startY))); pane.style.flex='0 0 '+h+'px'; localStorage.setItem(key,h); }
+    function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); dv.classList.remove('dragging'); ov.classList.remove('show'); }
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  });
+  dv.addEventListener('dblclick',()=>{ localStorage.removeItem(key); pane.style.flex='0 0 120px'; });
+}
+function paneH(key,def){ const v=parseFloat(localStorage.getItem(key)); return v&&v>=50&&v<=400?v:def; }
 
 async function renderSelfChart(sym){
   destroySelfCharts();
@@ -490,8 +510,8 @@ async function renderSelfChart(sym){
   selfState.sym=sym; selfState.iv=selfIv; selfState.bars=bars; selfState.charts=[]; selfState.series={};
   const intraday=selfIv!=='day'&&selfIv!=='week';
 
-  // ---- 價格 pane（K棒＋EMA＋VWAP＋量）----
-  const pxEl=mkPane(host,(ind.rsi||ind.macd)?'3 1 0':'1 1 0', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA20/50':'')+(ind.vwap&&intraday?'  VWAP':''));
+  // ---- 價格 pane（K棒＋EMA＋VWAP＋量）：主圖自動填滿，指標欄各自可拖 ----
+  const pxEl=mkPane(host,'1 1 80px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA20/50':'')+(ind.vwap&&intraday?'  VWAP':''));
   const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
   const candle=pc.addCandlestickSeries({upColor:'#16C784',downColor:'#EA3943',borderVisible:false,wickUpColor:'#16C784',wickDownColor:'#EA3943'});
   selfState.series.candle=candle;
@@ -504,7 +524,8 @@ async function renderSelfChart(sym){
 
   // ---- RSI pane ----
   if(ind.rsi){
-    const rEl=mkPane(host,'1 1 0','RSI 14');
+    const rEl=mkPane(host,'0 0 '+paneH('wo_pane_rsi',120)+'px','RSI 14');
+    paneResize(host, rEl, 'wo_pane_rsi', 50, 360);
     const rc=LightweightCharts.createChart(rEl,baseChartOpts({rightPriceScale:{borderColor:'#262C38',scaleMargins:{top:0.1,bottom:0.1}}}));
     const rsiS=rc.addLineSeries({color:'#E8620A',lineWidth:1.5,priceLineVisible:false,lastValueVisible:true});
     rsiS.createPriceLine({price:70,color:'rgba(234,57,67,.5)',lineWidth:1,lineStyle:2,axisLabelVisible:true});
@@ -514,7 +535,8 @@ async function renderSelfChart(sym){
   }
   // ---- MACD pane ----
   if(ind.macd){
-    const mEl=mkPane(host,'1 1 0','MACD 12/26/9');
+    const mEl=mkPane(host,'0 0 '+paneH('wo_pane_macd',120)+'px','MACD 12/26/9');
+    paneResize(host, mEl, 'wo_pane_macd', 50, 360);
     const mc=LightweightCharts.createChart(mEl,baseChartOpts());
     selfState.series.macdHist=mc.addHistogramSeries({priceLineVisible:false,lastValueVisible:false});
     selfState.series.macdLine=mc.addLineSeries({color:'#4C8DFF',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false});
