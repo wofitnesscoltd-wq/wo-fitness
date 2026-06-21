@@ -31,6 +31,16 @@ export TELEGRAM_CHAT_ID="123456789"
 python futu_bridge.py --alerts --min-grade B
 ```
 
+### 開啟「每則訊號 AI 複核」（建議）
+加上 Claude 金鑰，引擎會在推播前用 Claude **逐則複核**訊號（型態勉強/追高/逆勢/量能不足會被降為觀望或不建議；被判「不建議」就不推播、但仍記進 DB）。複核結果會附在訊息裡。
+```bash
+python futu_bridge.py --alerts \
+  --telegram-token "<token>" --telegram-chat "<id>" \
+  --anthropic-key "sk-ant-..." --ai-model claude-haiku-4-5-20251001 --min-grade B
+# 或設環境變數 ANTHROPIC_API_KEY
+```
+> AI 複核採 **fail-open**：Claude 當機/逾時就回退成純規則訊號照推，不會讓你整個靜音漏訊。預設用 Haiku（快又省）；要更嚴謹可改 `--ai-model claude-opus-4-8`。
+
 啟動後會印出「警示引擎: 已啟動」。開盤時段（美東 9:30–16:00）就會自動掃描並推播。
 
 ### 參數

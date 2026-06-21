@@ -275,6 +275,43 @@ def send_telegram(token, chat_id, text):
         return False
 
 
+def ai_vet(sym, sig, key, model="claude-haiku-4-5-20251001"):
+    """用 Claude 對單一訊號做全情境複核。回傳 {verdict, note} 或 None(失敗→放行)。
+    verdict ∈ 進場 / 觀望 / 不建議。失敗一律 fail-open，避免 AI 當機就全靜音。"""
+    if not key:
+        return None
+    f = sig.get("feat", {})
+    side = {"long": "買進(做多)", "exit": "賣出/減碼"}.get(sig["side"], sig["side"])
+    user = (
+        f"短線美股訊號複核。標的 {sym}，方向 {side}，技術型態：{sig['type']}。\n"
+        f"現價 {sig['price']}，建議停損 {sig['stop']}，目標 {sig['target']}，R:R {sig.get('rr')}。\n"
+        f"指標快照：RSI={f.get('rsi')} MACD柱={f.get('hist')} VWAP={f.get('vwap')} "
+        f"EMA9/20/50={f.get('e9')}/{f.get('e20')}/{f.get('e50')} RVOL={f.get('rvol')} ATR={f.get('atr')}。\n"
+        f"觸發理由：{sig['reason']}\n"
+        "請以頂尖短線操盤手角度，判斷這個觸發此刻『值不值得照計畫進場/出場』。"
+        "只看技術與風險合理性即可（不需上網）。只輸出 JSON："
+        '{"verdict":"進場/觀望/不建議","note":"一句話理由(繁中,精簡)"}'
+    )
+    body = json.dumps({
+        "model": model, "max_tokens": 300,
+        "system": "你是嚴格的短線交易風控複核員，寧可錯過不要做錯；型態勉強、追高、逆勢、量能不足就降級為觀望或不建議。只輸出要求的 JSON。",
+        "messages": [{"role": "user", "content": user}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages", data=body,
+        headers={"content-type": "application/json", "x-api-key": key,
+                 "anthropic-version": "2023-06-01"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        txt = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        m = txt[txt.find("{"): txt.rfind("}") + 1]
+        o = json.loads(m)
+        return {"verdict": o.get("verdict", "觀望"), "note": o.get("note", "")}
+    except Exception:
+        return None
+
+
 def fmt_msg(sym, sig):
     side = {"long": "🟢 買點", "short": "🔴 賣點", "exit": "🔴 賣點/減碼"}.get(sig["side"], sig["side"])
     f = sig.get("feat", {})
@@ -513,13 +550,22 @@ class AlertEngine:
 
     def _emit(self, con, session, code, sigs, min_grade, order, token, chat):
         sym = (code or "").replace("US.", "")
+        key = self.cfg.get("anthropic_key")
+        model = self.cfg.get("ai_model", "claude-haiku-4-5-20251001")
         n = 0
         for sig in sigs:
             if order.get(sig["grade"], 0) < order.get(min_grade, 1):
                 continue
             if already_alerted(con, session, code, sig["side"], sig["type"]):
                 continue
-            ok = send_telegram(token, chat, fmt_msg(sym, sig)) if token else False
+            allow = True
+            if key:                     # 每則訊號都過 AI 複核
+                v = ai_vet(sym, sig, key, model)
+                if v:
+                    sig["reason"] += "｜AI複核：" + v["verdict"] + ("，" + v["note"] if v.get("note") else "")
+                    if v["verdict"] == "不建議":
+                        allow = False   # AI 否決：仍記錄，但不推播
+            ok = send_telegram(token, chat, fmt_msg(sym, sig)) if (token and allow) else False
             log_alert(con, session, code, sig, ok)
             if ok:
                 n += 1
