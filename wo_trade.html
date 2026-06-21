@@ -1835,7 +1835,14 @@ function renderPositions(){
     list.appendChild(card);
   }
   const grid=document.createElement('div'); grid.className='pos-grid'; list.appendChild(grid);
-  cryptoHoldings.forEach(h=>{
+  // 同標的多空雙開→並排同一列（各占整列起點）；單腿標的往後遞補、兩兩填滿
+  const legsBySym={}; cryptoHoldings.forEach(h=>{ (legsBySym[h.s]=legsBySym[h.s]||[]).push(h); });
+  const pairs=[], singles=[];
+  Object.values(legsBySym).forEach(legs=>{
+    if(legs.length>=2){ legs.sort((a,b)=>(a.side==='short'?1:0)-(b.side==='short'?1:0)); pairs.push(...legs); }
+    else singles.push(...legs);
+  });
+  [...pairs,...singles].forEach(h=>{
     const px=cryptoQuotes[h.s];
     const pnlPct=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
     const id='c|'+h.s+'|'+h.side; const exp=expandedPos.has(id);
