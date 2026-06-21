@@ -13,7 +13,7 @@
 進出場規則：進場/做空(順勢＋回踩＋動能＋確認，≥3項且趨勢過濾) → 平多/平空(MACD死叉/金叉 或 破/站回 EMA20)。
 費用：--fee 0.04（單邊%）。做多做空都算。輸出勝率、期望值(R)、獲利因子、總報酬、最大回撤，並與 Buy&Hold 比。
 """
-import argparse, json, math, urllib.request, urllib.parse
+import argparse, json, math, urllib.request, urllib.parse, urllib.error
 
 
 # ---------- 指標（與網頁同公式，全部因果） ----------
@@ -146,35 +146,70 @@ def backtest(bars, fee=0.04, name=""):
 
 
 # ---------- 取資料 ----------
-def from_bridge(url, token, code, ktype, num):
-    q = urllib.parse.urlencode({"code": code, "ktype": ktype, "num": num, "live": 0, "token": token})
-    r = json.loads(urllib.request.urlopen(url.rstrip("/") + "/kline?" + q, timeout=20).read())
-    return [b for b in r.get("kline", []) if b.get("close") is not None]
+def _die(msg):
+    import sys
+    print("\n❌ " + msg)
+    sys.exit(1)
 
 
 def _get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    return json.loads(urllib.request.urlopen(req, timeout=25).read())
+    try:
+        raw = urllib.request.urlopen(req, timeout=25).read()
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "ignore")[:200]
+        except Exception:
+            pass
+        _die(f"伺服器回 HTTP {e.code}（多半是代碼打錯或該交易所沒這檔）。{body}")
+    except Exception as e:
+        _die(f"連不上網路或請求逾時：{e}\n   （在自己電腦跑、要能上網；幣安/Bitget 在某些地區需翻牆）")
+    try:
+        return json.loads(raw)
+    except Exception:
+        _die("回傳的不是 JSON，可能被防火牆/代理擋了。")
+
+
+def from_bridge(url, token, code, ktype, num):
+    q = urllib.parse.urlencode({"code": code, "ktype": ktype, "num": num, "live": 0, "token": token})
+    r = _get_json(url.rstrip("/") + "/kline?" + q)
+    if isinstance(r, dict) and r.get("error"):
+        _die(f"橋接回錯誤：{r.get('error')}（檢查 --token 對不對、牛牛有沒有開）")
+    bars = [b for b in (r.get("kline") or []) if b.get("close") is not None] if isinstance(r, dict) else []
+    if not bars:
+        _die(f"橋接沒給到 {code} 的 K 線（檢查代碼像 US.NVDA、牛牛已登入、--num 不要太大）。")
+    return bars
 
 
 def from_crypto(sym, source, interval, limit):
     """自己抓幣安/Bitget 真實 K 線：大小寫都吃、日線/週線正確、不依賴其他檔。"""
     source = (source or "binance").strip().lower()
     sym = (sym or "").strip().upper()
+    if source not in ("binance", "bitget"):
+        _die(f"--source 只能填 binance 或 bitget，你填了「{source}」。")
     if source == "bitget":
         gran = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H",
                 "4h": "4H", "1d": "1D", "1w": "1W"}.get(interval, "1D")
         url = (f"https://api.bitget.com/api/v2/mix/market/candles?symbol={sym}"
                f"&productType=usdt-futures&granularity={gran}&limit={limit}")
-        d = _get_json(url).get("data", []) or []
+        resp = _get_json(url)
+        d = (resp.get("data") if isinstance(resp, dict) else None) or []
+        if isinstance(resp, dict) and str(resp.get("code", "00000")) not in ("00000", "0") and not d:
+            _die(f"Bitget 回錯誤：{resp.get('msg')}（代碼像 BTCUSDT，且要是 USDT 永續）。")
         bars = [{"time": r[0], "open": float(r[1]), "high": float(r[2]), "low": float(r[3]),
                  "close": float(r[4]), "volume": float(r[5])} for r in d]
         bars.sort(key=lambda b: int(b["time"]))   # 由舊到新
-        return bars
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit={limit}"
-    d = _get_json(url)
-    return [{"time": k[0], "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
-             "close": float(k[4]), "volume": float(k[5])} for k in d]
+    else:
+        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit={limit}"
+        d = _get_json(url)
+        if isinstance(d, dict):   # 幣安出錯時回 {"code":-1121,"msg":"Invalid symbol."}
+            _die(f"幣安回錯誤：{d.get('msg')}（代碼像 BTCUSDT；--interval 只能 1m/5m/15m/1h/4h/1d/1w）。")
+        bars = [{"time": k[0], "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
+                 "close": float(k[4]), "volume": float(k[5])} for k in d]
+    if not bars:
+        _die(f"{source} 沒給到 {sym} 的 K 線（檢查代碼/來源/interval）。")
+    return bars
 
 
 def from_csv(path):
