@@ -210,6 +210,19 @@ header .spacer{margin-left:auto;}
 .hud-pill.warn{color:var(--amber);border-color:rgba(224,165,59,.4);}
 .hud-pill.stop{color:var(--red);border-color:rgba(224,102,114,.4);}
 body.locked .btn-primary, body.locked #stockBtn{filter:grayscale(.7) opacity(.55);}
+body.orbwait .hold-add button{filter:grayscale(.55) opacity(.6);}
+.hud-pill.click{cursor:pointer;}
+/* 三步引導路徑（funnel） */
+.funnel{display:flex;align-items:center;gap:6px;padding:6px 14px;border-bottom:1px solid var(--border);background:#0A0D12;font-size:12.5px;flex-wrap:wrap;}
+.fn-step{display:inline-flex;align-items:center;gap:5px;color:var(--muted-2);padding:4px 11px;border-radius:7px;border:1px solid transparent;cursor:pointer;transition:color var(--t),border-color var(--t),background var(--t);}
+.fn-step .fn-num{font-weight:700;}
+.fn-step:hover{color:var(--text);}
+.fn-step.done{color:var(--green);}
+.fn-step.done .fn-num{color:var(--green);}
+.fn-step.on{color:var(--orange-light);border-color:var(--orange);background:rgba(224,120,40,.09);}
+.fn-arrow{color:var(--muted-2);font-size:13px;}
+.fn-hint{margin-left:auto;color:var(--muted-2);font-size:11px;}
+@media(max-width:920px){ .fn-hint{display:none;} }
 /* 專注模式：收側欄與右欄，只留圖＋決策＋HUD */
 body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitNews{display:none;}
 @media(max-width:920px){ .hud{height:auto;flex-wrap:wrap;gap:6px 0;padding:6px 12px;} .hud-loss{flex:1 1 100%;} }
@@ -265,6 +278,8 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
   <div class="hud-sep"></div>
   <div class="hud-block"><div class="hud-label">當沖出場 <span class="note">hard exit</span></div><div class="hud-val" id="hudClock">—</div></div>
   <div class="hud-spacer"></div>
+  <div class="hud-pill click" id="hudOrb" onclick="toggleOrb()" title="開盤區間突破（ORB）確認 — 點一下切換。未確認時進場鈕會變灰提醒" style="margin-right:6px">ORB —</div>
+  <div class="hud-pill click" id="hudHealth" onclick="cycleHealth()" title="今日身心狀態自評（睡眠/情緒）— 點一下循環 好→普通→不佳→未評。不會鎖你，只標記" style="margin-right:6px">今日狀態？</div>
   <div class="hud-pill" id="hudState">—</div>
 </div>
 <div class="layout">
@@ -312,6 +327,14 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
           <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
+        </div>
+        <div class="funnel" id="funnel">
+          <div class="fn-step on" data-step="1" onclick="marketTemp()"><span class="fn-num">①</span> 市場溫度</div>
+          <div class="fn-arrow">›</div>
+          <div class="fn-step" data-step="2" onclick="marketBrief()"><span class="fn-num">②</span> 強勢選股</div>
+          <div class="fn-arrow">›</div>
+          <div class="fn-step" data-step="3" onclick="hintResearch()"><span class="fn-num">③</span> 深入研究</div>
+          <span class="fn-hint">由上而下：先看大盤敢不敢上 → 找強勢股 → 深挖成計畫</span>
         </div>
         <div class="feed" id="feed">
           <div class="welcome" id="welcome">
@@ -519,6 +542,19 @@ function openPnl(){
   return pnl;
 }
 function etNow(){ try{ return new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'})); }catch(e){ return new Date(); } }
+/* 三步引導路徑（§5） */
+function setFunnelStep(n){
+  document.querySelectorAll('#funnel .fn-step').forEach(el=>{ const s=+el.dataset.step;
+    el.classList.toggle('on', s===n); el.classList.toggle('done', s<n); });
+}
+function hintResearch(){ addBubble('「深入研究」從<b>強勢選股</b>給的方向卡片上點「🔍 深入研究」進入，或直接點某檔做「🔬 個股分析」。','ai'); setFunnelStep(2); }
+/* ORB 開盤區間突破確認（§4.4）— 以美東當日為範圍，手動確認，外部化規則 */
+function dayKeyET(p){ const n=etNow(); return p+n.getFullYear()+'-'+(n.getMonth()+1)+'-'+n.getDate(); }
+function orbConfirmed(){ return localStorage.getItem(dayKeyET('wo_orb_'))==='1'; }
+function toggleOrb(){ localStorage.setItem(dayKeyET('wo_orb_'), orbConfirmed()?'0':'1'); renderHud(); }
+/* 健康閘門（§4.7）— 輕量自評，不鎖、只標記 */
+function cycleHealth(){ const order=['good','ok','bad','']; const k=dayKeyET('wo_health_'); const cur=localStorage.getItem(k)||'';
+  const nx=order[(order.indexOf(cur)+1)%order.length]; if(nx) localStorage.setItem(k,nx); else localStorage.removeItem(k); renderHud(); }
 function renderHud(){
   const c=riskCfg(); const pnl=openPnl();
   const fill=document.getElementById('hudFill'), lossV=document.getElementById('hudLossVal'), posEl=document.getElementById('hudPos'), clk=document.getElementById('hudClock'), st=document.getElementById('hudState');
@@ -540,8 +576,23 @@ function renderHud(){
   if(!open){ clk.textContent='休market'; clk.style.color='var(--muted)'; }
   else if(mins>0){ clk.textContent=`${Math.floor(mins/60)}時${mins%60}分`; clk.style.color=mins<=15?'var(--amber)':'var(--text)'; }
   else { clk.textContent='已過硬出場線'; clk.style.color='var(--red)'; }
+  // ORB 確認徽章（未確認且開盤時，進場鈕變灰提醒）
+  const orbEl=document.getElementById('hudOrb');
+  if(orbEl){ const ok=orbConfirmed();
+    orbEl.textContent= ok?'ORB ✓ 已確認':'ORB ○ 未確認';
+    orbEl.className='hud-pill click '+(ok?'ok':(open?'warn':''));
+    document.body.classList.toggle('orbwait', !ok && open);
+  }
+  // 健康閘門（自評，不鎖只標記）
+  const hEl=document.getElementById('hudHealth');
+  if(hEl){ const hv=localStorage.getItem(dayKeyET('wo_health_'));
+    const map={good:['好','ok'],ok:['普通',''],bad:['不佳','warn']};
+    if(hv&&map[hv]){ hEl.textContent='狀態：'+map[hv][0]; hEl.className='hud-pill click '+map[hv][1]; }
+    else { hEl.textContent='今日狀態？'; hEl.className='hud-pill click'; }
+  }
   // 狀態 pill
   if(document.body.classList.contains('locked')){ st.textContent='🛑 今日達損失上限・收工'; st.className='hud-pill stop'; }
+  else if(localStorage.getItem(dayKeyET('wo_health_'))==='bad'){ st.textContent='🌙 今日狀態不佳，建議只看不做或減量'; st.className='hud-pill warn'; }
   else if(coolingActive()){ st.textContent='🧊 短時間多次進場，考慮暫停一下'; st.className='hud-pill warn'; }
   else if(c.extract>0 && pnl>=c.extract){ st.textContent=`💰 達提取門檻 +$${Math.round(pnl)}（可轉出獲利）`; st.className='hud-pill ok'; }
   else if(c.dailyLoss>0 && pnl<0 && -pnl/c.dailyLoss>=0.7){ st.textContent='⚠️ 接近每日上限'; st.className='hud-pill warn'; }
@@ -1137,7 +1188,7 @@ function marketCtx(){
 
 /* ---------- 盤面導讀 → 研究方向 ---------- */
 async function marketTemp(){
-  if(busy)return; setBusy(true);
+  if(busy)return; setBusy(true); setFunnelStep(1);
   addBubble('🌡️ 量一下今天的<b>市場溫度</b>…','user');
   const tp=addTyping();
   try{
@@ -1164,7 +1215,7 @@ S&P500、那斯達克、道瓊、費半SOX、羅素2000小型股 的收盤價、
 }
 
 async function marketBrief(){
-  if(busy)return; setBusy(true);
+  if(busy)return; setBusy(true); setFunnelStep(2);
   const tp=addTyping();
   try{
     const txt=await callClaude(`${marketCtx()}
@@ -1202,7 +1253,7 @@ async function stockAnalysis(){
   if(busy)return;
   const targets = analyzeList.length ? analyzeList.slice() : (current?[{s:current,n:currentName}]:[]);
   if(!targets.length){ addBubble('請先用上方「＋ 加入個股」選一或多檔（也可點左邊清單）。','ai'); return; }
-  setBusy(true);
+  setBusy(true); setFunnelStep(3);
   const multi=targets.length>1;
   const namesStr=targets.map(t=>tkr(t.s)+(t.n?'（'+t.n+'）':'')).join('、');
   addBubble('🔬 個股分析：<b>'+namesStr+'</b>','user');
@@ -1225,7 +1276,7 @@ ${multi?'最後加「## 綜合比較」：這幾檔裡現在最值得短線的�
 
 /* ---------- 深入研究 ---------- */
 async function deepResearch(title,why){
-  if(busy)return; busy=true;
+  if(busy)return; busy=true; setFunnelStep(3);
   addBubble('深入研究：<b>'+title+'</b>','user');
   const tp=addTyping();
   try{
