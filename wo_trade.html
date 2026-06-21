@@ -426,11 +426,14 @@ function renderTVChart(sym){
   const wrap=document.createElement('div'); wrap.className='tradingview-widget-container';
   const inner=document.createElement('div'); inner.className='tradingview-widget-container__widget'; inner.style.height='100%';
   wrap.appendChild(inner);
+  // 用同一組指標開關套到「每一檔」TV 圖（免費嵌入約上限 2 個，依優先序取前 2）
+  const tvMap=[['rsi','RSI@tv-basicstudies'],['macd','MACD@tv-basicstudies'],['vwap','VWAP@tv-basicstudies'],['ema','MAExp@tv-basicstudies']];
+  const tvStudies=tvMap.filter(([k])=>ind[k]).map(([,v])=>v).slice(0,2);
   const s=document.createElement('script');
   s.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'; s.async=true;
   s.innerHTML=JSON.stringify({symbol:sym,interval:'D',timezone:'Asia/Taipei',theme:'dark',style:'1',
     locale:'zh_TW',allow_symbol_change:true,hide_side_toolbar:false,withdateranges:true,details:false,
-    studies:[],autosize:true,backgroundColor:'rgba(14,17,22,1)',gridColor:'rgba(38,44,56,0.6)'});
+    studies:tvStudies,autosize:true,backgroundColor:'rgba(14,17,22,1)',gridColor:'rgba(38,44,56,0.6)'});
   wrap.appendChild(s); host.appendChild(wrap);
 }
 
@@ -547,7 +550,9 @@ function updateChartToolsUI(sym){
   document.querySelectorAll('#intvSeg button').forEach(b=>b.classList.toggle('on', b.dataset.iv===selfIv));
   ['ema','vwap','rsi','macd'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.classList.toggle('on', !!ind[k]); });
   document.getElementById('chartIntvWrap').style.display = self?'':'none';
-  ['tgEMA','tgVWAP','tgRSI','tgMACD'].forEach(id=>{ document.getElementById(id).style.display = self?'':'none'; });
+  // 指標開關兩種圖都顯示（設一次、套到所有標的）；TV 免費版約上限 2 個
+  ['tgEMA','tgVWAP','tgRSI','tgMACD'].forEach(id=>{ document.getElementById(id).style.display = ''; });
+  document.getElementById('tgEMA').title=document.getElementById('tgVWAP').title=self?'':'TV 免費版最多顯示 2 個指標（依 RSI→MACD→VWAP→EMA 優先序）';
   const hint=document.getElementById('chartHint');
   if(chartSrc!=='tv' && !canSelf(sym)){
     hint.textContent = !window.LightweightCharts ? '（圖表庫未載入）' : (!futu.connected ? '（未連牛牛→用TV，連上即用即時自製圖）' : '（此標的牛牛無資料→用TV）');
@@ -556,7 +561,7 @@ function updateChartToolsUI(sym){
 function initChartTools(){
   document.querySelectorAll('#intvSeg button').forEach(b=>{ b.onclick=()=>{ selfIv=b.dataset.iv; localStorage.setItem('wo_chart_iv',selfIv); if(current) delete selfNoData[tkr(current)]; loadChart(current); }; });
   document.querySelectorAll('#srcSeg button').forEach(b=>{ b.onclick=()=>{ chartSrc=b.dataset.src; localStorage.setItem('wo_chart_src',chartSrc); if(b.dataset.src==='self'&&current) delete selfNoData[tkr(current)]; loadChart(current); }; });
-  ['ema','vwap','rsi','macd'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else updateChartToolsUI(current); }; });
+  ['ema','vwap','rsi','macd'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
 }
 /* 牛牛連線狀態改變時，auto 模式自動在 TV / 自製圖之間切換 */
 function maybeSwitchChart(){
