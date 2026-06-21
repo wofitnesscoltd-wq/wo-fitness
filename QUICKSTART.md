@@ -32,10 +32,16 @@
 細節見 **ALERTS_SETUP.md**。
 
 ### 上線前先回測（建議）
+日線長窗（波段邏輯）：
 ```bash
 python backtest.py --symbols US.NVDA,US.AMD,US.AAPL --num 2500
 ```
-看勝率/期望值/獲利因子/最大回落，確認邏輯有邊際再放心用。
+盤中多年（**驗的就是會上線的盤中訊號**，Polygon 多年 1/5 分 K；你說花費不在意）：
+```bash
+python backtest_intraday.py --source polygon --polygon-key <KEY> --symbols NVDA,AMD --years 5 --spy
+# 沒有 Polygon 也能用富途近 1–2 年：--source futu --symbols US.NVDA,US.AMD
+```
+看分等級的勝率/期望值/獲利因子，確認有邊際再放心用。
 
 ---
 
