@@ -68,6 +68,8 @@ header .spacer{margin-left:auto;}
 .hold-add input:focus,.hold-add select:focus{border-color:var(--orange);}
 .hold-add #hSym{flex:1 1 100%;text-transform:uppercase;}
 .hold-add button{background:var(--orange);border:none;border-radius:6px;color:#fff;flex:0 0 36px;font-size:16px;cursor:pointer;}
+#holdToggle{padding:8px 12px;font-size:12px;color:var(--muted);cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+#holdToggle:hover{color:var(--text);}
 .detail-actions .pchart{color:var(--blue);}
 #holdType button{border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:11.5px;padding:4px 12px;cursor:pointer;}
 #holdType button.on{background:var(--orange);color:#fff;}
@@ -408,6 +410,8 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <div class="news-empty">警示引擎（買賣點自動掃描）需在本機跑 <b>futu_bridge.py --alerts</b>。<br>開盤期間它會掃自選清單找買點、掃持股找賣點，A/B/C 評分＋佐證，並推 Telegram。這裡顯示最近的訊號與追蹤結果。</div>
         </div>
         <div id="holdBox" style="display:none">
+          <div id="holdToggle" onclick="toggleHoldForm()">＋ 新增部位 / 備份 <span id="holdToggleCaret">▾</span></div>
+          <div id="holdForm" style="display:none">
           <div class="seg" id="holdType" style="display:flex;margin:8px 8px 0;width:fit-content;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;overflow:hidden">
             <button data-ht="stock" class="on" onclick="setHoldType('stock')">股票</button>
             <button data-ht="crypto" onclick="setHoldType('crypto')">加密永續</button>
@@ -425,6 +429,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
             <button onclick="exportData()" style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:3px 8px;font-family:inherit;font-size:11px;cursor:pointer">匯出備份</button>
             <button onclick="document.getElementById('importFile').click()" style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:3px 8px;font-family:inherit;font-size:11px;cursor:pointer">還原備份</button>
             <input id="importFile" type="file" accept="application/json,.json" style="display:none" onchange="importData(this)">
+          </div>
           </div>
         </div>
         <div class="pos-acct" id="posAcct" style="display:none"></div>
@@ -1535,6 +1540,7 @@ let cryptoHoldings = JSON.parse(localStorage.getItem('wo_crypto_holdings')||'[]'
 let cryptoQuotes = {};
 let cryptoFunding = {};
 let holdType = 'stock';
+function toggleHoldForm(){ const f=document.getElementById('holdForm'); const open=f.style.display==='none'; f.style.display=open?'block':'none'; const c=document.getElementById('holdToggleCaret'); if(c)c.textContent=open?'▴':'▾'; }
 function setHoldType(t){
   holdType=t;
   document.querySelectorAll('#holdType button').forEach(b=>b.classList.toggle('on',b.dataset.ht===t));
@@ -1559,6 +1565,7 @@ async function pollCrypto(){
   try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; }catch(e){}
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
+function toggleCryptoSum(){ localStorage.setItem('wo_sumexp', localStorage.getItem('wo_sumexp')==='1'?'0':'1'); renderPositions(); }
 function getCMargin(){ return parseFloat(localStorage.getItem('wo_cmargin'))||0; }
 function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); pushCMargin(); renderPositions(); }
 function pushCMargin(){ if(!futu.connected||!bridgeSynced) return; try{ futuFetch('/setcmargin?v='+(getCMargin()||0)); }catch(e){} }
@@ -1804,18 +1811,25 @@ function renderPositions(){
   }
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
+    const exp=localStorage.getItem('wo_sumexp')==='1';
     const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
-    const bufHtml = sm.buffer==null?'<b style="color:var(--green)">已對沖・淨曝險極低</b>' : `<b style="color:${sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)'}">${sm.buffer.toFixed(1)}%</b>`;
-    card.innerHTML=`<div style="font-size:12px;margin-bottom:6px"><b>加密全倉總覽</b> <span style="color:var(--muted)">cross</span></div>
-      <input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin-bottom:8px">
-      <div style="font-size:12px;line-height:1.9">
+    const bufCol = sm.buffer==null?'var(--green)':(sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)');
+    const bufTxt = sm.buffer==null?'已對沖':sm.buffer.toFixed(1)+'%';
+    const head=`<div onclick="toggleCryptoSum()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:12px;gap:6px">
+        <span><b>加密全倉</b> <span style="color:var(--muted)">權益</span> $${Math.round(sm.equity).toLocaleString()} <span style="color:var(--muted)">未實現</span> <b style="color:${sm.upnl>=0?'var(--green)':'var(--red)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b> <span style="color:var(--muted)">緩衝</span> <b style="color:${bufCol}">${bufTxt}</b></span>
+        <span style="color:var(--muted-2);flex:0 0 auto">${exp?'▴':'▾'}</span></div>`;
+    let body='';
+    if(exp){
+      body=`<input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin:8px 0">
+      <div style="font-size:12px;line-height:1.8">
         帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">= 可用 $${Math.round(sm.avail)} ＋ 已用保證金 $${Math.round(sm.used)}</span><br>
-        未實現損益 <b style="color:${sm.upnl>=0?'var(--green)':'var(--red)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b><br>
         總名目 $${Math.round(sm.gross).toLocaleString()}　淨曝險 $${Math.round(sm.net).toLocaleString()}<br>
-        整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b><span style="color:var(--muted)">（名目）</span>　淨 ${sm.netLev.toFixed(1)}x<br>
-        距全倉爆倉緩衝 ${bufHtml}<span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
+        整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b>　淨 ${sm.netLev.toFixed(1)}x<br>
+        距全倉爆倉緩衝 <b style="color:${bufCol}">${bufTxt}</b><span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
       </div>
       ${getCMargin()<=0?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
+    }
+    card.innerHTML=head+body;
     list.appendChild(card);
   }
   cryptoHoldings.forEach(h=>{
