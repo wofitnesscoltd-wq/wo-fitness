@@ -9,12 +9,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
 :root{
   --orange:#E8620A;--orange-light:#F5874A;--orange-pale:#2A1C10;
-  --bg:#0E1116;--panel:#161A21;--panel-2:#1C212B;--border:#262C38;
-  --text:#E6E9EF;--muted:#8A93A3;--green:#16C784;--red:#EA3943;--blue:#4C8DFF;
+  --bg:#0E1116;--panel:#161A21;--panel-2:#1C212B;--border:#252B36;--border-soft:#1E2530;
+  --text:#E6E9EF;--muted:#7E8796;--muted-2:#5B6472;
+  --green:#2FB98A;--red:#E06672;--blue:#5B8DEF;
+  --amber:#E0A53B;
+  --t:200ms cubic-bezier(.4,0,.2,1);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html{background:#0E1116;}
-body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);height:var(--apph,100vh);overflow:hidden;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);height:var(--apph,100vh);overflow:hidden;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;} }
+.wl-item,.tg,.btn-primary,.icon-btn,.futu-status,.wl-sort,.tab,.combo-item,.pos-item,.region-toggle button,.seg button{transition:background var(--t),border-color var(--t),color var(--t),filter var(--t);}
 header{background:#0A0D12;border-bottom:1px solid var(--border);padding:0 18px;display:flex;align-items:center;gap:12px;height:52px;}
 header .logo{width:30px;height:30px;background:var(--orange);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:white;font-size:13px;}
 header h1{font-size:15px;font-weight:500;}
@@ -51,7 +56,7 @@ header .spacer{margin-left:auto;}
 .pos-item.liqwarn{border-left:3px solid var(--red);}
 .pos-item .liqd{font-size:10.5px;color:var(--muted);}
 .up{color:var(--green);}.down{color:var(--red);}
-.layout{display:flex;height:calc(var(--apph,100vh) - 52px);}
+.layout{display:flex;height:calc(var(--apph,100vh) - 52px - var(--hudh,40px));}
 /* sidebar */
 .sidebar{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;}
 .add-bar{padding:10px;border-bottom:1px solid var(--border);display:flex;gap:7px;}
@@ -185,6 +190,27 @@ header .spacer{margin-left:auto;}
 .modal .save{background:var(--orange);color:white;}
 .modal .cancel{background:var(--panel-2);color:var(--muted);border:1px solid var(--border)!important;}
 .disclaimer{font-size:11px;color:var(--muted);text-align:center;padding:6px;border-top:1px solid var(--border);line-height:1.5;}
+/* 規則 HUD（外部化記憶：永遠看得見的紀律狀態） */
+.hud{height:40px;background:#0A0D12;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0;padding:0 14px;font-size:12px;overflow:hidden;}
+.hud-block{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 16px;min-width:0;}
+.hud-block:first-child{padding-left:0;}
+.hud-sep{width:1px;height:24px;background:var(--border);flex-shrink:0;}
+.hud-label{font-size:10px;color:var(--muted-2);letter-spacing:.02em;white-space:nowrap;}
+.hud-label .note{color:var(--muted-2);opacity:.7;}
+.hud-val{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;}
+.hud-loss{flex:0 0 230px;}
+.hud-meter{height:7px;border-radius:4px;background:var(--panel-2);overflow:hidden;margin:1px 0;}
+.hud-fill{height:100%;width:0%;background:var(--muted);border-radius:4px;transition:width var(--t),background var(--t);}
+.hud-fill.warn{background:var(--amber);} .hud-fill.over{background:var(--red);}
+.hud-spacer{flex:1;}
+.hud-pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);color:var(--muted);white-space:nowrap;}
+.hud-pill.ok{color:var(--green);border-color:rgba(47,185,138,.35);}
+.hud-pill.warn{color:var(--amber);border-color:rgba(224,165,59,.4);}
+.hud-pill.stop{color:var(--red);border-color:rgba(224,102,114,.4);}
+body.locked .btn-primary, body.locked #stockBtn{filter:grayscale(.7) opacity(.55);}
+/* 專注模式：收側欄與右欄，只留圖＋決策＋HUD */
+body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitNews{display:none;}
+@media(max-width:920px){ .hud{height:auto;flex-wrap:wrap;gap:6px 0;padding:6px 12px;} .hud-loss{flex:1 1 100%;} }
 /* 可拖拉分隔線 */
 .splitter-v{flex:0 0 6px;cursor:col-resize;background:transparent;position:relative;z-index:6;}
 .splitter-h{flex:0 0 6px;cursor:row-resize;background:transparent;position:relative;z-index:6;}
@@ -220,11 +246,25 @@ header .spacer{margin-left:auto;}
     <button id="btnTW" onclick="setRegion('tw')">台股</button>
   </div>
   <span id="futuStatus" class="futu-status off" title="富途即時數據" onclick="openSettings()">⚪ 富途</span>
+  <button class="icon-btn" id="focusBtn" title="專注模式（收側欄/新聞）" onclick="toggleFocus()">🎯</button>
   <button class="icon-btn" title="縮小字級" onclick="bumpScale(-0.1)" style="font-size:12px;font-weight:700">A−</button>
   <button class="icon-btn" title="放大字級" onclick="bumpScale(0.1)" style="font-size:16px;font-weight:700">A＋</button>
   <button class="icon-btn" title="設定" onclick="openSettings()">⚙</button>
 </header>
 
+<div class="hud" id="hud">
+  <div class="hud-block hud-loss">
+    <div class="hud-label">今日帳面損益 / 每日上限 <span class="note">daily loss</span></div>
+    <div class="hud-meter"><div class="hud-fill" id="hudFill"></div></div>
+  </div>
+  <div class="hud-block" style="flex:0 0 auto"><div class="hud-label">　</div><div class="hud-val" id="hudLossVal">—</div></div>
+  <div class="hud-sep"></div>
+  <div class="hud-block"><div class="hud-label">固定部位規則 <span class="note">position</span></div><div class="hud-val" id="hudPos">未設定</div></div>
+  <div class="hud-sep"></div>
+  <div class="hud-block"><div class="hud-label">當沖出場 <span class="note">hard exit</span></div><div class="hud-val" id="hudClock">—</div></div>
+  <div class="hud-spacer"></div>
+  <div class="hud-pill" id="hudState">—</div>
+</div>
 <div class="layout">
   <aside class="sidebar" id="sidebar">
     <div class="add-bar">
@@ -345,6 +385,16 @@ header .spacer{margin-left:auto;}
     </select>
     <label>自製圖 EMA 週期（短,中,長…可填數字用逗號分隔，例 9,20,60）</label>
     <input id="emaInput" placeholder="20,50">
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0 2px">
+    <label style="color:var(--text)">🛡️ 紀律護欄 <span style="color:var(--muted);font-weight:400">（顯示在頂部規則列）</span></label>
+    <div class="calc-row">
+      <div><label>每日損失上限 USD<br><span style="font-size:10px">達標鎖進場</span></label><input id="riskLoss" type="number" placeholder="例 500"></div>
+      <div><label>固定部位 USD/筆<br><span style="font-size:10px">超過會提醒</span></label><input id="riskPos" type="number" placeholder="例 2000"></div>
+    </div>
+    <div class="calc-row">
+      <div><label>帳戶總額 USD</label><input id="riskAcct" type="number"></div>
+      <div><label>當沖硬出場（美東 HH:MM）</label><input id="riskExit" placeholder="15:55"></div>
+    </div>
     <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 2px">
     <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--text)">
       <input type="checkbox" id="futuOn" style="width:auto"> 啟用富途牛牛即時數據（需在本機跑 futu_bridge.py）
@@ -445,6 +495,43 @@ function applyScale(){
   document.documentElement.style.setProperty('--apph', (100/uiScale)+'vh');
 }
 function bumpScale(d){ uiScale = Math.max(0.85, Math.min(1.7, Math.round((uiScale+d)*100)/100)); localStorage.setItem('wo_scale', uiScale); applyScale(); }
+/* 專注模式 */
+function toggleFocus(){ document.body.classList.toggle('focus'); localStorage.setItem('wo_focus', document.body.classList.contains('focus')?'1':'0'); window.dispatchEvent(new Event('resize')); }
+/* 規則 HUD（外部化記憶＋行為護欄） */
+function riskCfg(){ try{ return Object.assign({dailyLoss:0,fixedPos:0,acct:0,exit:'15:55'}, JSON.parse(localStorage.getItem('wo_risk')||'{}')); }catch(e){ return {dailyLoss:0,fixedPos:0,acct:0,exit:'15:55'}; } }
+function openPnl(){
+  let pnl=0;
+  (holdings||[]).forEach(h=>{ const q=futu.quotes['US.'+tkr(h.s)]; if(q&&q.last!=null) pnl+=(q.last-h.c)*h.q; });
+  (cryptoHoldings||[]).forEach(h=>{ const px=cryptoQuotes[h.s]; if(px) pnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; });
+  return pnl;
+}
+function etNow(){ try{ return new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'})); }catch(e){ return new Date(); } }
+function renderHud(){
+  const c=riskCfg(); const pnl=openPnl();
+  const fill=document.getElementById('hudFill'), lossV=document.getElementById('hudLossVal'), posEl=document.getElementById('hudPos'), clk=document.getElementById('hudClock'), st=document.getElementById('hudState');
+  if(!fill) return;
+  // 損益／上限計量
+  if(c.dailyLoss>0){
+    const used = pnl<0 ? Math.min(-pnl/c.dailyLoss,1) : 0;
+    fill.style.width=(used*100).toFixed(0)+'%';
+    fill.className='hud-fill'+(used>=1?' over':used>=0.7?' warn':'');
+    lossV.textContent=`${pnl>=0?'+':''}$${Math.round(pnl)} / 上限 $${Math.round(c.dailyLoss)}`;
+    lossV.className='hud-val'; lossV.style.color=pnl<0?(used>=1?'var(--red)':used>=0.7?'var(--amber)':'var(--text)'):'var(--text)';
+    if(used>=1){ document.body.classList.add('locked'); } else { document.body.classList.remove('locked'); }
+  } else { fill.style.width='0%'; fill.className='hud-fill'; lossV.textContent=`${pnl>=0?'+':''}$${Math.round(pnl)}（未設上限）`; document.body.classList.remove('locked'); }
+  posEl.textContent = c.fixedPos>0 ? `$${Math.round(c.fixedPos).toLocaleString()}/筆` : (c.acct>0?`${(c.acct*0.1).toFixed(0)}（帳戶10%）`:'未設定');
+  // 當沖出場倒數（美東）
+  const n=etNow(); const [eh,em]=(c.exit||'15:55').split(':').map(x=>parseInt(x,10));
+  const ex=new Date(n); ex.setHours(eh,em||0,0,0); let mins=Math.round((ex-n)/60000);
+  const open = n.getDay()>=1&&n.getDay()<=5 && (n.getHours()*60+n.getMinutes())>=570 && (n.getHours()*60+n.getMinutes())<960;
+  if(!open){ clk.textContent='休market'; clk.style.color='var(--muted)'; }
+  else if(mins>0){ clk.textContent=`${Math.floor(mins/60)}時${mins%60}分`; clk.style.color=mins<=15?'var(--amber)':'var(--text)'; }
+  else { clk.textContent='已過硬出場線'; clk.style.color='var(--red)'; }
+  // 狀態 pill
+  if(document.body.classList.contains('locked')){ st.textContent='🛑 今日達損失上限・收工'; st.className='hud-pill stop'; }
+  else if(c.dailyLoss>0 && pnl<0 && -pnl/c.dailyLoss>=0.7){ st.textContent='⚠️ 接近每日上限'; st.className='hud-pill warn'; }
+  else { st.textContent='✓ 在紀律內'; st.className='hud-pill ok'; }
+}
 
 /* ====================================================================
    圖表系統：自製圖（用牛牛即時K線，無延遲、指標不限）＋ TradingView 後備
@@ -890,6 +977,11 @@ function openSettings(){
   document.getElementById('keyInput').value=localStorage.getItem('wo_key')||'';
   document.getElementById('modelInput').value=localStorage.getItem('wo_model')||'claude-opus-4-8';
   document.getElementById('emaInput').value=localStorage.getItem('wo_ema')||'20,50';
+  const rc=riskCfg();
+  document.getElementById('riskLoss').value=rc.dailyLoss||'';
+  document.getElementById('riskPos').value=rc.fixedPos||'';
+  document.getElementById('riskAcct').value=rc.acct||'';
+  document.getElementById('riskExit').value=rc.exit||'15:55';
   document.getElementById('futuOn').checked=localStorage.getItem('wo_futu_on')==='1';
   document.getElementById('futuUrl').value=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888';
   document.getElementById('futuToken').value=localStorage.getItem('wo_futu_token')||'';
@@ -906,6 +998,8 @@ function saveSettings(){
   localStorage.setItem('wo_key',document.getElementById('keyInput').value.trim());
   localStorage.setItem('wo_model',document.getElementById('modelInput').value);
   localStorage.setItem('wo_ema',(document.getElementById('emaInput').value.trim()||'20,50'));
+  localStorage.setItem('wo_risk',JSON.stringify({dailyLoss:parseFloat(document.getElementById('riskLoss').value)||0,fixedPos:parseFloat(document.getElementById('riskPos').value)||0,acct:parseFloat(document.getElementById('riskAcct').value)||0,exit:(document.getElementById('riskExit').value.trim()||'15:55')}));
+  renderHud();
   localStorage.setItem('wo_futu_on',document.getElementById('futuOn').checked?'1':'0');
   localStorage.setItem('wo_futu_url',document.getElementById('futuUrl').value.trim());
   localStorage.setItem('wo_futu_token',document.getElementById('futuToken').value.trim());
@@ -1194,6 +1288,7 @@ async function pollFutu(){
   pushHoldings(); pushCryptoHoldings(); await pollCrypto();
   renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(futu.tab==='alert') renderAlerts();
+  renderHud();
   renderWatchlist();
 }
 function updateCurQuote(){
@@ -1372,6 +1467,8 @@ let alertTimer=null;
   if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
   applyScale();
+  if(localStorage.getItem('wo_focus')==='1') document.body.classList.add('focus');
+  renderHud(); setInterval(renderHud, 20000);
   initChartTools(); setupResizers();
   renderWatchlist();
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
