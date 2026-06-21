@@ -293,6 +293,11 @@ def _provider_positions():
     return r.get("positions", [])
 
 
+def _provider_account():
+    r = do_account()
+    return r.get("account")
+
+
 def start_engine():
     """有指定 --alerts 或設好 Telegram 時，啟動常駐警示引擎。"""
     global ENGINE
@@ -309,6 +314,7 @@ def start_engine():
         "scan_sec": ARGS.scan_sec, "min_grade": ARGS.min_grade,
         "batch": ARGS.batch, "phases": [s.strip() for s in ARGS.phases.split(",") if s.strip()],
         "anthropic_key": ai_key, "ai_model": ARGS.ai_model,
+        "get_account": _provider_account, "daily_loss": ARGS.daily_loss,
     }
     ENGINE = alert_engine.AlertEngine(_provider_kline, _provider_snapshot, _provider_positions, cfg)
     ENGINE.start()
@@ -336,6 +342,7 @@ def main():
     p.add_argument("--phases", default="regular", help="掃描時段，逗號分隔：pre,regular,post")
     p.add_argument("--anthropic-key", default=None, help="Claude 金鑰，開啟每則訊號 AI 複核（或設環境變數 ANTHROPIC_API_KEY）")
     p.add_argument("--ai-model", default="claude-haiku-4-5-20251001", help="AI 複核用模型")
+    p.add_argument("--daily-loss", type=float, default=0.06, help="單日虧損熔斷門檻（0.06=未實現-6%暫停買訊）")
     ARGS = p.parse_args()
     TOKEN = load_token()
 

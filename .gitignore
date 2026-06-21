@@ -3,4 +3,5 @@ __pycache__/
 .futu_bridge_token
 wo_alerts.db
 wo_watch.json
+wo_weights.json
 .alert_config.json

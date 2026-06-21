@@ -167,63 +167,145 @@ def _plan(side, f):
     return stop, target, rr
 
 
-def eval_buy(bars5, daily_chg=None):
-    """回傳買點訊號 list（可能多個觸發型態）。"""
-    if len(bars5) < 30:
-        return []
-    f = _feat(bars5)
-    if f["rsi"] is None:
-        return []
-    sigs, conf, reasons = [], 0, []
+# ====================================================================
+# 多流派集成（§2B）：權重為先驗，可由走動式優化學出來（存 wo_weights.json）
+# ====================================================================
+DEFAULT_WEIGHTS = {
+    "trend": 0.25, "breakout": 0.20, "vwap": 0.18, "meanrev": 0.12,
+    "sr": 0.10, "ma": 0.08, "seasonality": 0.03, "other": 0.04,
+}
+WEIGHTS_PATH = os.path.join(HERE, "wo_weights.json")
+SCHOOL_LABEL = {"trend": "趨勢/動能", "breakout": "突破", "vwap": "VWAP/量價",
+                "meanrev": "均值回歸", "sr": "支撐反彈", "ma": "均線多頭"}
+
+
+def load_weights():
+    try:
+        w = json.load(open(WEIGHTS_PATH, encoding="utf-8"))
+        return {k: float(w.get(k, v)) for k, v in DEFAULT_WEIGHTS.items()}
+    except Exception:
+        return dict(DEFAULT_WEIGHTS)
+
+
+def save_weights(w):
+    json.dump(w, open(WEIGHTS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
+
+def _clamp(x, lo, hi):
+    return lo if x < lo else hi if x > hi else x
+
+
+def schools_long(bars5, f):
+    """各流派對『做多』的 0..1 子分數；回傳 (scores, triggered)。沒有真實觸發 → triggered 為空。"""
+    s = {k: 0.0 for k in DEFAULT_WEIGHTS}
+    closes = [b["close"] for b in bars5]
+    rv = f.get("rvol") or 1.0
     up_stack = f["e9"] > f["e20"] > f["e50"]
     above_vwap = f["close"] > f["vwap"]
-    rv = f.get("rvol") or 1.0
+    triggered = []
 
-    triggers = []
-    # 1) VWAP 重新站上
-    if f["prev"] <= f["vwap_p"] and f["close"] > f["vwap"] and (f["rsi"] or 0) > 50:
-        triggers.append(("VWAP 站回", "站回 VWAP、RSI>50"))
-    # 2) 均線多頭回測 e9
-    if up_stack and f["prev"] < f["e9p"] and f["close"] > f["e9"]:
-        triggers.append(("均線多頭回測", "EMA9>20>50 多頭，回測 EMA9 後翻揚"))
-    # 3) 開盤區間突破
+    # 趨勢/動能：均線多頭排列＋價在均線上＋MACD 多方
+    s["trend"] = (0.5 * (1 if up_stack else 0) + 0.3 * (1 if f["close"] > f["e20"] else 0)
+                  + 0.2 * (1 if f["hist"] > 0 else 0))
+    s["ma"] = 1.0 if f["e20"] > f["e50"] else 0.0
+
+    # 突破：開盤區間 / 近 20 根高，帶量
     orh, _orl = opening_range(bars5)
-    if orh and f["prev"] <= orh < f["close"] and rv >= 1.3:
-        triggers.append(("開盤區間突破 ORB", "帶量突破開盤 30 分高點"))
-    # 4) RSI 由超賣翻揚
-    if f["rsi_p"] is not None and f["rsi_p"] < 30 <= f["rsi"]:
-        triggers.append(("RSI 超賣翻揚", "RSI 由 <30 上穿 30"))
-    # 5) MACD 金叉且在 VWAP 上
-    if f["hist_p"] <= 0 < f["hist"] and above_vwap:
-        triggers.append(("MACD 金叉", "MACD 柱由負翻正、價在 VWAP 上"))
+    if orh and f["prev"] <= orh < f["close"]:
+        s["breakout"] = _clamp(0.6 + (rv - 1) * 0.3, 0, 1); triggered.append("帶量突破開盤區間高")
+    recent_high = max(closes[-21:-1]) if len(closes) > 21 else None
+    if recent_high and f["prev"] <= recent_high < f["close"]:
+        s["breakout"] = max(s["breakout"], _clamp(0.5 + (rv - 1) * 0.3, 0, 1))
+        if "突破" not in "".join(triggered): triggered.append("突破近期高點")
 
-    if not triggers:
-        return []
-    if above_vwap: conf += 1; reasons.append("價在 VWAP 上")
-    if up_stack: conf += 1; reasons.append("均線多頭")
-    if rv >= 1.5: conf += 1; reasons.append(f"RVOL {rv:.1f}")
-    if daily_chg is not None and daily_chg > 0: reasons.append("日線同向(紅)")
-    conf += min(len(triggers), 2)
+    # VWAP/量價：站回或量價守住
+    if f["prev"] <= f["vwap_p"] and f["close"] > f["vwap"]:
+        s["vwap"] = _clamp(0.6 + (rv - 1) * 0.2, 0, 1); triggered.append("站回 VWAP")
+    elif above_vwap and rv >= 1.3:
+        s["vwap"] = _clamp(0.4 + (rv - 1) * 0.2, 0, 1)
 
-    daily_aligned = (daily_chg or 0) > 0
-    grade = _grade(conf, f, daily_aligned)
-    stop, target, rr = _plan("long", f)
-    sigs.append({
-        "side": "long", "type": "＋".join(t[0] for t in triggers),
-        "grade": grade, "price": round(f["close"], 2), "stop": stop, "target": target, "rr": rr,
-        "reason": "；".join([t[1] for t in triggers] + reasons),
-        "feat": _round_feat(f),
-    })
-    return sigs
+    # 均值回歸：RSI 由超賣翻揚
+    if f["rsi_p"] is not None and f["rsi_p"] < 35 and f["rsi"] > f["rsi_p"]:
+        s["meanrev"] = _clamp((35 - f["rsi_p"]) / 20 + 0.4, 0, 1)
+        if f["rsi_p"] < 30 <= f["rsi"]: triggered.append("RSI 由超賣翻揚")
+
+    # 支撐反彈：觸近 20 根低點後反彈
+    recent_low = min(closes[-21:-1]) if len(closes) > 21 else None
+    if recent_low and f["prev"] <= recent_low * 1.01 and f["close"] > f["prev"]:
+        s["sr"] = 0.6; triggered.append("關鍵支撐反彈")
+
+    return s, triggered
 
 
-def eval_sell(bars5, pos=None):
-    """回傳持股賣點/減碼訊號。"""
+def eval_buy(bars5, daily_chg=None, bars15=None, ctx=None, weights=None):
+    """多流派加權集成的買點。回傳 0 或 1 則（綜合成單一信心分數）。"""
     if len(bars5) < 30:
         return []
     f = _feat(bars5)
     if f["rsi"] is None:
         return []
+    weights = weights or load_weights()
+    ctx = ctx or {}
+    s, triggered = schools_long(bars5, f)
+    if not triggered:
+        return []                                   # 沒有真實觸發就不發
+
+    base = sum(weights[k] * s[k] for k in weights)  # 0..~1
+
+    # 多週期匯流：15 分趨勢同向加成 / 背離降級
+    mt_mult, mt_note = 1.0, ""
+    if bars15 and len(bars15) >= 30:
+        f15 = _feat(bars15)
+        if f15["rsi"] is not None:
+            if f15["e9"] > f15["e20"] > f15["e50"] and f15["close"] > f15["vwap"]:
+                mt_mult, mt_note = 1.2, "，15分同向多頭"
+            elif f15["close"] < f15["e20"]:
+                mt_mult, mt_note = 0.8, "，15分偏弱降級"
+
+    # 相對強度：個股 vs SPY 近段報酬
+    rs_mult, spy_ret = 1.0, ctx.get("spy_ret")
+    closes = [b["close"] for b in bars5]
+    if spy_ret is not None and len(closes) >= 13 and closes[-13]:
+        stock_ret = (closes[-1] / closes[-13] - 1) * 100
+        rs_mult = _clamp(1 + (stock_ret - spy_ret) * 0.03, 0.8, 1.25)
+
+    rv = f.get("rvol") or 1.0
+    rvol_mult = _clamp(1 + (rv - 1) * 0.1, 0.9, 1.3)
+
+    # 閘門：市場 regime / 流動性 / 日線逆向
+    regime = ctx.get("regime", "neutral")
+    regime_gate = {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.6}.get(regime, 0.9)
+    liq_gate = 0.5 if rv < 0.5 else 1.0
+    daily_gate = 0.85 if (daily_chg is not None and daily_chg < -1) else 1.0
+
+    conviction = _clamp(base * mt_mult * rs_mult * rvol_mult * regime_gate * liq_gate * daily_gate, 0, 1)
+    grade = ("A" if conviction >= 0.68 else "B" if conviction >= 0.5
+             else "C" if conviction >= 0.36 else None)
+    if grade is None:
+        return []
+
+    stop, target, rr = _plan("long", f)
+    contributors = sorted([k for k in s if s[k] >= 0.5 and k in SCHOOL_LABEL],
+                          key=lambda k: -s[k] * weights[k])
+    type_str = "＋".join(SCHOOL_LABEL[k] for k in contributors) or "多訊號匯流"
+    reason = "；".join(triggered) + f"；綜合信心 {conviction:.2f}（regime={regime}{mt_note}，RS×{rs_mult:.2f}，RVOL {rv:.1f}）"
+    return [{
+        "side": "long", "type": type_str, "grade": grade,
+        "price": round(f["close"], 2), "stop": stop, "target": target, "rr": rr,
+        "reason": reason, "conviction": round(conviction, 3),
+        "scores": {k: round(s[k], 2) for k in s if s[k] > 0},
+        "feat": _round_feat(f),
+    }]
+
+
+def eval_sell(bars5, pos=None, ctx=None):
+    """回傳持股賣點/減碼訊號。risk-off 時更敏感（升級）。"""
+    if len(bars5) < 30:
+        return []
+    f = _feat(bars5)
+    if f["rsi"] is None:
+        return []
+    ctx = ctx or {}
     triggers = []
     if f["prev"] >= f["vwap_p"] and f["close"] < f["vwap"]:
         triggers.append(("跌破 VWAP", "由上跌破 VWAP，盤中轉弱"))
@@ -238,10 +320,15 @@ def eval_sell(bars5, pos=None):
     if not triggers:
         return []
     stop, target, rr = _plan("short", f)
-    grade = "A" if len(triggers) >= 3 else "B" if len(triggers) == 2 else "C"
+    n = len(triggers)
+    if ctx.get("regime") == "risk_off":     # 大盤轉弱：賣訊更敏感，升一級
+        n += 1
+    grade = "A" if n >= 3 else "B" if n == 2 else "C"
     note = ""
+    if ctx.get("regime") == "risk_off":
+        note += "；大盤 risk-off 全面降槓桿"
     if pos and pos.get("pl_ratio") is not None:
-        note = f"；目前部位損益 {pos.get('pl_ratio')}%"
+        note += f"；目前部位損益 {pos.get('pl_ratio')}%"
     return [{
         "side": "exit", "type": "＋".join(t[0] for t in triggers),
         "grade": grade, "price": round(f["close"], 2), "stop": stop, "target": target, "rr": rr,
@@ -436,6 +523,7 @@ class AlertEngine:
         self._stop = threading.Event()
         self._rr = 0                      # round-robin 指標
         self._last_status = {}
+        self._halt_session = None         # 已熔斷的交易日
 
     # ---- 自選清單持久化（網頁推給橋接、引擎讀檔，網頁關了也能掃）----
     @staticmethod
@@ -481,6 +569,39 @@ class AlertEngine:
                 self._last_status["error"] = str(e)
             self._stop.wait(scan_sec)
 
+    def _regime(self):
+        """用 SPY 日線趨勢＋盤中 VWAP 判 risk_on/neutral/risk_off，並回傳 SPY 近段報酬。"""
+        try:
+            spy5 = [b for b in (self.get_kline("US.SPY", "5m", 80) or []) if b.get("close") is not None]
+            spyd = [b for b in (self.get_kline("US.SPY", "day", 60) or []) if b.get("close") is not None]
+        except Exception:
+            return "neutral", None
+        if len(spy5) < 13 or len(spyd) < 21:
+            return "neutral", None
+        daily_up = spyd[-1]["close"] > ema([b["close"] for b in spyd], 20)[-1]
+        intraday_up = _feat(spy5)["close"] > _feat(spy5)["vwap"]
+        spy_ret = (spy5[-1]["close"] / spy5[-13]["close"] - 1) * 100 if spy5[-13]["close"] else 0
+        if daily_up and intraday_up:
+            return "risk_on", spy_ret
+        if (not daily_up) and (not intraday_up):
+            return "risk_off", spy_ret
+        return "neutral", spy_ret
+
+    def _risk_halt(self, positions, account, session):
+        """單日虧損熔斷：未實現損益 / 總資產 跌破門檻 → 本日暫停買訊（賣訊照發）。"""
+        limit = float(self.cfg.get("daily_loss", 0.06))
+        if not account or not account.get("total_assets"):
+            return False
+        pl = sum((p.get("pl_val") or 0) for p in positions)
+        dd = pl / account["total_assets"]
+        if dd <= -abs(limit):
+            if self._halt_session != session:    # 一日一次警示
+                self._halt_session = session
+                t, c = self.cfg.get("telegram_token"), self.cfg.get("telegram_chat")
+                send_telegram(t, c, f"🛑 <b>單日虧損熔斷</b>　未實現 {dd*100:.1f}%（門檻 -{limit*100:.0f}%）\n今日暫停買進訊號，只發賣出/減碼。先停手、檢視、別報復性交易。")
+            return True
+        return False
+
     def scan_once(self):
         phase = market_phase()
         allow = self.cfg.get("phases", ["regular"])
@@ -492,14 +613,30 @@ class AlertEngine:
         min_grade = self.cfg.get("min_grade", "C")
         order = {"A": 3, "B": 2, "C": 1}
         token, chat = self.cfg.get("telegram_token"), self.cfg.get("telegram_chat")
+        weights = load_weights()
+
+        # 市場 regime（每輪算一次）
+        regime, spy_ret = self._regime()
+        ctx = {"regime": regime, "spy_ret": spy_ret}
 
         # 持股：每輪都掃（賣點最重要）
-        positions = []
+        positions, account = [], None
         try:
             positions = self.get_positions() or []
         except Exception:
             positions = []
+        try:
+            account = self.cfg.get("get_account") and self.cfg["get_account"]()
+        except Exception:
+            account = None
         pos_codes = [p.get("code") for p in positions if p.get("code")]
+
+        # 風控：單日虧損熔斷
+        halt_buys = self._risk_halt(positions, account, session)
+        # risk-off 自動拉高買訊門檻
+        buy_min = min_grade
+        if regime == "risk_off" and order.get(min_grade, 1) < order["B"]:
+            buy_min = "B"
 
         # 自選：round-robin 分批，尊重牛牛 K 線速率限制
         watch = self.load_watch()
@@ -511,7 +648,6 @@ class AlertEngine:
         else:
             sel = []
 
-        # 日線漲跌（同向判斷）：用 snapshot 的 change_rate
         snap_map = {}
         try:
             for r in self.get_snapshot(list(set(sel + pos_codes))) or []:
@@ -520,14 +656,14 @@ class AlertEngine:
             pass
 
         pushed_cnt = 0
-        # 買點
-        for code in sel:
-            sigs = self._eval(code, "buy", snap_map.get(code, {}).get("change_rate"))
-            pushed_cnt += self._emit(con, session, code, sigs, min_grade, order, token, chat)
-        # 賣點（持股）
+        if not halt_buys:                       # 熔斷時不發買訊
+            for code in sel:
+                c2 = dict(ctx); c2["daily_chg"] = snap_map.get(code, {}).get("change_rate")
+                sigs = self._eval(code, "buy", c2.get("daily_chg"), None, c2, weights)
+                pushed_cnt += self._emit(con, session, code, sigs, buy_min, order, token, chat)
         pmap = {p.get("code"): p for p in positions}
         for code in pos_codes:
-            sigs = self._eval(code, "sell", None, pmap.get(code))
+            sigs = self._eval(code, "sell", None, pmap.get(code), ctx, weights)
             pushed_cnt += self._emit(con, session, code, sigs, min_grade, order, token, chat)
 
         # 結果追蹤
@@ -537,16 +673,23 @@ class AlertEngine:
         except Exception:
             pass
         con.close()
-        self._last_status["pushed"] = pushed_cnt
-        self._last_status["scanned"] = len(sel)
+        self._last_status.update({"pushed": pushed_cnt, "scanned": len(sel),
+                                  "regime": regime, "halt_buys": halt_buys})
 
-    def _eval(self, code, kind, daily_chg=None, pos=None):
+    def _eval(self, code, kind, daily_chg=None, pos=None, ctx=None, weights=None):
         try:
             bars = self.get_kline(code, "5m", 120) or []
         except Exception:
             return []
         bars = [b for b in bars if b.get("close") is not None]
-        return eval_buy(bars, daily_chg) if kind == "buy" else eval_sell(bars, pos)
+        if kind == "buy":
+            bars15 = None
+            try:
+                bars15 = [b for b in (self.get_kline(code, "15m", 80) or []) if b.get("close") is not None]
+            except Exception:
+                bars15 = None
+            return eval_buy(bars, daily_chg, bars15, ctx, weights)
+        return eval_sell(bars, pos, ctx)
 
     def _emit(self, con, session, code, sigs, min_grade, order, token, chat):
         sym = (code or "").replace("US.", "")
