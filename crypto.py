@@ -163,9 +163,15 @@ class CryptoScanner:
         con = ae._db()
         session = ae.session_key()
         regime, btc_ret = self._regime()
-        ctx = {"regime": regime, "spy_ret": btc_ret}
+        # 週末（流動性低）自動更嚴：要求更大漲幅空間、只發 A 級
+        import datetime as _dt
+        weekend = (_dt.datetime.utcnow().weekday() >= 5)
+        ctx = {"regime": regime, "spy_ret": btc_ret,
+               "min_move": float(self.cfg.get("min_move", 0.06)) * (1.5 if weekend else 1.0),
+               "min_rr": float(self.cfg.get("min_rr", 1.8)),
+               "min_rvol": float(self.cfg.get("min_rvol", 0.8)) * (1.5 if weekend else 1.0)}
         order = {"A": 3, "B": 2, "C": 1}
-        min_grade = self.cfg.get("min_grade", "B")
+        min_grade = "A" if weekend else self.cfg.get("min_grade", "A")
         token, chat = self.cfg.get("telegram_token"), self.cfg.get("telegram_chat")
         watch = self.load_watch(self.cfg.get("symbols"))
         holds = load_crypto_holdings()
