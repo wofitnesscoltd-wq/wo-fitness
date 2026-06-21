@@ -180,7 +180,7 @@ L9 可靠性層    心跳監控 · 斷線/當機自我警示 · 資料健檢
 ## 10. 開發路線圖
 - **Phase 0**：自動更新框架 ✅（已完成：橋接送出最新網頁＋自動帶 Token）
 - **Phase 1 看盤地基**：自製即時圖(K棒＋EMA20/50＋VWAP＋RSI＋MACD＋量，用牛牛即時資料、無延遲、指標不限) ✅、部位計算機(風險優先反推股數) ✅、財報/事件日曆（待辦，接 AI/web 搜尋）
-- **Phase 2 警示引擎**：特徵引擎(RSI/MACD/EMA/VWAP/ATR/RVOL/ORB) ✅、訊號庫(買5型/賣5型)＋A/B/C評分 ✅、Telegram推播 ✅、SQLite point-in-time日誌＋結果追蹤(MFE/MAE/命中) ✅、App警示欄 ✅、常駐服務(`alert_engine.py`，網頁關著也掃) ✅、自選同步(`/setwatch`) ✅；**待辦**：AI 複核(L4)接到引擎、多週期匯流(加 1m/15m)、市場溫度 regime 閘門
+- **Phase 2 警示引擎**：特徵引擎(RSI/MACD/EMA/VWAP/ATR/RVOL/ORB) ✅、訊號庫(買5型/賣5型)＋A/B/C評分 ✅、Telegram推播 ✅、SQLite point-in-time日誌＋結果追蹤(MFE/MAE/命中) ✅、App警示欄 ✅、常駐服務(`alert_engine.py`，網頁關著也掃) ✅、自選同步(`/setwatch`) ✅、**AI 複核(L4)每則訊號過 Claude、fail-open** ✅；**待辦**：多週期匯流(加 1m/15m)、市場溫度 regime 閘門
 - **Phase 3 結果與紀律**：結果追蹤資料庫＋風控紀律層＋績效儀表板
 - **Phase 4 驗證**：日線回測＋盤中回測（選配 Polygon）＋前向紙測
 - **Phase 5 進化**：統計歸因＋走動式優化＋冠軍/挑戰者＋定期 AI 報告

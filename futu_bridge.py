@@ -303,16 +303,19 @@ def start_engine():
     chat = ARGS.telegram_chat or os.environ.get("TELEGRAM_CHAT_ID")
     if not (ARGS.alerts or token):
         return
+    ai_key = ARGS.anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
     cfg = {
         "telegram_token": token, "telegram_chat": chat,
         "scan_sec": ARGS.scan_sec, "min_grade": ARGS.min_grade,
         "batch": ARGS.batch, "phases": [s.strip() for s in ARGS.phases.split(",") if s.strip()],
+        "anthropic_key": ai_key, "ai_model": ARGS.ai_model,
     }
     ENGINE = alert_engine.AlertEngine(_provider_kline, _provider_snapshot, _provider_positions, cfg)
     ENGINE.start()
     tg = "已設定" if token and chat else "未設定（只記錄到 DB，不推播）"
     print(f"  警示引擎: 已啟動　掃描每 {ARGS.scan_sec}s　最低等級 {ARGS.min_grade}　時段 {ARGS.phases}")
     print(f"  Telegram : {tg}")
+    print(f"  AI 複核  : {'開（每則訊號過 Claude 複核）' if ai_key else '關（未提供 Anthropic 金鑰，純規則訊號）'}")
 
 
 def main():
@@ -331,6 +334,8 @@ def main():
     p.add_argument("--min-grade", default="C", choices=["A", "B", "C"], help="推播的最低訊號等級")
     p.add_argument("--batch", type=int, default=25, help="每輪掃描的自選股數（round-robin，尊重行情速率）")
     p.add_argument("--phases", default="regular", help="掃描時段，逗號分隔：pre,regular,post")
+    p.add_argument("--anthropic-key", default=None, help="Claude 金鑰，開啟每則訊號 AI 複核（或設環境變數 ANTHROPIC_API_KEY）")
+    p.add_argument("--ai-model", default="claude-haiku-4-5-20251001", help="AI 複核用模型")
     ARGS = p.parse_args()
     TOKEN = load_token()
 
