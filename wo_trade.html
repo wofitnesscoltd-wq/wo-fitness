@@ -44,11 +44,11 @@ header .spacer{margin-left:auto;}
 .pos-item .pc{font-size:13px;font-weight:600;}
 .pos-item .pn{font-size:11px;color:var(--muted);margin-top:2px;}
 .pos-item .pr{font-size:13px;font-weight:700;text-align:right;line-height:1.5;}
-.hold-add{display:flex;gap:5px;padding:8px;border-bottom:1px solid var(--border);}
-.hold-add input{min-width:0;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:7px 8px;color:var(--text);font-family:inherit;font-size:12px;outline:none;}
-.hold-add input:focus{border-color:var(--orange);}
-.hold-add #hSym{flex:1.4;text-transform:uppercase;} .hold-add #hQty{flex:1;} .hold-add #hCost{flex:1;}
-.hold-add button{background:var(--orange);border:none;border-radius:6px;color:#fff;width:30px;font-size:16px;cursor:pointer;flex-shrink:0;}
+.hold-add{display:flex;flex-wrap:wrap;gap:5px;padding:8px;border-bottom:1px solid var(--border);}
+.hold-add input,.hold-add select{flex:1 1 76px;min-width:64px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:7px 8px;color:var(--text);font-family:inherit;font-size:12.5px;outline:none;}
+.hold-add input:focus,.hold-add select:focus{border-color:var(--orange);}
+.hold-add #hSym{flex:1 1 100%;text-transform:uppercase;}
+.hold-add button{background:var(--orange);border:none;border-radius:6px;color:#fff;flex:0 0 36px;font-size:16px;cursor:pointer;}
 .pos-item .pdel{opacity:.5;color:var(--muted);font-size:14px;background:none;border:none;cursor:pointer;margin-left:6px;}
 .pos-item .pdel:hover{opacity:1;color:var(--red);}
 #holdType button{border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:11.5px;padding:4px 12px;cursor:pointer;}
@@ -1435,7 +1435,7 @@ function switchTab(t){
   document.getElementById('newsList').style.display=t==='news'?'flex':'none';
   document.getElementById('alertList').style.display=t==='alert'?'flex':'none';
   document.getElementById('posList').style.display=t==='pos'?'flex':'none';
-  document.getElementById('holdBox').style.display=t==='pos'?'flex':'none';
+  document.getElementById('holdBox').style.display=t==='pos'?'block':'none';
   document.getElementById('posAcct').style.display=(t==='pos'&&futu.account)?'flex':'none';
   if(t==='pos'){ renderPositions(); if(futu.on) pollFutu(); }
   if(t==='alert') renderAlerts();
