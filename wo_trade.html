@@ -744,7 +744,9 @@ function chartSignals(bars,times){
   const e20=emaArr(c,20),e50=emaArr(c,50),rs=rsiArr(c,14),mk=macdArr(c),bb=bollArr(c,20,2);
   let state='flat', since=-99;
   for(let i=55;i<n;i++){
-    const up=c[i]>e50[i]&&e50[i]>e50[i-5], dn=c[i]<e50[i]&&e50[i]<e50[i-5];
+    // 趨勢過濾：要「均線多/空頭排列 ＋ EMA50 有斜率」才算趨勢，橫盤(糾結/平)一律不給訊號
+    const slope=(e50[i]-e50[i-10])/(c[i]||1);
+    const up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
     const nearE20=Math.abs(c[i]/e20[i]-1)<=0.02;
     const tagLow=bb.low[i]!=null&&bars[i].low<=bb.low[i], tagUp=bb.up[i]!=null&&bars[i].high>=bb.up[i];
     const rsiUp=rs[i]!=null&&rs[i-1]!=null&&rs[i]>rs[i-1]&&rs[i-1]<50, rsiDn=rs[i]!=null&&rs[i-1]!=null&&rs[i]<rs[i-1]&&rs[i-1]>50;
@@ -755,8 +757,8 @@ function chartSignals(bars,times){
     const macdDead=mk.macd[i]<mk.signal[i]&&mk.macd[i-1]>=mk.signal[i-1], macdGold=mk.macd[i]>mk.signal[i]&&mk.macd[i-1]<=mk.signal[i-1];
     const held=i-since;
     if(state==='flat'){
-      if(ls>=3 && held>=3){ marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'進場'}); state='long'; since=i; out.latest={i,dir:'long',price:c[i],reasons:lr,score:ls}; }
-      else if(ss>=3 && held>=3){ marks.push({time:times[i],position:'aboveBar',color:'#E06672',shape:'arrowDown',text:'做空'}); state='short'; since=i; out.latest={i,dir:'short',price:c[i],reasons:sr,score:ss}; }
+      if(up && ls>=3 && held>=3){ marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'進場'}); state='long'; since=i; out.latest={i,dir:'long',price:c[i],reasons:lr,score:ls}; }
+      else if(dn && ss>=3 && held>=3){ marks.push({time:times[i],position:'aboveBar',color:'#E06672',shape:'arrowDown',text:'做空'}); state='short'; since=i; out.latest={i,dir:'short',price:c[i],reasons:sr,score:ss}; }
     } else if(state==='long'){
       if((macdDead||c[i]<e20[i]) && held>=2){ marks.push({time:times[i],position:'aboveBar',color:'#E0A53B',shape:'circle',text:'平多'}); state='flat'; since=i; }
     } else if(state==='short'){
@@ -890,7 +892,7 @@ function updateSelfData(bars){
       }
     }catch(e){}
   } else if(sigEl){ sigEl.style.display='none'; }
-  if(ind.rsi){ try{ marks=marks.concat(rsiDivergence(bars,rsiArr(closes,14),t)); }catch(e){} }
+  if(ind.rsi && !ind.sig){ try{ marks=marks.concat(rsiDivergence(bars,rsiArr(closes,14),t)); }catch(e){} }   // 開了進出場就不疊背離箭頭，避免兩套符號打架
   try{ S.candle.setMarkers(marks.sort((a,b)=>(a.time>b.time?1:a.time<b.time?-1:0))); }catch(e){}
 }
 
