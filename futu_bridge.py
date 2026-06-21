@@ -18,7 +18,7 @@
 用法範例：
   python futu_bridge.py --port 8888 --firm FUTUSECURITIES
 """
-import os, json, argparse, threading, secrets
+import os, json, argparse, threading, secrets, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -35,6 +35,17 @@ LOCK = threading.Lock()
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".futu_bridge_token")
 HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wo_trade.html")
+RAW_URL = "https://raw.githubusercontent.com/wofitnesscoltd-wq/wo-fitness/main/wo_trade.html"
+
+
+def fetch_latest_html():
+    """Pull the latest app HTML from GitHub so the user never re-downloads it."""
+    try:
+        req = urllib.request.Request(RAW_URL, headers={"User-Agent": "wo-bridge"})
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return r.read().decode("utf-8")
+    except Exception:
+        return None
 
 
 def load_token():
@@ -190,16 +201,22 @@ class Handler(BaseHTTPRequestHandler):
         path, q = u.path, parse_qs(u.query)
 
         if path == "/" or path == "/index.html":
-            if os.path.exists(HTML_FILE):
-                body = open(HTML_FILE, "rb").read()
-                self.send_response(200)
-                self._cors()
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            else:
-                self._json({"error": "wo_trade.html not found next to bridge"}, 404)
+            html = fetch_latest_html()
+            if html is None and os.path.exists(HTML_FILE):
+                html = open(HTML_FILE, "r", encoding="utf-8").read()
+            if html is None:
+                self._json({"error": "無法載入 wo_trade.html（沒網路且本機也沒有副本）"}, 502)
+                return
+            inject = '<script>window.__WO_FUTU_TOKEN__=%s;window.__WO_FUTU_URL__="http://127.0.0.1:%d";</script>' % (json.dumps(TOKEN), ARGS.port)
+            html = html.replace("</head>", inject + "</head>", 1)
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if path == "/health":
