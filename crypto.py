@@ -20,8 +20,38 @@ import alert_engine as ae
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CRYPTO_WATCH = os.path.join(HERE, "crypto_watch.json")
+CRYPTO_HOLDINGS = os.path.join(HERE, "crypto_holdings.json")
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]
 _IV_SEC = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+
+
+def load_crypto_holdings():
+    try:
+        return json.load(open(CRYPTO_HOLDINGS, encoding="utf-8")).get("holdings", [])
+    except Exception:
+        return []
+
+
+def save_crypto_holdings(items):
+    json.dump({"holdings": items, "updated": datetime.now().isoformat()},
+              open(CRYPTO_HOLDINGS, "w", encoding="utf-8"), ensure_ascii=False)
+
+
+def liq_price(entry, lev, side="long", mmr=0.005):
+    """估算爆倉價（isolated 近似；各所階梯保證金不同，僅供參考）。"""
+    try:
+        entry = float(entry); lev = float(lev)
+    except Exception:
+        return None
+    if entry <= 0 or lev <= 0:
+        return None
+    return entry * (1 - 1 / lev + mmr) if side == "long" else entry * (1 + 1 / lev - mmr)
+
+
+def liq_distance_pct(price, lp, side="long"):
+    if not price or not lp:
+        return None
+    return (price - lp) / price * 100 if side == "long" else (lp - price) / price * 100
 
 
 def _get_json(url, timeout=12):
@@ -138,9 +168,12 @@ class CryptoScanner:
         min_grade = self.cfg.get("min_grade", "B")
         token, chat = self.cfg.get("telegram_token"), self.cfg.get("telegram_chat")
         watch = self.load_watch(self.cfg.get("symbols"))
+        holds = load_crypto_holdings()
+        hmap = {h.get("sym"): h for h in holds if h.get("sym")}
+        all_syms = list(dict.fromkeys(list(watch) + list(hmap)))
         pushed = 0
         price_of = {}
-        for sym in watch:
+        for sym in all_syms:
             try:
                 bars = [b for b in self.kl(sym, "5m", 160) if b.get("close") is not None]
                 bars15 = [b for b in self.kl(sym, "15m", 80) if b.get("close") is not None]
@@ -148,18 +181,30 @@ class CryptoScanner:
                 continue
             if len(bars) < 40:
                 continue
-            price_of[sym] = bars[-1]["close"]
+            last = bars[-1]["close"]
+            price_of[sym] = last
             try:
                 fr = self.fund(sym).get("funding", 0)
             except Exception:
                 fr = 0
             fnote = f"；資金費率 {fr*100:.3f}%" + ("（多頭過熱付費，留意反轉）" if fr > 0.0005 else "（空方付費，偏多有利）" if fr < -0.0005 else "")
-            for sig in ae.eval_buy(bars, None, bars15, ctx):
-                sig["reason"] += fnote
-                pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
-            for sig in ae.eval_sell(bars, None, ctx):
-                sig["reason"] += fnote
-                pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
+            if sym in watch:                                  # 自選找買點
+                for sig in ae.eval_buy(bars, None, bars15, ctx):
+                    sig["reason"] += fnote
+                    pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
+            if sym in hmap:                                   # 持有的找賣點＋爆倉預警
+                h = hmap[sym]
+                for sig in ae.eval_sell(bars, None, ctx):
+                    sig["reason"] += fnote
+                    pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
+                lp = liq_price(h.get("entry"), h.get("lev"), h.get("side", "long"))
+                dist = liq_distance_pct(last, lp, h.get("side", "long"))
+                if dist is not None and dist < self.cfg.get("liq_warn_pct", 15):
+                    warn = {"side": "exit", "type": "爆倉預警", "grade": "A",
+                            "price": round(last, 4), "stop": round(lp, 4), "target": round(last, 4), "rr": None,
+                            "reason": f"距估算爆倉價 {lp:.4f} 僅 {dist:.1f}%（{h.get('lev')}x {h.get('side','long')}）—考慮減倉/補保證金/降槓桿",
+                            "feat": {}}
+                    pushed += self._emit(con, session, sym, warn, "C", order, token, chat)
         try:
             ae.track_outcomes(con, price_of)
         except Exception:

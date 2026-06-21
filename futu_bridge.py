@@ -309,6 +309,34 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/crypto":
                 self._json({"crypto": "on" if CRYPTO else "off",
                             "status": CRYPTO.status() if CRYPTO else None})
+            elif path == "/setcryptoholdings":
+                # 格式 h=BTCUSDT:0.5:60000:10:long,ETHUSDT:2:3000:5:short（sym:size:entry:lev:side）
+                items = []
+                for part in q.get("h", [""])[0].split(","):
+                    b = part.split(":")
+                    if len(b) >= 5 and b[0]:
+                        try:
+                            items.append({"sym": b[0].upper(), "size": float(b[1]), "entry": float(b[2]),
+                                          "lev": float(b[3]), "side": b[4] if b[4] in ("long", "short") else "long"})
+                        except ValueError:
+                            pass
+                if crypto_mod:
+                    crypto_mod.save_crypto_holdings(items)
+                self._json({"ok": True, "count": len(items)})
+            elif path == "/cryptoholdings":
+                self._json({"holdings": crypto_mod.load_crypto_holdings() if crypto_mod else []})
+            elif path == "/cryptoquote":
+                out = {}
+                if crypto_mod:
+                    kl = (CRYPTO.kl if CRYPTO else crypto_mod.SOURCES[ARGS.crypto_source][0])
+                    for s in [x for x in q.get("syms", [""])[0].split(",") if x]:
+                        try:
+                            bars = kl(s.upper(), "5m", 2)
+                            if bars:
+                                out[s.upper()] = bars[-1]["close"]
+                        except Exception:
+                            pass
+                self._json({"quotes": out})
             elif path == "/stats":
                 self._json(ENGINE.stats() if ENGINE else {"open": 0})
             elif path == "/weights":
