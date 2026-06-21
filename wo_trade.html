@@ -1287,10 +1287,10 @@ function positionCtx(){
   }
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
-    s+='\n【加密永續部位（幣安/Bitget，全倉 cross）】\n';
+    s+='\n【加密永續部位（幣安/Bitget，全倉 cross）；以下「現價」是程式自動帶入的『永續合約即時報價』(來自 Bitget/幣安)，不是我貼的、也不是個股收盤價。tokenized 美股永續對標的個股本來就常有溢價/折價，這正常；請用『永續報價』算我的部位損益，用『真實個股』做基本面/消息，別說我「貼錯」或把溢價當成我輸入錯誤】\n';
     cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||null;
       const upnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
-      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px?`，現價${px}`:''}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，這條腿浮${upnlU!=null?(upnlU>=0?'賺+':'虧')+Math.round(upnlU)+'U':'—'}\n`; });
+      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px?`，永續現價${px}`:'（暫無即時報價）'}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，這條腿浮${upnlU!=null?(upnlU>=0?'賺+':'虧')+Math.round(upnlU)+'U':'—'}\n`; });
     const bySym={}; cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||h.e; bySym[h.s]=(bySym[h.s]||0)+h.q*px*(h.side==='short'?-1:1); });
     const symNet=Object.keys(bySym).map(k=>`${k} 淨${bySym[k]>=0?'多':'空'}${Math.abs(Math.round(bySym[k]))}U`).join('、');
     const netSigned=Object.values(bySym).reduce((a,b)=>a+b,0);
@@ -1316,7 +1316,7 @@ async function positionDoctor(){
     const txt=await callClaude(`${positionCtx()}
 請對我「上面這些實際部位」做一次即時、可執行的持倉診斷（操盤手等級，不是教科書）。先用 web 搜尋確認今天日期/星期、美股與加密最新狀態、每個標的最新報價與近期消息。最上面標一行【資料截至：日期 週X 時間／市場狀態】。
 
-先讀懂我上面寫的「對鎖手法」再分析。**硬性框架（違反就是你錯）**：(a) 我全倉，爆倉只看帳戶層級緩衝，不准用單腿孤立爆倉價或「距爆倉0.3%」這種數字嚇我；(b) 不准預設對鎖要 1:1、不准叫我把保險腿平掉變中性、不准把淨偏多在多頭當成錯；(c) 評估盈虧用「淨部位／帳戶層級」，不要把單腿高槓桿浮虧% 單獨拿來說我違規認賠。在這框架內給更鋭利的執行建議。
+先讀懂我上面寫的「對鎖手法」再分析。**硬性框架（違反就是你錯）**：(a) 我全倉，爆倉只看帳戶層級緩衝，不准用單腿孤立爆倉價或「距爆倉0.3%」這種數字嚇我；(b) 不准預設對鎖要 1:1、不准叫我把保險腿平掉變中性、不准把淨偏多在多頭當成錯；(c) 評估盈虧用「淨部位／帳戶層級」，不要把單腿高槓桿浮虧% 單獨拿來說我違規認賠；(d) 上面的「永續現價」是程式自動帶入的永續報價，**不是我貼的**，不准說「你貼的現價」或質疑我輸入；永續對個股的溢價/折價是正常現象，用永續報價算我的部位、用個股做基本面即可。在這框架內給更鋭利的執行建議。
 
 整合下列維度逐一分析（缺資料就明說、別亂編數字）：
 1. **市場溫度／regime**：跨資產(VIX、美元、利率、油價、BTC)與市場廣度——現在 risk-on 還 risk-off？我整體淨偏多，是順風還逆風？加密用 BTC 當大盤。
