@@ -743,7 +743,15 @@ function effChange(q){
   }
   return q.change_rate!=null?q.change_rate:null;
 }
-function wlChg(it){ return effChange(futu.quotes[futuCode(it.s)]); }
+let wlBasis = localStorage.getItem('wo_wlbasis')||'combo';   // combo綜合 / reg盤中 / ext盤前後
+function wlExt(q){ if(!q)return null; if(q.after_rate!=null&&q.after_rate!=='')return q.after_rate; if(q.pre_rate!=null&&q.pre_rate!=='')return q.pre_rate; return null; }
+function wlChg(it){
+  const q=futu.quotes[futuCode(it.s)]; if(!q)return null;
+  if(wlBasis==='reg') return q.change_rate!=null?q.change_rate:null;
+  if(wlBasis==='ext') return wlExt(q);
+  return effChange(q);
+}
+function cycleWlBasis(){ wlBasis = wlBasis==='combo'?'reg':wlBasis==='reg'?'ext':'combo'; localStorage.setItem('wo_wlbasis',wlBasis); renderWatchlist(); }
 function renderWlRow(it){
   const row=document.createElement('div');
   row.className='wl-item'+(it.s===current?' active':'');
@@ -759,8 +767,10 @@ function renderWatchlist(){
   const list=lists[region];
   el.innerHTML='';
   const head=document.createElement('div'); head.className='wl-group';
+  const basisLbl={combo:'📈 綜合',reg:'📈 盤中',ext:'📈 盤前後'}[wlBasis];
   head.innerHTML=`<span>${region==='us'?'美股':'台股'}（${list.length}）</span>
-    <span style="display:flex;gap:5px">
+    <span style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="wl-sort" onclick="cycleWlBasis()" title="排序依據：綜合 / 盤中 / 盤前後">${basisLbl}</button>
       <button class="wl-sort" onclick="toggleWlGroup()">${wlGroup?'📊 分板塊':'↕ 純排序'}</button>
       ${region==='us'?'<button class="wl-sort" id="aiSecBtn" onclick="aiClassifySectors()" title="用 AI 把清單依板塊歸類">🤖 歸類</button>':''}
     </span>`;
