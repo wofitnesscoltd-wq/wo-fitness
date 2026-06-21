@@ -149,10 +149,29 @@ def from_bridge(url, token, code, ktype, num):
     return [b for b in r.get("kline", []) if b.get("close") is not None]
 
 
+def _get_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    return json.loads(urllib.request.urlopen(req, timeout=25).read())
+
+
 def from_crypto(sym, source, interval, limit):
-    import crypto
-    kl = crypto.SOURCES[source][0]
-    return [b for b in kl(sym, interval, limit) if b.get("close") is not None]
+    """自己抓幣安/Bitget 真實 K 線：大小寫都吃、日線/週線正確、不依賴其他檔。"""
+    source = (source or "binance").strip().lower()
+    sym = (sym or "").strip().upper()
+    if source == "bitget":
+        gran = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H",
+                "4h": "4H", "1d": "1D", "1w": "1W"}.get(interval, "1D")
+        url = (f"https://api.bitget.com/api/v2/mix/market/candles?symbol={sym}"
+               f"&productType=usdt-futures&granularity={gran}&limit={limit}")
+        d = _get_json(url).get("data", []) or []
+        bars = [{"time": r[0], "open": float(r[1]), "high": float(r[2]), "low": float(r[3]),
+                 "close": float(r[4]), "volume": float(r[5])} for r in d]
+        bars.sort(key=lambda b: int(b["time"]))   # 由舊到新
+        return bars
+    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit={limit}"
+    d = _get_json(url)
+    return [{"time": k[0], "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
+             "close": float(k[4]), "volume": float(k[5])} for k in d]
 
 
 def from_csv(path):
