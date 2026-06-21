@@ -54,6 +54,49 @@ def liq_distance_pct(price, lp, side="long"):
     return (price - lp) / price * 100 if side == "long" else (lp - price) / price * 100
 
 
+CRYPTO_META = os.path.join(HERE, "crypto_meta.json")
+
+
+def load_cmargin():
+    try:
+        return float(json.load(open(CRYPTO_META, encoding="utf-8")).get("avail", 0))
+    except Exception:
+        return 0.0
+
+
+def save_cmargin(v):
+    try:
+        json.dump({"avail": float(v)}, open(CRYPTO_META, "w", encoding="utf-8"))
+    except Exception:
+        pass
+
+
+def account_cross(holds, price_of, avail):
+    """全倉帳戶層級總覽（與網頁 cryptoSummary 一致）：單腿不獨立爆倉，看整體緩衝。"""
+    gross = net = upnl = used = 0.0
+    for h in holds:
+        try:
+            sym = h.get("sym"); size = float(h.get("size", 0)); entry = float(h.get("entry", 0))
+            lev = float(h.get("lev", 1)) or 1; side = h.get("side", "long")
+        except Exception:
+            continue
+        if size <= 0 or entry <= 0:
+            continue
+        px = price_of.get(sym, entry) or entry
+        n = size * px
+        gross += n
+        net += n * (-1 if side == "short" else 1)
+        upnl += (entry - px) * size if side == "short" else (px - entry) * size
+        used += size * entry / lev
+    equity = avail + used
+    maint = 0.005 * gross
+    an = abs(net)
+    buffer = (equity - maint) / an * 100 if (an > 1 and equity > maint) else (None if an <= 1 else 0.0)
+    return {"gross": gross, "net": an, "net_signed": net, "upnl": upnl, "used": used,
+            "avail": avail, "equity": equity, "buffer": buffer,
+            "net_lev": an / equity if equity > 0 else 0}
+
+
 def _get_json(url, timeout=12):
     req = urllib.request.Request(url, headers={"User-Agent": "wo-crypto"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -198,19 +241,23 @@ class CryptoScanner:
                 for sig in ae.eval_buy(bars, None, bars15, ctx):
                     sig["reason"] += fnote
                     pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
-            if sym in hmap:                                   # 持有的找賣點＋爆倉預警
-                h = hmap[sym]
+            if sym in hmap:                                   # 持有的找賣點（技術出場訊號）
                 for sig in ae.eval_sell(bars, None, ctx):
                     sig["reason"] += fnote
                     pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
-                lp = liq_price(h.get("entry"), h.get("lev"), h.get("side", "long"))
-                dist = liq_distance_pct(last, lp, h.get("side", "long"))
-                if dist is not None and dist < self.cfg.get("liq_warn_pct", 15):
-                    warn = {"side": "exit", "type": "爆倉預警", "grade": "A",
-                            "price": round(last, 4), "stop": round(lp, 4), "target": round(last, 4), "rr": None,
-                            "reason": f"距估算爆倉價 {lp:.4f} 僅 {dist:.1f}%（{h.get('lev')}x {h.get('side','long')}）—考慮減倉/補保證金/降槓桿",
-                            "feat": {}}
-                    pushed += self._emit(con, session, sym, warn, "C", order, token, chat)
+        # 全倉爆倉預警：帳戶層級，不是單腿孤立價（多空對沖、同帳戶權益共撐，單腿不獨立爆倉）
+        avail = load_cmargin()
+        if holds and avail > 0:
+            ac = account_cross(holds, price_of, avail)
+            buf = ac["buffer"]
+            if buf is not None and buf < self.cfg.get("liq_warn_pct", 15):
+                ndir = "多" if ac["net_signed"] >= 0 else "空"
+                warn = {"side": "exit", "type": "全倉爆倉預警", "grade": "A",
+                        "price": 0, "stop": 0, "target": 0, "rr": None,
+                        "reason": (f"全倉帳戶緩衝僅 {buf:.1f}%（淨曝險 {ac['net']:.0f}U、淨偏{ndir}、淨槓桿 {ac['net_lev']:.1f}x、"
+                                   f"可用保證金 {avail:.0f}U）—淨方向若續走將逼近強平，考慮補保證金/降淨曝險/縮保險腿外的趨勢腿。"),
+                        "feat": {}}
+                pushed += self._emit(con, session, "ACCOUNT", warn, "C", order, token, chat)
         try:
             ae.track_outcomes(con, price_of)
         except Exception:

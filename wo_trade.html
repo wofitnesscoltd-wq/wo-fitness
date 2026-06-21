@@ -1456,7 +1456,7 @@ async function pollFutu(){
   try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
   try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
   try{ const wc=lists['us'].map(x=>futuCode(x.s)).filter(Boolean); if(wc.length) futuFetch('/setwatch?codes='+encodeURIComponent(wc.join(','))); }catch(e){}
-  pushHoldings(); pushCryptoHoldings(); await pollCrypto();
+  pushHoldings(); pushCryptoHoldings(); pushCMargin(); await pollCrypto();
   renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(futu.tab==='alert') renderAlerts();
   renderHud();
@@ -1525,7 +1525,8 @@ async function pollCrypto(){
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
 function getCMargin(){ return parseFloat(localStorage.getItem('wo_cmargin'))||0; }
-function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); renderPositions(); }
+function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||'')); pushCMargin(); renderPositions(); }
+function pushCMargin(){ if(!futu.connected||!bridgeSynced) return; try{ futuFetch('/setcmargin?v='+(getCMargin()||0)); }catch(e){} }
 function cryptoSummary(){
   let gross=0,net=0,upnl=0,used=0,priced=0;
   cryptoHoldings.forEach(h=>{ const live=cryptoQuotes[h.s]; const px=live||h.e; if(live)priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; upnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; used+=(h.m||(h.q*h.e/(h.l||1))); });
