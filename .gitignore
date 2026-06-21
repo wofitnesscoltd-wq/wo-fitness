@@ -9,3 +9,5 @@ crypto_watch.json
 crypto_holdings.json
 .alert_config.json
 .broker_config.json
+wo-bridge.zip
+*.zip
