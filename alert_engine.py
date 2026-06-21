@@ -569,17 +569,32 @@ class AlertEngine:
         json.dump({"codes": codes, "updated": datetime.now().isoformat()},
                   open(WATCH_PATH, "w", encoding="utf-8"), ensure_ascii=False)
 
-    # ---- 手動持股（你真正的部位在國泰/永豐/加密所，不在牛牛）----
+    # ---- 持股（你真正的部位在國泰/永豐/加密所，不在牛牛）----
+    # 可多來源並存：手動(manual)、永豐(sinopac)、國泰(cathay)、CSV…；依 code 去重。
     @staticmethod
     def load_holdings():
         try:
-            return json.load(open(HOLDINGS_PATH, encoding="utf-8")).get("holdings", [])
+            raw = json.load(open(HOLDINGS_PATH, encoding="utf-8")).get("holdings", [])
         except Exception:
             return []
+        seen, out = set(), []
+        for h in raw:
+            c = h.get("code")
+            if c and c not in seen:
+                seen.add(c); out.append(h)
+        return out
 
     @staticmethod
-    def save_holdings(holdings):
-        json.dump({"holdings": holdings, "updated": datetime.now().isoformat()},
+    def save_holdings(holdings, source="manual"):
+        """只覆蓋同來源的部位，保留其他來源（手動＋券商同步可並存）。"""
+        try:
+            cur = json.load(open(HOLDINGS_PATH, encoding="utf-8")).get("holdings", [])
+        except Exception:
+            cur = []
+        cur = [h for h in cur if h.get("source", "manual") != source]
+        for h in holdings:
+            h["source"] = source
+        json.dump({"holdings": cur + holdings, "updated": datetime.now().isoformat()},
                   open(HOLDINGS_PATH, "w", encoding="utf-8"), ensure_ascii=False)
 
     def status(self):
