@@ -917,6 +917,33 @@ class AlertEngine:
             sigs = self._eval(code, "sell", None, pmap.get(code), ctx, weights)
             pushed_cnt += self._emit(con, session, code, sigs, min_grade, order, token, chat)
 
+        # 永續部位的賣點：tokenized 美股永續→用真實個股(牛牛)的當日短線背離提醒槓桿減碼/回補
+        puf = self.cfg.get("perp_underlyings")
+        if puf:
+            for p in (puf() or []):
+                code, side, perp = p.get("code"), p.get("side", "long"), p.get("perp")
+                if not code:
+                    continue
+                try:
+                    b = [x for x in (self.get_kline(code, "15m", 80) or []) if x.get("close") is not None]
+                except Exception:
+                    continue
+                if len(b) < 40:
+                    continue
+                dv = divergence(b)
+                ssym, last = code.replace("US.", ""), b[-1]["close"]
+                sig = None
+                if side == "long" and dv == "top":
+                    sig = {"side": "exit", "type": "頂背離(永續減碼)", "grade": "A", "price": round(last, 4),
+                           "stop": round(last, 4), "target": round(last, 4), "rr": None,
+                           "reason": f"你的 {perp} 永續多單：對應個股 {ssym} 當日短線頂背離(RSI＋MACD)—留意減碼/止盈", "feat": {}}
+                elif side == "short" and dv == "bottom":
+                    sig = {"side": "exit", "type": "底背離(永續回補)", "grade": "A", "price": round(last, 4),
+                           "stop": round(last, 4), "target": round(last, 4), "rr": None,
+                           "reason": f"你的 {perp} 永續空單：對應個股 {ssym} 當日短線底背離(RSI＋MACD)—留意回補/止盈", "feat": {}}
+                if sig:
+                    pushed_cnt += self._emit(con, session, "PERP:" + perp, [sig], min_grade, order, token, chat)
+
         # 結果追蹤
         price_of = {c: (snap_map.get(c, {}).get("last")) for c in snap_map}
         try:

@@ -451,6 +451,23 @@ def _provider_account():
     return r.get("account")
 
 
+def _perp_underlyings():
+    """tokenized 美股永續部位 → 對應真實個股，給引擎用真實數據(牛牛)盯背離賣點。"""
+    out = []
+    if not crypto_mod:
+        return out
+    try:
+        for h in crypto_mod.load_crypto_holdings():
+            sym = (h.get("sym") or "").upper()
+            if sym and crypto_mod.is_stock_perp(sym):
+                base = crypto_mod._base(sym)
+                if base:
+                    out.append({"code": "US." + base, "perp": sym, "side": h.get("side", "long")})
+    except Exception:
+        pass
+    return out
+
+
 def start_engine():
     """有指定 --alerts 或設好 Telegram 時，啟動常駐警示引擎。"""
     global ENGINE
@@ -471,6 +488,7 @@ def start_engine():
         "get_account": _provider_account, "daily_loss": ARGS.daily_loss,
         "account_size": ARGS.account_size or fc.get("account_size"),
         "min_move": ARGS.min_move, "min_rr": ARGS.min_rr, "min_rvol": ARGS.min_rvol,
+        "perp_underlyings": _perp_underlyings,
     }
     ENGINE = alert_engine.AlertEngine(_provider_kline, _provider_snapshot, _provider_positions, cfg)
     ENGINE.start()
