@@ -28,9 +28,15 @@ try:
 except ImportError:
     raise SystemExit("找不到富途 SDK，請先安裝：pip install futu-api")
 
+try:
+    import alert_engine
+except Exception:                       # 引擎可選；缺檔也不影響看盤橋接
+    alert_engine = None
+
 ARGS = None
 QUOTE = None
 TRD = None
+ENGINE = None
 LOCK = threading.Lock()
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".futu_bridge_token")
@@ -253,10 +259,60 @@ class Handler(BaseHTTPRequestHandler):
                 n = int(q.get("num", ["300"])[0])
                 ktype = q.get("ktype", ["day"])[0]
                 self._json(do_kline(code, n, ktype) if code else {"error": "missing code"})
+            elif path == "/setwatch":
+                codes = [c for c in q.get("codes", [""])[0].split(",") if c]
+                if alert_engine and codes:
+                    alert_engine.AlertEngine.save_watch(codes)
+                self._json({"ok": True, "count": len(codes)})
+            elif path == "/alerts":
+                if not ENGINE:
+                    self._json({"alerts": [], "engine": "off"})
+                else:
+                    n = int(q.get("num", ["50"])[0])
+                    self._json({"alerts": ENGINE.recent_alerts(n), "engine": "on", "status": ENGINE.status()})
+            elif path == "/engine":
+                self._json({"engine": "on" if ENGINE else "off",
+                            "status": ENGINE.status() if ENGINE else None})
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except Exception as e:
             self._json({"error": str(e)}, 500)
+
+
+def _provider_kline(code, ktype, num):
+    r = do_kline(code, num, ktype)
+    return r.get("kline", [])
+
+
+def _provider_snapshot(codes):
+    return do_quote(codes).get("quotes", [])
+
+
+def _provider_positions():
+    r = do_positions()
+    return r.get("positions", [])
+
+
+def start_engine():
+    """有指定 --alerts 或設好 Telegram 時，啟動常駐警示引擎。"""
+    global ENGINE
+    if alert_engine is None:
+        print("  警示引擎: 找不到 alert_engine.py，略過。")
+        return
+    token = ARGS.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat = ARGS.telegram_chat or os.environ.get("TELEGRAM_CHAT_ID")
+    if not (ARGS.alerts or token):
+        return
+    cfg = {
+        "telegram_token": token, "telegram_chat": chat,
+        "scan_sec": ARGS.scan_sec, "min_grade": ARGS.min_grade,
+        "batch": ARGS.batch, "phases": [s.strip() for s in ARGS.phases.split(",") if s.strip()],
+    }
+    ENGINE = alert_engine.AlertEngine(_provider_kline, _provider_snapshot, _provider_positions, cfg)
+    ENGINE.start()
+    tg = "已設定" if token and chat else "未設定（只記錄到 DB，不推播）"
+    print(f"  警示引擎: 已啟動　掃描每 {ARGS.scan_sec}s　最低等級 {ARGS.min_grade}　時段 {ARGS.phases}")
+    print(f"  Telegram : {tg}")
 
 
 def main():
@@ -268,6 +324,13 @@ def main():
     p.add_argument("--futu-port", type=int, default=11111, help="FutuOpenD 連接埠")
     p.add_argument("--firm", default="FUTUSECURITIES",
                    help="券商：FUTUSECURITIES(港) / FUTUINC(美moomoo) / FUTUSG / FUTUAU")
+    p.add_argument("--alerts", action="store_true", help="啟動常駐警示引擎（開盤自動掃描）")
+    p.add_argument("--telegram-token", default=None, help="Telegram bot token（或設環境變數 TELEGRAM_BOT_TOKEN）")
+    p.add_argument("--telegram-chat", default=None, help="Telegram chat id（或設環境變數 TELEGRAM_CHAT_ID）")
+    p.add_argument("--scan-sec", type=int, default=60, help="掃描間隔秒數")
+    p.add_argument("--min-grade", default="C", choices=["A", "B", "C"], help="推播的最低訊號等級")
+    p.add_argument("--batch", type=int, default=25, help="每輪掃描的自選股數（round-robin，尊重行情速率）")
+    p.add_argument("--phases", default="regular", help="掃描時段，逗號分隔：pre,regular,post")
     ARGS = p.parse_args()
     TOKEN = load_token()
 
@@ -278,6 +341,7 @@ def main():
     print(f"  Token    : {TOKEN}")
     print("  → 用瀏覽器開上面網址，或在 GitHub Pages 版的 ⚙ 設定貼入網址與 Token")
     print(f"  FutuOpenD: {ARGS.futu_host}:{ARGS.futu_port}（請確認已啟動並登入）")
+    start_engine()
     print("  Ctrl+C 結束。只讀、不下單、僅綁定本機。")
     print("=" * 56)
 
@@ -287,6 +351,8 @@ def main():
     except KeyboardInterrupt:
         print("\n關閉中…")
     finally:
+        if ENGINE:
+            ENGINE.stop()
         if QUOTE:
             QUOTE.close()
         if TRD:
