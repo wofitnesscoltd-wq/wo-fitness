@@ -104,6 +104,42 @@ def _get_json(url, timeout=12):
 
 
 # ---- Binance 永續（fapi）----
+# 真正的 24/7 加密（其餘 USDT 永續視為 tokenized 美股/商品，跟著美股盤）
+REAL_CRYPTO = {
+    "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "MATIC", "DOT",
+    "LTC", "TRX", "TON", "SUI", "APT", "ARB", "OP", "NEAR", "ATOM", "FIL", "INJ", "SEI",
+    "PEPE", "SHIB", "WIF", "BONK", "TIA", "RUNE", "AAVE", "UNI", "ORDI", "JUP", "PYTH",
+    "ENA", "WLD", "FTM", "ALGO", "ICP", "HBAR", "KAS", "RENDER", "FET", "TAO", "BCH", "ETC",
+}
+
+
+def _base(sym):
+    s = (sym or "").upper()
+    for q in ("USDT", "USDC", "USD"):
+        if s.endswith(q):
+            return s[:-len(q)]
+    return s
+
+
+def is_stock_perp(sym):
+    """tokenized 美股永續（COHR/QCOM/RKLB…）＝非真加密；週末/美股收盤時是低流動雜訊。"""
+    return _base(sym) not in REAL_CRYPTO
+
+
+def us_market_active():
+    """美股是否在活躍時段（盤前~盤後，美東 04:00–20:00、週一~五）。tokenized 美股永續只在這時段掃才有意義。"""
+    import datetime as _dt
+    try:
+        from zoneinfo import ZoneInfo
+        n = _dt.datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        n = _dt.datetime.utcnow() - _dt.timedelta(hours=4)
+    if n.weekday() >= 5:
+        return False
+    mins = n.hour * 60 + n.minute
+    return 4 * 60 <= mins <= 20 * 60
+
+
 def binance_klines(sym, interval="5m", limit=200):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit={limit}"
     out = []
@@ -157,6 +193,7 @@ class CryptoScanner:
         self.kl, self.fund = SOURCES[self.source]
         self._stop = threading.Event()
         self._last_status = {}
+        self._cooldown = {}   # 每標的上次推播時間，避免同一檔狂洗版
 
     @staticmethod
     def load_watch(default=None):
@@ -220,9 +257,15 @@ class CryptoScanner:
         holds = load_crypto_holdings()
         hmap = {h.get("sym"): h for h in holds if h.get("sym")}
         all_syms = list(dict.fromkeys(list(watch) + list(hmap)))
+        stock_open = us_market_active()
+        cooldown_sec = float(self.cfg.get("alert_cooldown_sec", 4 * 3600))   # 同檔買點冷卻，預設 4 小時
+        now_ts = time.time()
         pushed = 0
         price_of = {}
         for sym in all_syms:
+            # tokenized 美股永續：美股收盤/週末是低流動雜訊，整檔跳過（不掃買點也不抓資料）
+            if is_stock_perp(sym) and not stock_open:
+                continue
             try:
                 bars = [b for b in self.kl(sym, "5m", 160) if b.get("close") is not None]
                 bars15 = [b for b in self.kl(sym, "15m", 80) if b.get("close") is not None]
@@ -237,10 +280,14 @@ class CryptoScanner:
             except Exception:
                 fr = 0
             fnote = f"；資金費率 {fr*100:.3f}%" + ("（多頭過熱付費，留意反轉）" if fr > 0.0005 else "（空方付費，偏多有利）" if fr < -0.0005 else "")
-            if sym in watch:                                  # 自選找買點
+            cooling = (now_ts - self._cooldown.get(sym, 0)) < cooldown_sec
+            if sym in watch and not cooling:                  # 自選找買點（同檔冷卻中不重複洗版）
                 for sig in ae.eval_buy(bars, None, bars15, ctx):
                     sig["reason"] += fnote
-                    pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
+                    n = self._emit(con, session, sym, sig, min_grade, order, token, chat)
+                    if n:
+                        self._cooldown[sym] = now_ts
+                    pushed += n
             if sym in hmap:                                   # 持有的找賣點（技術出場訊號）
                 for sig in ae.eval_sell(bars, None, ctx):
                     sig["reason"] += fnote
