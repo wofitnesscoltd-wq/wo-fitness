@@ -33,10 +33,16 @@ try:
 except Exception:                       # 引擎可選；缺檔也不影響看盤橋接
     alert_engine = None
 
+try:
+    import crypto as crypto_mod
+except Exception:
+    crypto_mod = None
+
 ARGS = None
 QUOTE = None
 TRD = None
 ENGINE = None
+CRYPTO = None
 LOCK = threading.Lock()
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".futu_bridge_token")
@@ -300,6 +306,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/engine":
                 self._json({"engine": "on" if ENGINE else "off",
                             "status": ENGINE.status() if ENGINE else None})
+            elif path == "/crypto":
+                self._json({"crypto": "on" if CRYPTO else "off",
+                            "status": CRYPTO.status() if CRYPTO else None})
             elif path == "/stats":
                 self._json(ENGINE.stats() if ENGINE else {"open": 0})
             elif path == "/weights":
@@ -363,6 +372,27 @@ def start_engine():
     print(f"  AI 複核  : {'開（每則訊號過 Claude 複核）' if ai_key else '關（未提供 Anthropic 金鑰，純規則訊號）'}")
 
 
+def start_crypto():
+    """有 --crypto 時，啟動 24h 加密永續監測（幣安/Bitget），共用 Telegram/DB。"""
+    global CRYPTO
+    if not ARGS.crypto:
+        return
+    if crypto_mod is None or alert_engine is None:
+        print("  加密監測: 找不到 crypto.py / alert_engine.py，略過。")
+        return
+    fc = load_alert_config()
+    token = ARGS.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN") or fc.get("telegram_token")
+    chat = ARGS.telegram_chat or os.environ.get("TELEGRAM_CHAT_ID") or fc.get("telegram_chat")
+    ai_key = ARGS.anthropic_key or os.environ.get("ANTHROPIC_API_KEY") or fc.get("anthropic_key")
+    syms = [s.strip().upper() for s in (ARGS.crypto_symbols or "").split(",") if s.strip()] or None
+    cfg = {"source": ARGS.crypto_source, "symbols": syms, "min_grade": ARGS.min_grade,
+           "scan_sec": ARGS.scan_sec, "telegram_token": token, "telegram_chat": chat,
+           "anthropic_key": ai_key, "ai_model": ARGS.ai_model}
+    CRYPTO = crypto_mod.CryptoScanner(cfg)
+    CRYPTO.start()
+    print(f"  加密監測: 已啟動（{ARGS.crypto_source}）24h　幣種 {syms or '預設主流幣'}")
+
+
 def main():
     global ARGS, TOKEN
     p = argparse.ArgumentParser()
@@ -383,6 +413,9 @@ def main():
     p.add_argument("--ai-model", default="claude-haiku-4-5-20251001", help="AI 複核用模型")
     p.add_argument("--daily-loss", type=float, default=0.06, help="單日虧損熔斷門檻（0.06=未實現-6%暫停買訊）")
     p.add_argument("--account-size", type=float, default=None, help="帳戶總額(USD)，給熔斷算百分比用（你部位在國泰/永豐/加密所時填）")
+    p.add_argument("--crypto", action="store_true", help="同時啟動 24h 加密永續監測")
+    p.add_argument("--crypto-source", default="binance", choices=["binance", "bitget"], help="加密行情來源")
+    p.add_argument("--crypto-symbols", default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT", help="監測幣種，逗號分隔")
     ARGS = p.parse_args()
     TOKEN = load_token()
 
@@ -394,6 +427,7 @@ def main():
     print("  → 用瀏覽器開上面網址，或在 GitHub Pages 版的 ⚙ 設定貼入網址與 Token")
     print(f"  FutuOpenD: {ARGS.futu_host}:{ARGS.futu_port}（請確認已啟動並登入）")
     start_engine()
+    start_crypto()
     print("  Ctrl+C 結束。只讀、不下單、僅綁定本機。")
     print("=" * 56)
 
@@ -405,6 +439,8 @@ def main():
     finally:
         if ENGINE:
             ENGINE.stop()
+        if CRYPTO:
+            CRYPTO.stop()
         if QUOTE:
             QUOTE.close()
         if TRD:
