@@ -39,11 +39,11 @@ header .spacer{margin-left:auto;}
 .pos-acct{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap;}
 .pos-acct b{color:var(--text);}
 .pos-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px;}
-.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;}
+.pos-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;}
 .pos-item:hover{border-color:var(--orange);}
-.pos-item .pc{font-size:13px;font-weight:600;}
-.pos-item .pn{font-size:11px;color:var(--muted);margin-top:2px;}
-.pos-item .pr{font-size:13px;font-weight:700;text-align:right;line-height:1.5;}
+.pos-item .pc{font-size:14px;font-weight:600;}
+.pos-item .pn{font-size:11.5px;color:var(--muted);margin-top:3px;}
+.pos-item .pr{font-size:14px;font-weight:700;text-align:right;line-height:1.5;}
 .hold-add{display:flex;flex-wrap:wrap;gap:5px;padding:8px;border-bottom:1px solid var(--border);}
 .hold-add input,.hold-add select{flex:1 1 76px;min-width:64px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:7px 8px;color:var(--text);font-family:inherit;font-size:12.5px;outline:none;}
 .hold-add input:focus,.hold-add select:focus{border-color:var(--orange);}
@@ -132,13 +132,17 @@ header .spacer{margin-left:auto;}
 .feed{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}
 .welcome{color:var(--muted);font-size:13px;line-height:1.9;text-align:center;margin:auto;max-width:420px;}
 .welcome b{color:var(--text);}
-.bubble{border-radius:12px;padding:13px 15px;font-size:13.5px;line-height:1.8;max-width:92%;}
+.bubble{border-radius:12px;padding:13px 16px;font-size:13.5px;line-height:1.65;max-width:94%;}
 .bubble.user{background:var(--orange);color:white;align-self:flex-end;border-bottom-right-radius:4px;}
 .bubble.ai{background:var(--panel);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px;}
-.bubble.ai h3{font-size:15px;margin:10px 0 6px;color:var(--orange-light);}
-.bubble.ai h4{font-size:14px;margin:9px 0 5px;}
-.bubble.ai ul{margin:6px 0 6px 18px;}.bubble.ai li{margin:3px 0;}
+.bubble.ai h3{font-size:15px;margin:12px 0 6px;color:var(--orange-light);}
+.bubble.ai h4{font-size:13.5px;margin:11px 0 5px;color:var(--orange-light);}
+.bubble.ai h4:first-child,.bubble.ai p:first-child{margin-top:0;}
+.bubble.ai p{margin:6px 0;}
+.bubble.ai ul,.bubble.ai ol{margin:5px 0 7px 20px;padding:0;}
+.bubble.ai li{margin:3px 0;padding-left:2px;}
 .bubble.ai strong{color:#fff;}
+.bubble.ai code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:12px;}
 .dir-card{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:10px;padding:13px 15px;align-self:flex-start;max-width:92%;}
 .dir-card .dt{font-size:14px;font-weight:700;margin-bottom:5px;}
 .dir-card .dw{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px;}
@@ -155,7 +159,7 @@ header .spacer{margin-left:auto;}
 .chat-box textarea:focus{border-color:var(--orange);}
 .chat-box button{background:var(--orange);border:none;border-radius:9px;color:white;width:42px;font-size:17px;cursor:pointer;}
 /* news */
-.news{width:330px;flex-shrink:0;display:flex;flex-direction:column;background:var(--panel);}
+.news{width:410px;flex-shrink:0;display:flex;flex-direction:column;background:var(--panel);}
 .news-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);}
 .news-bar .t{font-size:13px;font-weight:600;flex:1;}
 .news-bar button{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;}
@@ -1180,14 +1184,25 @@ async function callClaude(userText, {json=false, maxTokens=3000}={}){
 let currentAbort=null;
 function stopAI(){ if(currentAbort) currentAbort.abort(); }
 
-/* ---------- markdown 迷你渲染 ---------- */
+/* ---------- markdown 迷你渲染（區塊式：段落不亂斷行、清單成組、不留大空白） ---------- */
 function md(t){
-  let h=(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/^#{1,3}\s+(.*)$/gm,'<h4>$1</h4>')
-    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-    .replace(/^\s*[-*]\s+(.*)$/gm,'<li>$1</li>');
-  h=h.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g,m=>'<ul>'+m+'</ul>');
-  return h.replace(/\n{2,}/g,'<br><br>').replace(/\n/g,'<br>');
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  const lines=(t||'').replace(/\r/g,'').split('\n');
+  let html='', para=[], list=[], listType=null;
+  const flushPara=()=>{ if(para.length){ html+='<p>'+inline(para.join(' '))+'</p>'; para=[]; } };
+  const closeList=()=>{ if(list.length){ html+='<'+listType+'>'+list.map(x=>'<li>'+x+'</li>').join('')+'</'+listType+'>'; list=[]; listType=null; } };
+  for(const raw of lines){
+    const line=raw.trim();
+    if(!line){ flushPara(); closeList(); continue; }
+    let m;
+    if(m=line.match(/^#{1,6}\s+(.*)$/)){ flushPara(); closeList(); html+='<h4>'+inline(m[1])+'</h4>'; continue; }
+    if(m=line.match(/^(?:[-*•]|•)\s+(.*)$/)){ flushPara(); if(listType==='ol')closeList(); listType='ul'; list.push(inline(m[1])); continue; }
+    if(m=line.match(/^\d+[.)]\s+(.*)$/)){ flushPara(); if(listType==='ul')closeList(); listType='ol'; list.push(inline(m[1])); continue; }
+    closeList(); para.push(line);
+  }
+  flushPara(); closeList();
+  return html;
 }
 
 /* ---------- 對話 feed ---------- */
@@ -1315,6 +1330,8 @@ async function positionDoctor(){
   try{
     const txt=await callClaude(`${positionCtx()}
 請對我「上面這些實際部位」做一次即時、可執行的持倉診斷（操盤手等級，不是教科書）。先用 web 搜尋確認今天日期/星期、美股與加密最新狀態、每個標的最新報價與近期消息。最上面標一行【資料截至：日期 週X 時間／市場狀態】。
+
+**重要：我的部位是 24/7 永續合約（在 Bitget/幣安，含 tokenized 美股永續）。它們週末、美股休市時照常交易、照常波動、資金費照收，我也能即時平倉/加減倉。所以即使美股現貨休市，請把這些部位當「即時、現在就能動」來分析——永續現價就是當下即時價，不要當成凍結在週五收盤、也不要說「等下週開盤再說」。美股的基本面/財報/消息用最近交易日的資料沒問題，但我的部位操作、風險、爆倉、加減倉判斷全部是即時的。**
 
 先讀懂我上面寫的「對鎖手法」再分析。**硬性框架（違反就是你錯）**：(a) 我全倉，爆倉只看帳戶層級緩衝，不准用單腿孤立爆倉價或「距爆倉0.3%」這種數字嚇我；(b) 不准預設對鎖要 1:1、不准叫我把保險腿平掉變中性、不准把淨偏多在多頭當成錯；(c) 評估盈虧用「淨部位／帳戶層級」，不要把單腿高槓桿浮虧% 單獨拿來說我違規認賠；(d) 上面的「永續現價」是程式自動帶入的永續報價，**不是我貼的**，不准說「你貼的現價」或質疑我輸入；永續對個股的溢價/折價是正常現象，用永續報價算我的部位、用個股做基本面即可。在這框架內給更鋭利的執行建議。
 
