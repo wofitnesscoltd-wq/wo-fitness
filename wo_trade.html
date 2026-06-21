@@ -455,11 +455,11 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
     <p>AI 大腦使用 Anthropic Claude API。金鑰<b>只會存在你這台瀏覽器</b>，不會上傳到任何伺服器。前往 console.anthropic.com 申請金鑰。</p>
     <label>Anthropic API 金鑰</label>
     <input id="keyInput" type="password" placeholder="sk-ant-...">
-    <label>模型（品質 / 速度）</label>
+    <label>模型（品質 / 花費）</label>
     <select id="modelInput">
-      <option value="claude-opus-4-8">Opus 4.8（最強分析，預設）</option>
-      <option value="claude-sonnet-4-6">Sonnet 4.6（快、便宜）</option>
-      <option value="claude-haiku-4-5-20251001">Haiku 4.5（最快、最省）</option>
+      <option value="claude-sonnet-4-6">Sonnet 4.6（高品質又省，建議預設）</option>
+      <option value="claude-haiku-4-5-20251001">Haiku 4.5（最便宜，省最多）</option>
+      <option value="claude-opus-4-8">Opus 4.8（最強但最貴，約 Sonnet 5 倍）</option>
     </select>
     <label>自製圖 EMA 週期（短,中,長…可填數字用逗號分隔，例 9,20,60）</label>
     <input id="emaInput" placeholder="20,50">
@@ -1117,7 +1117,7 @@ function setRegion(r){
 /* ---------- 設定 ---------- */
 function openSettings(){
   document.getElementById('keyInput').value=localStorage.getItem('wo_key')||'';
-  document.getElementById('modelInput').value=localStorage.getItem('wo_model')||'claude-opus-4-8';
+  document.getElementById('modelInput').value=localStorage.getItem('wo_model')||'claude-sonnet-4-6';
   document.getElementById('emaInput').value=localStorage.getItem('wo_ema')||'20,50';
   const rc=riskCfg();
   document.getElementById('riskLoss').value=rc.dailyLoss||'';
@@ -1187,12 +1187,12 @@ function isWeekend(){ const g=new Date().getDay(); return g===0||g===6; }
 async function callClaude(userText, {json=false, maxTokens=3000}={}){
   const key=localStorage.getItem('wo_key');
   if(!key){ openSettings(); throw new Error('請先在 ⚙ 設定你的 Anthropic API 金鑰'); }
-  const model=localStorage.getItem('wo_model')||'claude-opus-4-8';
+  const model=localStorage.getItem('wo_model')||'claude-sonnet-4-6';
   const body={
     model, max_tokens:maxTokens,
     system:SYSTEM+`\n（現在是使用者當地時間 ${nowStr()}。請以此為「現在」，並用 web 搜尋確認美股最新交易日收盤與目前休市/開盤狀態；務必在輸出最上面標一行【資料截至：日期 週X 時間／美股狀態】，每個數據與新聞都附其時間點。${isWeekend()?'今天是週末、美股休市：請做「收盤回顧＋下週展望與預測」，不要假裝盤中即時。':''}）`+(json?'\n本次請「只」輸出我要求的 JSON，不要任何多餘文字（JSON 內含 as_of 欄位放資料截至時間）。':''),
     messages:[{role:'user',content:userText}],
-    tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}]
+    tools:[{type:'web_search_20250305',name:'web_search',max_uses:4}]
   };
   currentAbort=new AbortController();
   const stopB=document.getElementById('stopBtn'); if(stopB) stopB.style.display='inline-block';
@@ -2032,6 +2032,8 @@ let alertTimer=null;
   loadFutuCfg(); setFutuStatus(false);
   migrateCryptoHoldings(); seedPositionsOnce();
   if(!localStorage.getItem('wo_fee_v1')){ localStorage.setItem('wo_fee_crypto','0.04'); localStorage.setItem('wo_fee_v1','1'); }   // 一次性校正成你的 Bitget 永續 taker 費率
+  // 一次性把舊的 Opus 預設(很貴)換成 Sonnet 省錢；你之前沒特地選、只是沿用預設。要最強仍可在 ⚙ 改回 Opus
+  if(!localStorage.getItem('wo_model_v2')){ if((localStorage.getItem('wo_model')||'')==='claude-opus-4-8'||!localStorage.getItem('wo_model')) localStorage.setItem('wo_model','claude-sonnet-4-6'); localStorage.setItem('wo_model_v2','1'); }
   applyScale();
   if(localStorage.getItem('wo_focus')==='1') document.body.classList.add('focus');
   renderHud(); setInterval(renderHud, 20000);
