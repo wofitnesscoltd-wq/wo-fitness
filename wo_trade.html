@@ -1668,6 +1668,8 @@ function openCloseDialog(kind,s,side){
     <label>平倉數量（${cr?'幣量':'股數'}）<span class="cm-eq" id="cmQtyEq"></span></label>
     <input id="cmQty" type="number" step="any" value="${fullQty}" oninput="cmRecalc()">
     <div class="cm-pcts">${[25,50,75,100].map(p=>`<button type="button" onclick="cmSetPct(${p})">${p}%</button>`).join('')}</div>
+    <label>或填平倉${cr?'名目（USDT）':'金額（$）'} → 自動換算數量</label>
+    <input id="cmAmt" type="number" step="any" placeholder="例 ${Math.round(fullQty*live)}（＝全部）" oninput="cmSetAmt()">
     <label>出場價（預設現價）</label>
     <input id="cmPx" type="number" step="any" value="${live}" oninput="cmRecalc()">
     <label>手續費率 %（單邊，${cr?'Bitget taker≈0.06':'複委託≈0.15'}）</label>
@@ -1681,6 +1683,8 @@ function openCloseDialog(kind,s,side){
   cmRecalc();
 }
 function cmSetPct(p){ if(!cmState)return; document.getElementById('cmQty').value=+(cmState.fullQty*p/100).toFixed(8); cmRecalc(); }
+function cmSetAmt(){ if(!cmState)return; const px=parseFloat(document.getElementById('cmPx').value)||0; const amt=parseFloat(document.getElementById('cmAmt').value)||0;
+  if(px>0){ let q=Math.min(amt/px,cmState.fullQty); document.getElementById('cmQty').value=+q.toFixed(8); } cmRecalc(); }
 function cmRecalc(){
   if(!cmState)return;
   const {kind,side,entry,fullQty,h}=cmState;
