@@ -71,6 +71,8 @@ header .spacer{margin-left:auto;}
 .wl-group{display:flex;align-items:center;justify-content:space-between;gap:6px;}
 .wl-sort{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:2px 7px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0;text-transform:none;}
 .wl-sort:hover{color:var(--orange);border-color:var(--orange);}
+.wl-sec{font-size:11px;font-weight:700;color:var(--orange-light);padding:9px 10px 4px;letter-spacing:.03em;border-top:1px solid var(--border);margin-top:2px;display:flex;align-items:center;gap:6px;}
+.wl-sec:first-of-type{border-top:none;}
 .wl-q{flex-shrink:0;text-align:right;min-width:74px;cursor:pointer;}
 .wl-px{font-size:12.5px;font-weight:600;line-height:1.3;}
 .wl-ch{font-size:11px;line-height:1.3;}
@@ -698,33 +700,84 @@ function calcCompute(){
     ${stopPct>12?'<div class="warn">⚠️ 停損距離 >12%，對短線槓桿偏遠，部位會很小或風險偏高。</div>':''}`;
 }
 
-/* ---------- 關注清單渲染 ---------- */
+/* ---------- 板塊分類 ---------- */
+const SECTOR_MAP={
+  NVDA:'半導體',AMD:'半導體',TSM:'半導體',AVGO:'半導體',ARM:'半導體',MRVL:'半導體',INTC:'半導體',QCOM:'半導體',SWKS:'半導體',QRVO:'半導體',CRDO:'半導體',AXTI:'半導體',NOK:'半導體','000660':'半導體','005930':'半導體',
+  MU:'記憶體',SNDK:'記憶體',WDC:'記憶體',DRAM:'記憶體',
+  AMAT:'半導體設備',LRCX:'半導體設備',ASML:'半導體設備',EUV:'半導體設備',Q:'半導體設備',
+  LITE:'光通訊',AAOI:'光通訊',COHR:'光通訊',FN:'光通訊',GLW:'光通訊',TEL:'光通訊',
+  SMCI:'AI伺服器/電力',VRT:'AI伺服器/電力',GEV:'AI伺服器/電力',MOD:'AI伺服器/電力',
+  ORCL:'AI軟體/雲端',NOW:'AI軟體/雲端',PLTR:'AI軟體/雲端',SNOW:'AI軟體/雲端',MDB:'AI軟體/雲端',NET:'AI軟體/雲端',WDAY:'AI軟體/雲端',IGV:'AI軟體/雲端',
+  AAPL:'大型科技',MSFT:'大型科技',GOOGL:'大型科技',META:'大型科技',AMZN:'大型科技',TSLA:'大型科技',IBM:'大型科技',BKNG:'大型科技',NDAQ:'大型科技',
+  COIN:'加密/區塊鏈',MSTR:'加密/區塊鏈',STRC:'加密/區塊鏈',BMNR:'加密/區塊鏈',CRCL:'加密/區塊鏈',ORBS:'加密/區塊鏈',AIFC:'加密/區塊鏈',
+  OKLO:'核能/電力',SMR:'核能/電力',CEG:'核能/電力',VST:'核能/電力',UUUU:'核能/電力','U.UN':'核能/電力',
+  LLY:'生技醫療',HIMS:'生技醫療',VSTM:'生技醫療',
+  KO:'消費',PEP:'消費',CL:'消費',GPRO:'消費',
+  MA:'金融/支付',V:'金融/支付',EQIX:'金融/支付',
+  LMT:'國防航太',NOC:'國防航太',TT:'國防航太',ESP:'國防航太',
+  XOM:'能源',CVX:'能源',OXY:'能源',UCO:'能源',
+  COPX:'原物料',SLV:'原物料',GLD:'原物料',DOW:'原物料',
+  RKLB:'太空衛星',ASTS:'太空衛星',SPCX:'太空衛星',DXYZ:'太空衛星',
+  BABA:'中概股',JD:'中概股',NBIS:'中概股',
+  SOXX:'半導體ETF',SOXL:'半導體ETF',SOXS:'半導體ETF',SOXQ:'半導體ETF',
+  QQQ:'大盤ETF',SPY:'大盤ETF',EWY:'大盤ETF',TLT:'債券',IEF:'債券',
+  VIX:'指數',SOX:'指數',US10Y:'指數',USOIL:'指數',UKOIL:'指數',
+};
+const SECTOR_ORDER=['半導體','記憶體','半導體設備','光通訊','AI伺服器/電力','AI軟體/雲端','大型科技','加密/區塊鏈','核能/電力','太空衛星','生技醫療','國防航太','能源','原物料','金融/支付','消費','中概股','半導體ETF','大盤ETF','債券','指數','其他'];
+function getSector(sym){ const t=tkr(sym); try{ const u=JSON.parse(localStorage.getItem('wo_sec')||'{}'); if(u[t])return u[t]; }catch(e){} return SECTOR_MAP[t]||'其他'; }
+let wlGroup = localStorage.getItem('wo_wlgroup')!=='0';   // 預設分板塊
+
+/* ---------- 關注清單渲染（依板塊分組，組內＆組間由強到弱） ---------- */
+function wlChg(it){ const q=futu.quotes[futuCode(it.s)]; return q&&q.change_rate!=null?q.change_rate:null; }
+function renderWlRow(it){
+  const row=document.createElement('div');
+  row.className='wl-item'+(it.s===current?' active':'');
+  row.setAttribute('data-code', futuCode(it.s)||'');
+  row.innerHTML=`<div class="wl-main"><div class="wl-sym">${tkr(it.s)}</div><div class="wl-name">${it.n||''}</div></div><div class="wl-q"><div class="wl-px"></div><div class="wl-ch"></div></div><button class="wl-del">×</button>`;
+  row.querySelector('.wl-main').onclick=()=>selectSymbol(it.s,it.n);
+  row.querySelector('.wl-q').onclick=()=>selectSymbol(it.s,it.n);
+  row.querySelector('.wl-del').onclick=e=>{e.stopPropagation();lists[region]=lists[region].filter(x=>x.s!==it.s);save();renderWatchlist();};
+  return row;
+}
 function renderWatchlist(){
-  const el=document.getElementById('watchlist');
-  const arr=lists[region].slice();
-  if(wlSort!=='none'){
-    arr.sort((a,b)=>{
-      const qa=futu.quotes[futuCode(a.s)], qb=futu.quotes[futuCode(b.s)];
-      const va=qa&&qa.change_rate!=null?qa.change_rate:-99999, vb=qb&&qb.change_rate!=null?qb.change_rate:-99999;
-      return wlSort==='up'? vb-va : va-vb;
+  const el=document.getElementById('watchlist'); const sc=el.scrollTop;
+  const list=lists[region];
+  el.innerHTML='';
+  const head=document.createElement('div'); head.className='wl-group';
+  head.innerHTML=`<span>${region==='us'?'美股':'台股'}（${list.length}）</span>
+    <span style="display:flex;gap:5px">
+      <button class="wl-sort" onclick="toggleWlGroup()">${wlGroup?'📊 分板塊':'↕ 純排序'}</button>
+      ${region==='us'?'<button class="wl-sort" id="aiSecBtn" onclick="aiClassifySectors()" title="用 AI 把清單依板塊歸類">🤖 歸類</button>':''}
+    </span>`;
+  el.appendChild(head);
+  const byStrong=(a,b)=>{ const va=wlChg(a),vb=wlChg(b); return (vb==null?-1e9:vb)-(va==null?-1e9:va); };
+  if(!wlGroup){
+    list.slice().sort(byStrong).forEach(it=>el.appendChild(renderWlRow(it)));
+  } else {
+    const groups={}; list.forEach(it=>{ const s=getSector(it.s); (groups[s]=groups[s]||[]).push(it); });
+    const avg=g=>{ const v=groups[g].map(wlChg).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+    const hasQ=list.some(it=>wlChg(it)!=null);
+    const names=Object.keys(groups).sort((a,b)=>{ if(hasQ){ const va=avg(a),vb=avg(b); return (vb==null?-1e9:vb)-(va==null?-1e9:va); } return (SECTOR_ORDER.indexOf(a)+1||99)-(SECTOR_ORDER.indexOf(b)+1||99); });
+    names.forEach(s=>{
+      const a=avg(s); const lbl=(a!=null)?` <span class="${a>=0?'up':'down'}" style="font-size:11px;font-weight:700">${a>=0?'+':''}${a.toFixed(1)}%</span>`:'';
+      const gh=document.createElement('div'); gh.className='wl-sec'; gh.innerHTML=`${s} <span style="color:var(--muted);font-weight:400">(${groups[s].length})</span>${lbl}`;
+      el.appendChild(gh);
+      groups[s].slice().sort(byStrong).forEach(it=>el.appendChild(renderWlRow(it)));
     });
   }
-  const sortLabel=wlSort==='none'?'排序':wlSort==='up'?'漲幅↓':'跌幅↑';
-  el.innerHTML=`<div class="wl-group"><span>${region==='us'?'美股':'台股'}（${lists[region].length}）</span><button class="wl-sort" onclick="cycleSort()">↕ ${sortLabel}</button></div>`;
-  arr.forEach(it=>{
-    const row=document.createElement('div');
-    row.className='wl-item'+(it.s===current?' active':'');
-    row.setAttribute('data-code', futuCode(it.s)||'');
-    row.innerHTML=`<div class="wl-main"><div class="wl-sym">${tkr(it.s)}</div><div class="wl-name">${it.n||''}</div></div><div class="wl-q"><div class="wl-px"></div><div class="wl-ch"></div></div><button class="wl-del">×</button>`;
-    row.querySelector('.wl-main').onclick=()=>selectSymbol(it.s,it.n);
-    row.querySelector('.wl-q').onclick=()=>selectSymbol(it.s,it.n);
-    row.querySelector('.wl-del').onclick=e=>{e.stopPropagation();lists[region]=lists[region].filter(x=>x.s!==it.s);save();renderWatchlist();};
-    el.appendChild(row);
-  });
-  updateWatchlistQuotes();
-  renderStockPick();
+  updateWatchlistQuotes(); renderStockPick();
+  el.scrollTop=sc;
 }
-function cycleSort(){ wlSort = wlSort==='none'?'up':wlSort==='up'?'down':'none'; renderWatchlist(); }
+function toggleWlGroup(){ wlGroup=!wlGroup; localStorage.setItem('wo_wlgroup',wlGroup?'1':'0'); renderWatchlist(); }
+async function aiClassifySectors(){
+  if(busy)return; const b=document.getElementById('aiSecBtn'); if(b)b.textContent='⏳ 歸類中';
+  try{
+    const tickers=lists['us'].map(x=>tkr(x.s));
+    const txt=await callClaude(`把下列美股代號各自歸到「一個」板塊中文短名（可用：半導體/記憶體/半導體設備/光通訊/AI伺服器電力/AI軟體雲端/大型科技/加密區塊鏈/核能電力/太空衛星/生技醫療/國防航太/能源/原物料/金融支付/消費/中概股/ETF/指數，或你認為更精準的短名）。只輸出 JSON 物件 {"代號":"板塊"}，不要多餘文字。代號：${tickers.join(',')}`,{json:true,maxTokens:2500});
+    const m=txt.match(/\{[\s\S]*\}/); if(m){ const o=JSON.parse(m[0]); const cur=JSON.parse(localStorage.getItem('wo_sec')||'{}'); Object.assign(cur,o); localStorage.setItem('wo_sec',JSON.stringify(cur)); renderWatchlist(); }
+  }catch(e){ if(e.message!=='⏹ 已停止') alert('歸類失敗：'+e.message); }
+  const b2=document.getElementById('aiSecBtn'); if(b2)b2.textContent='🤖 歸類';
+}
 function updateWatchlistQuotes(){
   document.querySelectorAll('#watchlist .wl-item').forEach(row=>{
     const code=row.getAttribute('data-code');
@@ -1108,7 +1161,7 @@ async function pollFutu(){
   pushHoldings(); pushCryptoHoldings(); await pollCrypto();
   renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(futu.tab==='alert') renderAlerts();
-  if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
+  renderWatchlist();
 }
 function updateCurQuote(){
   const el=document.getElementById('curLabel'); if(!el||!current)return;
