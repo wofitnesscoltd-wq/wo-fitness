@@ -707,8 +707,10 @@ function rsiDivergence(bars,rsi,times,w=5){
   const pl=i=>{ if(i<w||i>=n-w)return false; for(let j=i-w;j<=i+w;j++) if(j!==i&&c[j]<=c[i])return false; return true; };
   let lh=null,ll=null;
   for(let i=0;i<n;i++){ if(rsi[i]==null)continue;
-    if(ph(i)){ if(lh!=null&&c[i]>c[lh]&&rsi[i]<rsi[lh]) marks.push({time:times[i],position:'aboveBar',color:'#EA3943',shape:'arrowDown',text:'頂'}); lh=i; }
-    if(pl(i)){ if(ll!=null&&c[i]<c[ll]&&rsi[i]>rsi[ll]) marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'底'}); ll=i; }
+    if(ph(i)){ const div=lh!=null&&c[i]>c[lh]&&rsi[i]<rsi[lh];   // 每個擺動高點標「頂」，出現頂背離升級「頂背離」
+      marks.push({time:times[i],position:'aboveBar',color:div?'#EA3943':'rgba(234,57,67,.75)',shape:'arrowDown',text:div?'頂背離':'頂'}); lh=i; }
+    if(pl(i)){ const div=ll!=null&&c[i]<c[ll]&&rsi[i]>rsi[ll];   // 每個擺動低點標「底」，出現底背離升級「底背離」
+      marks.push({time:times[i],position:'belowBar',color:div?'#16C784':'rgba(22,199,132,.75)',shape:'arrowUp',text:div?'底背離':'底'}); ll=i; }
   }
   return marks;
 }
@@ -977,6 +979,8 @@ function wlReg(it){ const q=futu.quotes[futuCode(it.s)]; return q&&q.change_rate
 function wlExtOf(it){ return wlExt(futu.quotes[futuCode(it.s)]); }
 function wlChg(it){ return wlBasis==='ext'?wlExtOf(it):wlReg(it); }
 function avgList(a){ const v=a.filter(x=>x!=null); return v.length?v.reduce((x,y)=>x+y,0)/v.length:null; }
+function wlLive(){ return localStorage.getItem('wo_wl_live')!=='0'; }
+function toggleWlLive(){ localStorage.setItem('wo_wl_live', wlLive()?'0':'1'); renderWatchlist(); if(wlLive()&&futu.on) pollFutu(); }
 function toggleWlBasis(){ wlBasis = wlBasis==='reg'?'ext':'reg'; localStorage.setItem('wo_wlbasis',wlBasis); renderWatchlist(); }
 function toggleWlDir(){ wlDir = wlDir==='desc'?'asc':'desc'; localStorage.setItem('wo_wldir',wlDir); renderWatchlist(); }
 function renderWlRow(it){
@@ -999,6 +1003,7 @@ function renderWatchlist(){
       <button class="wl-sort" onclick="toggleWlBasis()" title="排序依據">${wlBasis==='ext'?'📈 盤前後':'📈 盤中'}</button>
       <button class="wl-sort" onclick="toggleWlDir()" title="排序方向">${wlDir==='desc'?'強→弱':'弱→強'}</button>
       <button class="wl-sort" onclick="toggleWlGroup()">${wlGroup?'📊 分板塊':'↕ 不分'}</button>
+      <button class="wl-sort" onclick="toggleWlLive()" title="自選即時報價開關（暫停可省牛牛配額；現價/持股仍即時）">${wlLive()?'🟢 即時':'⏸ 暫停'}</button>
       ${region==='us'?'<button class="wl-sort" id="aiSecBtn" onclick="aiClassifySectors()" title="用 AI 把清單依板塊歸類">🤖 歸類</button>':''}
     </span>`;
   el.appendChild(head);
@@ -1489,18 +1494,13 @@ async function pollFutu(){
   catch(e){ futu.connected=false; setFutuStatus(false); maybeSwitchChart(); return; }
   futu.connected=true; setFutuStatus(true);
   try{
-    const codes=lists['us'].map(x=>futuCode(x.s)).filter(Boolean);
-    if(current&&isUS(current)){ const c=futuCode(current); if(c&&!codes.includes(c)) codes.push(c); }
+    const codes=[];
+    if(current&&isUS(current)){ const c=futuCode(current); if(c) codes.push(c); }
     holdings.forEach(h=>{ const c='US.'+tkr(h.s); if(!codes.includes(c)) codes.push(c); });
-    const q=await futuFetch('/quote?codes='+encodeURIComponent(codes.join(',')));
-    (q.quotes||[]).forEach(x=>{ futu.quotes[x.code]=x; });
+    if(wlLive()) lists['us'].forEach(x=>{ const c=futuCode(x.s); if(c&&!codes.includes(c)) codes.push(c); });  // 自選即時報價（暫停時只抓現價/持股，省牛牛配額）
+    if(codes.length){ const q=await futuFetch('/quote?codes='+encodeURIComponent(codes.join(','))); (q.quotes||[]).forEach(x=>{ futu.quotes[x.code]=x; }); }
   }catch(e){}
-  // 牛牛帳戶/部位你沒在用（只當數據源），不必每 12 秒抓；每 ~60 秒一次就好
-  pollFutu._n=(pollFutu._n||0)+1;
-  if(pollFutu._n%5===1){
-    try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
-    try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
-  }
+  // 牛牛帳戶/部位：你沒申請牛牛下單帳戶，不抓（原本每 12 秒抓純浪費配額）。
   // 自選清單只有改變時才推給橋接（不必每輪重送）
   try{ const wc=lists['us'].map(x=>futuCode(x.s)).filter(Boolean).join(','); if(wc && wc!==pollFutu._lastWatch){ futuFetch('/setwatch?codes='+encodeURIComponent(wc)); pollFutu._lastWatch=wc; } }catch(e){}
   pushHoldings(); pushCryptoHoldings(); pushCMargin(); await pollCrypto();
@@ -1570,9 +1570,10 @@ async function pollCrypto(){
   if(!cryptoHoldings.length) return;
   const syms=encodeURIComponent(cryptoHoldings.map(x=>x.s).join(','));
   try{ const r=await futuFetch('/cryptoquote?syms='+syms); cryptoQuotes=r.quotes||{}; }catch(e){}
-  // 資金費率每 8 小時才結算一次，最多 5 分鐘抓一次就夠（原本每 12 秒抓＝白白浪費）
-  if(Date.now()-(pollCrypto._fundTs||0) > 300000){
-    try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; pollCrypto._fundTs=Date.now(); }catch(e){}
+  // 資金費率每 8 小時結算一次（UTC 00/08/16＝台灣 08/16/00）。只在跨結算時段時抓一次，其餘不動。
+  const bucket=Math.floor(Date.now()/(8*3600*1000));
+  if(bucket!==pollCrypto._fundBucket){
+    try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; pollCrypto._fundBucket=bucket; }catch(e){}
   }
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
