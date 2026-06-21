@@ -1287,18 +1287,23 @@ function positionCtx(){
   }
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
-    s+='\n【加密永續部位（幣安/Bitget，全倉）】\n';
-    cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||null; const lp=liqPrice(h.e,h.l,h.side);
-      const upnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100).toFixed(1):'—';
-      const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100).toFixed(1):'—';
-      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px?`，現價${px}`:''}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，單倉未實現${upnl}%，估爆倉${lp?lp.toFixed(2):'—'}（距${dist}%）\n`; });
-    const pairs={}; cryptoHoldings.forEach(h=>{ pairs[h.s]=(pairs[h.s]||0)+1; });
-    const hedged=Object.keys(pairs).filter(k=>pairs[k]>1);
-    if(hedged.length) s+=`（多空對鎖中：${hedged.join('、')} 同時持有多單與空單）\n`;
-    s+=`\n【加密全倉總覽】可用保證金${Math.round(sm.avail)}U，帳戶權益${Math.round(sm.equity)}U，未實現${Math.round(sm.upnl)}U，總名目${Math.round(sm.gross)}U，淨曝險${Math.round(sm.net)}U，整體槓桿${sm.grossLev.toFixed(1)}x（淨${sm.netLev.toFixed(1)}x），距全倉爆倉緩衝${sm.buffer==null?'已對沖、極低':sm.buffer.toFixed(1)+'%'}。\n`;
+    s+='\n【加密永續部位（幣安/Bitget，全倉 cross）】\n';
+    cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||null;
+      const upnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
+      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px?`，現價${px}`:''}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，這條腿浮${upnlU!=null?(upnlU>=0?'賺+':'虧')+Math.round(upnlU)+'U':'—'}\n`; });
+    const bySym={}; cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||h.e; bySym[h.s]=(bySym[h.s]||0)+h.q*px*(h.side==='short'?-1:1); });
+    const symNet=Object.keys(bySym).map(k=>`${k} 淨${bySym[k]>=0?'多':'空'}${Math.abs(Math.round(bySym[k]))}U`).join('、');
+    const netSigned=Object.values(bySym).reduce((a,b)=>a+b,0);
+    s+=`各幣種淨部位（多空對沖後，同幣種單腿不會獨立爆倉）：${symNet}。\n`;
+    s+=`\n【全倉總覽——爆倉以帳戶層級為準，不是單倉孤立價】可用保證金${Math.round(sm.avail)}U，帳戶權益${Math.round(sm.equity)}U，未實現${Math.round(sm.upnl)}U，總名目${Math.round(sm.gross)}U，淨曝險${Math.round(sm.net)}U（整體偏${netSigned>=0?'多':'空'}），整體槓桿${sm.grossLev.toFixed(1)}x、淨槓桿${sm.netLev.toFixed(1)}x，距全倉爆倉緩衝${sm.buffer==null?'已對沖、極低':sm.buffer.toFixed(1)+'%'}（＝帳戶權益還能讓「淨曝險方向」逆走多少才被強平；單一腿被同帳戶權益與同幣種反向腿撐住，不會自己爆）。\n`;
   }
   const c=riskCfg();
-  s+=`\n【我的紀律規則】每日虧損上限${c.dailyLoss>0?'$'+c.dailyLoss:'未設'}，固定部位${c.fixedPos>0?'$'+c.fixedPos+'/筆':'未設'}，當沖硬出場${c.exit}（美東），獲利提取門檻${c.extract>0?'$'+c.extract:'未設'}。我是專業永續操盤手：每單目標≥5%（不含槓桿）、看錯就認賠、做波段不抄短線、不是賭槓桿仔。\n`;
+  s+=`\n【我的紀律與對鎖手法（請先懂再評論，別套教科書）】我是全倉永續操盤手，三個月做到 +800% 的方法如下：
+- 爆倉看「帳戶權益 vs 維持保證金」的整體緩衝，不是任何單腿的孤立爆倉價；同幣種多空互相抵消，**單腿不會獨立爆倉**。別拿某腿的孤立爆倉距離或單腿高槓桿浮虧% 來判定我危險或違規——要看淨部位與帳戶層級。
+- 我的反向（空）腿**不是要跟多單 1:1 對沖**，是「不在線上看盤時的保險」：避免裸多在我睡覺/忙時被波動掃出場或跳空爆倉。看對方向卻死在波動是我要避免的。大多頭無腦 1:1 鎖才蠢——我刻意**淨偏多吃趨勢**，用較小反向腿壓波動。
+- 多單看錯我會認賠出場；但常認賠後又漲回去，所以留反向腿保住機會成本、不被洗掉。
+- 我「有在看」時（開盤大量單邊、盤前氣氛明顯偏多/偏空）會主動反應：真反轉就**加空、甚至逐步平多**；沒反轉就讓淨多續吃。
+- 每單目標≥5%（不含槓桿）、做波段不抄短線、不是賭槓桿仔。每日虧損上限${c.dailyLoss>0?'$'+c.dailyLoss:'未設'}、固定部位${c.fixedPos>0?'$'+c.fixedPos+'/筆':'未設'}、當沖硬出場${c.exit}（美東）、獲利提取門檻${c.extract>0?'$'+c.extract:'未設'}。\n`;
   return s;
 }
 async function positionDoctor(){
@@ -1311,21 +1316,23 @@ async function positionDoctor(){
     const txt=await callClaude(`${positionCtx()}
 請對我「上面這些實際部位」做一次即時、可執行的持倉診斷（操盤手等級，不是教科書）。先用 web 搜尋確認今天日期/星期、美股與加密最新狀態、每個標的最新報價與近期消息。最上面標一行【資料截至：日期 週X 時間／市場狀態】。
 
+先讀懂我上面寫的「對鎖手法」再分析。**硬性框架（違反就是你錯）**：(a) 我全倉，爆倉只看帳戶層級緩衝，不准用單腿孤立爆倉價或「距爆倉0.3%」這種數字嚇我；(b) 不准預設對鎖要 1:1、不准叫我把保險腿平掉變中性、不准把淨偏多在多頭當成錯；(c) 評估盈虧用「淨部位／帳戶層級」，不要把單腿高槓桿浮虧% 單獨拿來說我違規認賠。在這框架內給更鋭利的執行建議。
+
 整合下列維度逐一分析（缺資料就明說、別亂編數字）：
-1. **市場溫度／regime**：跨資產(VIX、美元、利率、油價、BTC)與市場廣度——現在 risk-on 還 risk-off？這對我「整體淨曝險方向」是順風還逆風？加密用 BTC 當大盤。
-2. **基本面**：每個標的的基本面與估值位階（tokenized 美股永續對應真實個股，如 COHR 光通訊、QCOM 高通、RKLB 火箭實驗室）。
+1. **市場溫度／regime**：跨資產(VIX、美元、利率、油價、BTC)與市場廣度——現在 risk-on 還 risk-off？我整體淨偏多，是順風還逆風？加密用 BTC 當大盤。
+2. **基本面**：每個標的基本面與估值位階（tokenized 美股永續對應真實個股，如 COHR 光通訊、QCOM 高通、RKLB 火箭實驗室）。
 3. **消息面（即時）**：近期與即將到來的催化劑、財報日、總經事件（附日期）；有無會立刻改變部位的新聞。
 4. **技術面（當下）**：價格相對 EMA/VWAP、均線排列、RSI/MACD、關鍵支撐壓力、ORB；目前順勢或逆勢。
-5. **永續特有**：資金費率（過熱／逆向收費）、爆倉距離、整體槓桿與淨曝險是否過大、保證金是否吃緊（我可用保證金不多）。
-6. **你想到我沒想到的**：相關性／部位擁擠度、財報前後 IV、流動性、週末加密風險、對鎖的資金效率等。
+5. **永續＆風險**：資金費率（過熱／逆向收費，哪條腿在付費）；**爆倉風險只用全倉帳戶緩衝評估**；整體淨曝險與淨槓桿會不會太大；可用保證金（我剩不多）是否吃緊到限制我「有看盤時加碼反應」的彈性。
+6. **你想到我沒想到的**：相關性／部位擁擠度、財報前後 IV、流動性、週末加密風險等。
 
-接著給**明確指令**（逐倉＋投組層級），用客觀描述、不說教：
-- **逐倉**：續抱／加倉／減倉／平倉／反向／移動停損——給價位與理由，標信心（高／中／低）。
-- **對鎖策略**：哪些該維持對鎖、哪些該「拆一邊吃單邊趨勢」、反轉時是否在另一邊加倉吃回來（也可不加倉只翻邊）；講清楚這個對鎖是為了降爆倉風險、還是為了吃雙邊趨勢。
-- **投組層級**：目前淨曝險方向對不對、整體槓桿要不要降、爆倉緩衝夠不夠、要不要先落袋到提取門檻。
-- 全程尊重我的紀律規則。
+接著給**明確指令**（逐倉＋投組層級），客觀描述、不說教：
+- **逐倉**：續抱／加倉／減倉／認賠平倉／移動停損——給價位與理由，標信心（高／中／低）。判斷某腿是「該吃的趨勢腿」還是「保險腿」，分開講。
+- **保險腿（反向）怎麼管**：在我淨偏多框架下，保險腿 size **夠不夠**擋住我不看盤時的波動／跳空（用全倉緩衝回推）？太大就是白燒資金與勝率、太小就保不住——給建議倍率/名目。什麼訊號（開盤大量單邊、盤前氣氛、技術破位）出現我該**加空甚至逐步平多**去吃反轉？什麼情況可縮保險腿讓淨多更純吃趨勢？
+- **投組層級**：淨偏多方向對不對、整體淨槓桿要不要降、全倉緩衝夠不夠撐過我不看盤的時段、要不要先落袋到提取門檻。
+- 全程在我的手法框架內，尊重紀律規則。
 
-用 Markdown：先「## 大盤＆投組總評」，再每個部位一段「## 代號 方向」，最後「## 今天就執行的 3 件事」。粗體標關鍵價位與動作，精簡可執行。`,{maxTokens:6000});
+用 Markdown：先「## 大盤＆投組總評」，再每個部位一段「## 代號 方向（趨勢腿/保險腿）」，最後「## 今天就執行的 3 件事」。粗體標關鍵價位與動作，精簡可執行。`,{maxTokens:6000});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
@@ -1537,13 +1544,14 @@ function holdingsLiveStr(){
     }).join('、')+'。';
   }
   if(cryptoHoldings.length){
-    out+='\n我的加密永續部位（幣安/Bitget）：'+cryptoHoldings.map(h=>{
-      const px=cryptoQuotes[h.s], lp=liqPrice(h.e,h.l,h.side);
-      const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100).toFixed(1)+'%':'—';
-      return `${h.s} ${h.l}x ${h.side==='short'?'空':'多'} 進場${h.e}${px?(' 現價'+px):''} 距爆倉${dist}`;
+    const sm=cryptoSummary();
+    out+='\n我的加密永續部位（幣安/Bitget，全倉 cross；空腿多為避免不看盤時被波動掃出場的保險腿，非1:1對沖）：'+cryptoHoldings.map(h=>{
+      const px=cryptoQuotes[h.s];
+      return `${h.s} ${h.l}x ${h.side==='short'?'空':'多'} 進場${h.e}${px?(' 現價'+px):''} 保證金${Math.round(h.m||0)}U`;
     }).join('、')+'。';
+    out+=`全倉總覽：帳戶權益${Math.round(sm.equity)}U、未實現${Math.round(sm.upnl)}U、淨曝險${Math.round(sm.net)}U、淨槓桿${sm.netLev.toFixed(1)}x、距全倉爆倉緩衝${sm.buffer==null?'已對沖極低':sm.buffer.toFixed(1)+'%'}（爆倉看帳戶層級，單腿不會獨立爆；別用單腿孤立爆倉價評估風險）。`;
   }
-  if(out) out+='請據此給賣點/減碼/移動停利/降槓桿建議。';
+  if(out) out+='請據此給賣點/減碼/移動停利/保險腿管理建議（別預設要對沖成中性或平掉保險腿）。';
   return out;
 }
 /* ---------- 資料持久化：橋接同步還原（跨來源／清快取／換裝置都不丟） ---------- */
@@ -1773,12 +1781,10 @@ function renderPositions(){
   cryptoHoldings.forEach(h=>{
     const px=cryptoQuotes[h.s]; const lp=liqPrice(h.e,h.l,h.side);
     const pnl=px?((h.side==='short'?(h.e/px-1):(px/h.e-1))*h.l*100):null;
-    const dist=(px&&lp)?((h.side==='short'?(lp-px)/px:(px-lp)/px)*100):null;
-    const warn=dist!=null&&dist<15;
-    const d=document.createElement('div'); d.className='pos-item'+(warn?' liqwarn':'');
+    const d=document.createElement('div'); d.className='pos-item';   // 全倉下單腿不會獨立爆倉，爆倉風險看上方全倉緩衝
     d.innerHTML=`<div><div class="pc">${h.s} <span style="font-size:10px;color:${h.side==='short'?'var(--red)':'var(--green)'}">${h.l}x ${h.side==='short'?'空':'多'}</span></div>
       <div class="pn">保證金 $${Math.round(h.m||(h.q*h.e/(h.l||1)))}・名目 $${Math.round(h.q*(px||h.e))}・進場 ${h.e}</div>
-      <div class="liqd">單倉爆倉≈${lp?lp.toFixed(2):'—'}　距離 ${dist!=null?dist.toFixed(1)+'%':'—'}${warn?' ⚠️':''}</div></div>
+      <div class="liqd">孤立估爆倉≈${lp?lp.toFixed(2):'—'}（全倉不適用，爆倉看上方帳戶緩衝）</div></div>
       <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
       <button class="pclose" title="平倉並記錄已實現損益">平</button>
       <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
