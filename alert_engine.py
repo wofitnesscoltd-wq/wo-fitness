@@ -428,6 +428,34 @@ def _db():
     return con
 
 
+def _r_multiple(price, stop, target, status):
+    """結算 R 倍數：命中＝+目標R、停損＝-1R。"""
+    risk = abs((price or 0) - (stop or 0)) or 1e-9
+    rt = abs((target or 0) - (price or 0)) / risk
+    return rt if status == "hit" else -1.0
+
+
+def _ai_report(key, model, stat_text, recent):
+    """請 Claude 寫一段教練式檢討（失敗歸因＋下一步）。失敗回 None。"""
+    try:
+        recent_brief = "; ".join(
+            f"{a['symbol']}{a['side']}{a['grade']}={a.get('status')}" for a in recent[:20])
+        user = (f"以下是我短線美股警示系統的績效與最近訊號結果：\n{stat_text}\n最近：{recent_brief}\n"
+                "以頂尖操盤手教練角度，用繁中 3-4 句點出：哪種等級/方向表現好或差、可能的失敗共因、"
+                "以及下一步該調整什麼（門檻/時段/流派權重）。精簡、可執行。")
+        body = json.dumps({"model": model, "max_tokens": 400,
+                           "system": "你是嚴格但建設性的交易績效教練。只給重點，不客套。",
+                           "messages": [{"role": "user", "content": user}]}).encode("utf-8")
+        req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body,
+                                     headers={"content-type": "application/json", "x-api-key": key,
+                                              "anthropic-version": "2023-06-01"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip() or None
+    except Exception:
+        return None
+
+
 def already_alerted(con, session, symbol, side, type_):
     cur = con.execute(
         "SELECT 1 FROM alerts WHERE session=? AND symbol=? AND side=? AND type=? LIMIT 1",
@@ -441,7 +469,8 @@ def log_alert(con, session, symbol, sig, pushed):
            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (datetime.now().isoformat(timespec="seconds"), session, symbol, sig["side"], sig["type"],
          sig["grade"], sig["price"], sig["stop"], sig["target"], sig.get("rr"), sig["reason"],
-         json.dumps(sig.get("feat", {}), ensure_ascii=False), 1 if pushed else 0))
+         json.dumps({"feat": sig.get("feat", {}), "scores": sig.get("scores", {}),
+                     "conviction": sig.get("conviction")}, ensure_ascii=False), 1 if pushed else 0))
     aid = con.execute("SELECT last_insert_rowid()").fetchone()[0]
     con.execute("INSERT OR IGNORE INTO outcomes(alert_id,status,mfe,mae,last_px,updated) VALUES(?,?,?,?,?,?)",
                 (aid, "open", 0.0, 0.0, sig["price"], datetime.now().isoformat(timespec="seconds")))
@@ -524,6 +553,7 @@ class AlertEngine:
         self._rr = 0                      # round-robin 指標
         self._last_status = {}
         self._halt_session = None         # 已熔斷的交易日
+        self._last_eod = None             # 已跑過收盤優化/報告的交易日
 
     # ---- 自選清單持久化（網頁推給橋接、引擎讀檔，網頁關了也能掃）----
     @staticmethod
@@ -552,6 +582,109 @@ class AlertEngine:
         con.close()
         return out
 
+    # ---- 績效統計（勝率/期望值/獲利因子，分等級分方向） ----
+    def stats(self):
+        con = _db()
+        rows = con.execute("""SELECT a.grade,a.side,a.price,a.stop,a.target,o.status
+                              FROM alerts a JOIN outcomes o ON a.id=o.alert_id""").fetchall()
+        con.close()
+        buckets = {}
+        def add(key, R, win):
+            b = buckets.setdefault(key, {"n": 0, "win": 0, "sumR": 0.0, "gain": 0.0, "loss": 0.0})
+            b["n"] += 1; b["win"] += 1 if win else 0; b["sumR"] += R
+            if R >= 0: b["gain"] += R
+            else: b["loss"] += -R
+        open_n = 0
+        for grade, side, price, stop, target, status in rows:
+            if status not in ("hit", "miss"):
+                open_n += 1; continue
+            R = _r_multiple(price, stop, target, status)
+            win = status == "hit"
+            for key in ("ALL", "grade:" + (grade or "?"), "side:" + (side or "?")):
+                add(key, R, win)
+
+        def fin(b):
+            n = b["n"] or 1
+            pf = (b["gain"] / b["loss"]) if b["loss"] > 0 else (b["gain"] if b["gain"] else 0)
+            return {"n": b["n"], "win_rate": round(b["win"] / n * 100, 1),
+                    "expectancy_R": round(b["sumR"] / n, 3), "profit_factor": round(pf, 2)}
+        return {"open": open_n, **{k: fin(v) for k, v in buckets.items()}}
+
+    # ---- 走動式：用實際結果學各流派權重 ----
+    def walk_forward(self, lr=0.15, min_n=15):
+        con = _db()
+        rows = con.execute("""SELECT a.price,a.stop,a.target,a.snapshot,o.status
+                              FROM alerts a JOIN outcomes o ON a.id=o.alert_id
+                              WHERE a.side='long' AND o.status IN ('hit','miss')""").fetchall()
+        con.close()
+        acc = {k: {"wR": 0.0, "w": 0.0} for k in DEFAULT_WEIGHTS}
+        n_used = 0
+        for price, stop, target, snap, status in rows:
+            try:
+                scores = (json.loads(snap or "{}")).get("scores", {})
+            except Exception:
+                scores = {}
+            if not scores:
+                continue
+            R = _r_multiple(price, stop, target, status)
+            n_used += 1
+            for k, sc in scores.items():
+                if k in acc and sc:
+                    acc[k]["wR"] += sc * R; acc[k]["w"] += sc
+        if n_used < min_n:
+            return {"updated": False, "reason": f"樣本不足({n_used}/{min_n})"}
+        w = load_weights()
+        main = ["trend", "breakout", "vwap", "meanrev", "sr", "ma"]
+        total_main = sum(w[k] for k in main)
+        for k in main:
+            if acc[k]["w"] > 0:
+                exp = acc[k]["wR"] / acc[k]["w"]              # 該流派的期望 R
+                w[k] = max(0.01, w[k] * (1 + lr * _clamp(exp, -1, 1)))
+        s = sum(w[k] for k in main) or 1
+        for k in main:                                       # 重新歸一回原本主群總和
+            w[k] = round(w[k] / s * total_main, 4)
+        save_weights(w)
+        return {"updated": True, "n": n_used, "weights": w}
+
+    def build_report(self, kind="每日", push=True):
+        st = self.stats()
+        allw = st.get("ALL", {})
+        lines = [f"📊 <b>{kind}績效報告</b>　{session_key()}",
+                 f"已結算 {allw.get('n', 0)} 筆　勝率 {allw.get('win_rate', 0)}%　"
+                 f"期望值 {allw.get('expectancy_R', 0)}R　獲利因子 {allw.get('profit_factor', 0)}",
+                 f"未結算追蹤中 {st.get('open', 0)} 筆"]
+        for g in ("A", "B", "C"):
+            b = st.get("grade:" + g)
+            if b and b["n"]:
+                lines.append(f"・{g} 級：{b['n']} 筆　勝率 {b['win_rate']}%　期望 {b['expectancy_R']}R")
+        text = "\n".join(lines)
+        key = self.cfg.get("anthropic_key")
+        if key:
+            coach = _ai_report(key, self.cfg.get("ai_model", "claude-haiku-4-5-20251001"),
+                               text, self.recent_alerts(30))
+            if coach:
+                text += "\n\n🧠 " + coach
+        if push:
+            send_telegram(self.cfg.get("telegram_token"), self.cfg.get("telegram_chat"), text)
+        return text
+
+    def _maybe_eod(self):
+        """收盤後（美東 post 時段）每個交易日跑一次：走動式優化＋每日報告。"""
+        day = session_key()
+        if self._last_eod == day:
+            return
+        if market_phase() != "post":
+            return
+        self._last_eod = day
+        try:
+            self.walk_forward()
+        except Exception:
+            pass
+        try:
+            self.build_report("每日", push=True)
+        except Exception:
+            pass
+
     def start(self):
         t = threading.Thread(target=self._loop, daemon=True)
         t.start()
@@ -567,6 +700,10 @@ class AlertEngine:
                 self.scan_once()
             except Exception as e:
                 self._last_status["error"] = str(e)
+            try:
+                self._maybe_eod()
+            except Exception:
+                pass
             self._stop.wait(scan_sec)
 
     def _regime(self):

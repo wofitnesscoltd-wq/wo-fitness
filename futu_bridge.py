@@ -273,6 +273,16 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/engine":
                 self._json({"engine": "on" if ENGINE else "off",
                             "status": ENGINE.status() if ENGINE else None})
+            elif path == "/stats":
+                self._json(ENGINE.stats() if ENGINE else {"open": 0})
+            elif path == "/weights":
+                self._json(alert_engine.load_weights() if alert_engine else {})
+            elif path == "/report":
+                if not ENGINE:
+                    self._json({"error": "engine off"})
+                else:
+                    push = q.get("push", ["0"])[0] == "1"
+                    self._json({"report": ENGINE.build_report("即時", push=push)})
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except Exception as e:
