@@ -1728,14 +1728,14 @@ function openCloseDialog(kind,s,side,presetQty){
     <div class="cm-pcts">${[25,50,75,100].map(p=>`<button type="button" onclick="cmSetPct(${p})">${p}%</button>`).join('')}</div>
     <label>或填平倉${cr?'名目（USDT）':'金額（$）'} → 自動換算數量</label>
     <input id="cmAmt" type="number" step="any" placeholder="例 ${Math.round(fullQty*live)}（＝全部）" oninput="cmSetAmt()">
-    <label>出場價（預設現價）</label>
+    <label>出場價（預設帶現價；<b style="color:var(--amber)">請改成你交易所實際成交均價</b>，現價≠你的成交價）</label>
     <input id="cmPx" type="number" step="any" value="${live}" oninput="cmRecalc()">
     <label>手續費率 %（單邊，${cr?'你的 Bitget 永續 taker 0.04 / maker 0.016':'複委託≈0.15'}）</label>
     <input id="cmFee" type="number" step="any" value="${feeDefault(kind)}" oninput="cmRecalc()">
     ${cr?`<label>資金費 USDT（持倉期間累計；付費填正、收取填負）<span class="cm-eq">${fundHint}</span></label>
     <input id="cmFund" type="number" step="any" value="0" oninput="cmRecalc()">`:''}
-    <label>或直接填交易所「已實現損益」覆蓋（最準，選填）</label>
-    <input id="cmOverride" type="number" step="any" placeholder="留空＝用上面自動算" oninput="cmRecalc()">
+    <label>要跟交易所<b style="color:var(--green)">完全一致</b>就把交易所那筆「已實現盈虧」直接填這裡（覆蓋上面估算，最準）</label>
+    <input id="cmOverride" type="number" step="any" placeholder="例 交易所顯示 177.28（留空＝用上面自動算）" oninput="cmRecalc()">
     <div class="cm-calc" id="cmCalc"></div>`;
   document.getElementById('closeModal').style.display='flex';
   cmRecalc();
