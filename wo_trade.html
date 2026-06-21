@@ -326,6 +326,8 @@ header .spacer{margin-left:auto;}
       <option value="claude-sonnet-4-6">Sonnet 4.6（快、便宜）</option>
       <option value="claude-haiku-4-5-20251001">Haiku 4.5（最快、最省）</option>
     </select>
+    <label>自製圖 EMA 週期（短,中,長…可填數字用逗號分隔，例 9,20,60）</label>
+    <input id="emaInput" placeholder="20,50">
     <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 2px">
     <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--text)">
       <input type="checkbox" id="futuOn" style="width:auto"> 啟用富途牛牛即時數據（需在本機跑 futu_bridge.py）
@@ -458,6 +460,8 @@ function renderTVChart(sym){
 
 /* ---- 指標數學 ---- */
 function emaArr(vals,p){ const k=2/(p+1); let prev; const out=[]; for(let i=0;i<vals.length;i++){ const v=vals[i]; prev=i===0?v:v*k+prev*(1-k); out.push(prev); } return out; }
+const EMA_COLORS=['#F5874A','#4C8DFF','#16C784','#C792EA','#EAB308'];
+function emaPeriods(){ const raw=(localStorage.getItem('wo_ema')||'20,50').split(',').map(x=>parseInt(x.trim(),10)).filter(n=>n>0&&n<=400); return raw.length?raw.slice(0,5):[20,50]; }
 function rsiArr(c,p=14){ const out=new Array(c.length).fill(null); let g=0,l=0; for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],gg=Math.max(d,0),ll=Math.max(-d,0); if(i<=p){ g+=gg; l+=ll; if(i===p){ g/=p; l/=p; out[i]=l===0?100:100-100/(1+g/l);} } else { g=(g*(p-1)+gg)/p; l=(l*(p-1)+ll)/p; out[i]=l===0?100:100-100/(1+g/l);} } return out; }
 function macdArr(c,f=12,s=26,sig=9){ const ef=emaArr(c,f),es=emaArr(c,s),m=c.map((_,i)=>ef[i]-es[i]),si=emaArr(m,sig); return {macd:m,signal:si,hist:m.map((x,i)=>x-si[i])}; }
 function vwapArr(bars){ const out=[]; let pv=0,vv=0,day=null; for(const b of bars){ const d=(b.time||'').slice(0,10); if(d!==day){day=d;pv=0;vv=0;} const tp=(b.high+b.low+b.close)/3,v=b.volume||0; pv+=tp*v; vv+=v; out.push(vv>0?pv/vv:b.close); } return out; }
@@ -525,14 +529,14 @@ async function renderSelfChart(sym){
   const intraday=selfIv!=='day'&&selfIv!=='week';
 
   // ---- 價格 pane（K棒＋EMA＋VWAP＋量）：主圖自動填滿，指標欄各自可拖 ----
-  const pxEl=mkPane(host,'1 1 80px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA20/50':'')+(ind.boll?'  BOLL20':'')+(ind.vwap&&intraday?'  VWAP':''));
+  const pxEl=mkPane(host,'1 1 80px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA'+emaPeriods().join('/'):'')+(ind.boll?'  BOLL20':'')+(ind.vwap&&intraday?'  VWAP':''));
   const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
   const candle=pc.addCandlestickSeries({upColor:'#16C784',downColor:'#EA3943',borderVisible:false,wickUpColor:'#16C784',wickDownColor:'#EA3943'});
   selfState.series.candle=candle;
   const vol=pc.addHistogramSeries({priceScaleId:'vol',priceFormat:{type:'volume'}});
   pc.priceScale('vol').applyOptions({scaleMargins:{top:0.82,bottom:0}});
   selfState.series.vol=vol;
-  if(ind.ema){ selfState.series.ema20=pc.addLineSeries({color:'#F5874A',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false}); selfState.series.ema50=pc.addLineSeries({color:'#4C8DFF',lineWidth:1.5,priceLineVisible:false,lastValueVisible:false}); }
+  if(ind.ema){ selfState.series.emas=emaPeriods().map((p,idx)=>({p, s:pc.addLineSeries({color:EMA_COLORS[idx%EMA_COLORS.length],lineWidth:1.5,priceLineVisible:false,lastValueVisible:false})})); }
   if(ind.boll){ const bo={lineWidth:1,priceLineVisible:false,lastValueVisible:false}; selfState.series.bollU=pc.addLineSeries(Object.assign({color:'rgba(76,141,255,.7)'},bo)); selfState.series.bollL=pc.addLineSeries(Object.assign({color:'rgba(76,141,255,.7)'},bo)); selfState.series.bollM=pc.addLineSeries(Object.assign({color:'rgba(245,135,74,.55)',lineStyle:2},bo)); }
   if(ind.vwap&&intraday){ selfState.series.vwap=pc.addLineSeries({color:'#C792EA',lineWidth:1.5,lineStyle:2,priceLineVisible:false,lastValueVisible:false}); }
   selfState.charts.push(pc);
@@ -572,7 +576,7 @@ function updateSelfData(bars){
   const S=selfState.series;
   S.candle.setData(bars.map((b,i)=>({time:t[i],open:b.open,high:b.high,low:b.low,close:b.close})));
   if(S.vol) S.vol.setData(bars.map((b,i)=>({time:t[i],value:b.volume||0,color:b.close>=b.open?'rgba(22,199,132,.35)':'rgba(234,57,67,.35)'})));
-  if(S.ema20){ const e20=emaArr(closes,20),e50=emaArr(closes,50); S.ema20.setData(t.map((x,i)=>({time:x,value:e20[i]}))); S.ema50.setData(t.map((x,i)=>({time:x,value:e50[i]}))); }
+  if(S.emas){ S.emas.forEach(o=>{ const e=emaArr(closes,o.p); o.s.setData(t.map((x,i)=>({time:x,value:e[i]}))); }); }
   if(S.bollU){ const bb=bollArr(closes,20,2); const mp=a=>t.map((x,i)=>a[i]==null?null:({time:x,value:a[i]})).filter(Boolean); S.bollU.setData(mp(bb.up)); S.bollL.setData(mp(bb.low)); S.bollM.setData(mp(bb.mid)); }
   if(S.vwap){ const vw=vwapArr(bars); S.vwap.setData(t.map((x,i)=>({time:x,value:vw[i]}))); }
   if(S.rsi){ const rs=rsiArr(closes,14); S.rsi.setData(t.map((x,i)=>rs[i]==null?null:({time:x,value:rs[i]})).filter(Boolean)); try{ S.candle.setMarkers(rsiDivergence(bars,rs,t)); }catch(e){} }
@@ -782,6 +786,7 @@ function setRegion(r){
 function openSettings(){
   document.getElementById('keyInput').value=localStorage.getItem('wo_key')||'';
   document.getElementById('modelInput').value=localStorage.getItem('wo_model')||'claude-opus-4-8';
+  document.getElementById('emaInput').value=localStorage.getItem('wo_ema')||'20,50';
   document.getElementById('futuOn').checked=localStorage.getItem('wo_futu_on')==='1';
   document.getElementById('futuUrl').value=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888';
   document.getElementById('futuToken').value=localStorage.getItem('wo_futu_token')||'';
@@ -797,10 +802,12 @@ function clearAllData(){
 function saveSettings(){
   localStorage.setItem('wo_key',document.getElementById('keyInput').value.trim());
   localStorage.setItem('wo_model',document.getElementById('modelInput').value);
+  localStorage.setItem('wo_ema',(document.getElementById('emaInput').value.trim()||'20,50'));
   localStorage.setItem('wo_futu_on',document.getElementById('futuOn').checked?'1':'0');
   localStorage.setItem('wo_futu_url',document.getElementById('futuUrl').value.trim());
   localStorage.setItem('wo_futu_token',document.getElementById('futuToken').value.trim());
   loadFutuCfg(); closeSettings(); connectFutu();
+  if(current && effSrc(current)==='self') renderSelfChart(current);
 }
 
 /* ---------- Claude API ---------- */
