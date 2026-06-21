@@ -62,14 +62,26 @@ def load_alert_config():
         return {}
 
 
+API_URL = "https://api.github.com/repos/wofitnesscoltd-wq/wo-fitness/contents/wo_trade.html?ref=main"
+
+
 def fetch_latest_html():
-    """Pull the latest app HTML from GitHub so the user never re-downloads it."""
-    try:
-        req = urllib.request.Request(RAW_URL, headers={"User-Agent": "wo-bridge"})
-        with urllib.request.urlopen(req, timeout=6) as r:
-            return r.read().decode("utf-8")
-    except Exception:
-        return None
+    """Pull the latest app HTML from GitHub. Use the API (no CDN cache lag) first so
+    updates show on refresh instantly; fall back to the raw URL with a cache-buster."""
+    attempts = [
+        (API_URL, {"User-Agent": "wo-bridge", "Accept": "application/vnd.github.raw",
+                   "Cache-Control": "no-cache"}),
+        (RAW_URL + "?t=" + str(int(__import__("time").time())),
+         {"User-Agent": "wo-bridge", "Cache-Control": "no-cache", "Pragma": "no-cache"}),
+    ]
+    for url, headers in attempts:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as r:
+                return r.read().decode("utf-8")
+        except Exception:
+            continue
+    return None
 
 
 def load_token():
