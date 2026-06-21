@@ -371,6 +371,25 @@ class Handler(BaseHTTPRequestHandler):
                         except Exception:
                             pass
                 self._json({"quotes": out})
+            elif path == "/cryptofunding":
+                # 目前資金費率（每結算週期）；先試 Bitget 再試 Binance（tokenized 美股永續多在 Bitget）
+                out = {}
+                if crypto_mod:
+                    order = ["bitget", "binance"]
+                    src = ARGS.crypto_source
+                    if src in order:
+                        order.remove(src); order.insert(0, src)
+                    funds = [crypto_mod.SOURCES[k][1] for k in order if k in crypto_mod.SOURCES]
+                    for s in [x for x in q.get("syms", [""])[0].split(",") if x]:
+                        for fn in funds:
+                            try:
+                                d = fn(s.upper())
+                                if d and d.get("funding") is not None:
+                                    out[s.upper()] = d.get("funding")
+                                    break
+                            except Exception:
+                                pass
+                self._json({"funding": out})
             elif path == "/stats":
                 self._json(ENGINE.stats() if ENGINE else {"open": 0})
             elif path == "/weights":

@@ -223,6 +223,22 @@ body.orbwait .hold-add button{filter:grayscale(.55) opacity(.6);}
 .fn-arrow{color:var(--muted-2);font-size:13px;}
 .fn-hint{margin-left:auto;color:var(--muted-2);font-size:11px;}
 @media(max-width:920px){ .fn-hint{display:none;} }
+/* 平倉對話框 */
+.cm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:200;}
+.cm-box{background:var(--panel);border:1px solid var(--border);border-radius:12px;width:min(380px,92vw);max-height:90vh;overflow:auto;padding:16px;}
+.cm-title{font-size:14px;font-weight:700;margin-bottom:8px;}
+.cm-body label{display:block;font-size:11px;color:var(--muted);margin:9px 0 3px;}
+.cm-body input{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:8px 9px;color:var(--text);font-family:inherit;font-size:13px;}
+.cm-body input:focus{border-color:var(--orange);outline:none;}
+.cm-eq{color:var(--muted-2);font-weight:400;font-size:10.5px;}
+.cm-pcts{display:flex;gap:5px;margin-top:5px;}
+.cm-pcts button{flex:1;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;padding:5px 0;cursor:pointer;}
+.cm-pcts button:hover{color:var(--text);border-color:var(--orange);}
+.cm-calc{margin-top:12px;padding:10px 11px;border-radius:8px;background:var(--panel-2);font-size:12px;line-height:1.7;}
+.cm-actions{display:flex;gap:8px;margin-top:14px;}
+.cm-actions button{flex:1;border:none;border-radius:8px;padding:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.cm-cancel{background:var(--panel-2)!important;color:var(--muted);border:1px solid var(--border)!important;}
+.cm-confirm{background:var(--green);color:#fff;}
 /* 專注模式：收側欄與右欄，只留圖＋決策＋HUD */
 body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitNews{display:none;}
 @media(max-width:920px){ .hud{height:auto;flex-wrap:wrap;gap:6px 0;padding:6px 12px;} .hud-loss{flex:1 1 100%;} }
@@ -464,6 +480,17 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
     <div class="row">
       <button class="cancel" onclick="closeCalc()">關閉</button>
       <button class="save" onclick="calcCompute()">計算</button>
+    </div>
+  </div>
+</div>
+
+<div id="closeModal" class="cm-overlay">
+  <div class="cm-box">
+    <div class="cm-title" id="cmTitle">平倉</div>
+    <div class="cm-body" id="cmBody"></div>
+    <div class="cm-actions">
+      <button class="cm-cancel" onclick="closeCloseModal()">取消</button>
+      <button class="cm-confirm" onclick="confirmClose()">確認平倉並記錄</button>
     </div>
   </div>
 </div>
@@ -1464,6 +1491,7 @@ function pushHoldings(){
 /* 加密永續持股（你在幣安/Bitget 的部位） */
 let cryptoHoldings = JSON.parse(localStorage.getItem('wo_crypto_holdings')||'[]');
 let cryptoQuotes = {};
+let cryptoFunding = {};
 let holdType = 'stock';
 function setHoldType(t){
   holdType=t;
@@ -1484,7 +1512,9 @@ function pushCryptoHoldings(){
 }
 async function pollCrypto(){
   if(!cryptoHoldings.length) return;
-  try{ const r=await futuFetch('/cryptoquote?syms='+encodeURIComponent(cryptoHoldings.map(x=>x.s).join(','))); cryptoQuotes=r.quotes||{}; }catch(e){}
+  const syms=encodeURIComponent(cryptoHoldings.map(x=>x.s).join(','));
+  try{ const r=await futuFetch('/cryptoquote?syms='+syms); cryptoQuotes=r.quotes||{}; }catch(e){}
+  try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; }catch(e){}
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
 function getCMargin(){ return parseFloat(localStorage.getItem('wo_cmargin'))||0; }
@@ -1613,28 +1643,77 @@ function journalStats(){
 function toggleJournalDetail(){ showJournalDetail=!showJournalDetail; renderPositions(); }
 function clearJournal(){ if(confirm('清空所有平倉紀錄？此動作無法復原。')){ journal=[]; saveJournal(); renderPositions(); } }
 function delJournal(i){ journal.splice(i,1); saveJournal(); renderPositions(); }
-function closeAndLog(kind,s,side){
-  let h,live,sym;
+/* 平倉對話框：可部分/全部、含手續費與資金費；淨已實現記入日誌。幣價/資金費走 Bitget。 */
+let cmState=null;
+function feeDefault(kind){ const v=parseFloat(localStorage.getItem(kind==='crypto'?'wo_fee_crypto':'wo_fee_stock')); return v>0?v:(kind==='crypto'?0.06:0.15); }
+function openCloseDialog(kind,s,side){
+  let h,live,sym,fullQty;
+  if(kind==='crypto'){ h=cryptoHoldings.find(x=>x.s===s&&x.side===side); if(!h)return; live=cryptoQuotes[h.s]||h.e; sym=h.s; fullQty=h.q; }
+  else{ h=holdings.find(x=>x.s===s); if(!h)return; const q=futu.quotes['US.'+tkr(h.s)]; live=(q&&q.last!=null)?q.last:h.c; sym=tkr(h.s); fullQty=h.q; }
+  cmState={kind,s,side,h,sym,fullQty,entry:kind==='crypto'?h.e:h.c};
+  const cr=kind==='crypto';
+  document.getElementById('cmTitle').textContent=`平倉 ${sym}${side==='short'?'（空）':side==='long'?'（多）':''}`;
+  const fund=cr?cryptoFunding[h.s]:null;
+  const fundHint=(cr&&fund!=null)?`　目前費率 ${(fund*100).toFixed(4)}%/結算（${fund>=0?'多單付':'空單付'}）`:'';
+  document.getElementById('cmBody').innerHTML=`
+    <label>平倉數量（${cr?'幣量':'股數'}）<span class="cm-eq" id="cmQtyEq"></span></label>
+    <input id="cmQty" type="number" step="any" value="${fullQty}" oninput="cmRecalc()">
+    <div class="cm-pcts">${[25,50,75,100].map(p=>`<button type="button" onclick="cmSetPct(${p})">${p}%</button>`).join('')}</div>
+    <label>出場價（預設現價）</label>
+    <input id="cmPx" type="number" step="any" value="${live}" oninput="cmRecalc()">
+    <label>手續費率 %（單邊，${cr?'Bitget taker≈0.06':'複委託≈0.15'}）</label>
+    <input id="cmFee" type="number" step="any" value="${feeDefault(kind)}" oninput="cmRecalc()">
+    ${cr?`<label>資金費 USDT（持倉期間累計；付費填正、收取填負）<span class="cm-eq">${fundHint}</span></label>
+    <input id="cmFund" type="number" step="any" value="0" oninput="cmRecalc()">`:''}
+    <label>或直接填交易所「已實現損益」覆蓋（最準，選填）</label>
+    <input id="cmOverride" type="number" step="any" placeholder="留空＝用上面自動算" oninput="cmRecalc()">
+    <div class="cm-calc" id="cmCalc"></div>`;
+  document.getElementById('closeModal').style.display='flex';
+  cmRecalc();
+}
+function cmSetPct(p){ if(!cmState)return; document.getElementById('cmQty').value=+(cmState.fullQty*p/100).toFixed(8); cmRecalc(); }
+function cmRecalc(){
+  if(!cmState)return;
+  const {kind,side,entry,fullQty,h}=cmState;
+  let qty=parseFloat(document.getElementById('cmQty').value)||0; qty=Math.max(0,Math.min(qty,fullQty));
+  const px=parseFloat(document.getElementById('cmPx').value)||0;
+  const feeRate=(parseFloat(document.getElementById('cmFee').value)||0)/100;
+  const fundEl=document.getElementById('cmFund'); const fund=fundEl?(parseFloat(fundEl.value)||0):0;
+  const ov=document.getElementById('cmOverride').value;
+  const gross=kind==='crypto'?(side==='short'?(entry-px):(px-entry))*qty:(px-entry)*qty;
+  const fee=(entry+px)*qty*feeRate;
+  const overridden=ov!==''&&!isNaN(parseFloat(ov));
+  let net=overridden?parseFloat(ov):(gross-fee-fund);
+  cmState.net=net; cmState.qty=qty; cmState.exit=px;
+  const eq=document.getElementById('cmQtyEq');
+  if(eq){ const pct=fullQty>0?qty/fullQty*100:0; const mp=h.m?h.m*(fullQty>0?qty/fullQty:0):0;
+    eq.textContent=`＝${pct.toFixed(0)}%${kind==='crypto'?`・保證金≈$${Math.round(mp)}・名目≈$${Math.round(qty*px)}`:`・金額≈$${Math.round(qty*px)}`}`; }
+  const col=v=>v>0?'var(--green)':v<0?'var(--red)':'var(--text)';
+  const m=v=>(v>=0?'+':'−')+'$'+Math.abs(v).toFixed(2);
+  document.getElementById('cmCalc').innerHTML=overridden
+    ? `淨已實現（交易所數字）<b style="color:${col(net)};font-size:14px">${m(net)}</b>`
+    : `毛損益 <b style="color:${col(gross)}">${m(gross)}</b>　手續費 <b style="color:var(--muted)">−$${fee.toFixed(2)}</b>${kind==='crypto'?`　資金費 <b style="color:var(--muted)">${fund>=0?'−':'+'}$${Math.abs(fund).toFixed(2)}</b>`:''}<br><span style="font-size:14px">淨已實現 <b style="color:${col(net)}">${m(net)}</b></span>`;
+}
+function closeCloseModal(){ document.getElementById('closeModal').style.display='none'; cmState=null; }
+function confirmClose(){
+  if(!cmState)return;
+  const {kind,s,side,h,sym,fullQty,entry}=cmState;
+  const qty=cmState.qty, px=cmState.exit, net=cmState.net;
+  if(!(qty>0)){ alert('平倉數量要大於 0'); return; }
+  if(!(px>0)){ alert('出場價要是正數'); return; }
+  const fr=document.getElementById('cmFee').value; if(fr!=='') localStorage.setItem(kind==='crypto'?'wo_fee_crypto':'wo_fee_stock', fr);
+  const full=qty>=fullQty-1e-9;
   if(kind==='crypto'){
-    h=cryptoHoldings.find(x=>x.s===s&&x.side===side); if(!h)return;
-    live=cryptoQuotes[h.s]||h.e; sym=h.s;
+    if(full){ cryptoHoldings=cryptoHoldings.filter(x=>!(x.s===s&&x.side===side)); }
+    else { const rem=fullQty-qty; if(h.m) h.m=h.m*(rem/fullQty); h.q=rem; }
+    saveCryptoHoldings();
   }else{
-    h=holdings.find(x=>x.s===s); if(!h)return;
-    const q=futu.quotes['US.'+tkr(h.s)]; live=(q&&q.last!=null)?q.last:h.c; sym=tkr(h.s);
+    if(full){ holdings=holdings.filter(x=>x.s!==s); }
+    else { h.q=fullQty-qty; }
+    saveHoldings();
   }
-  const inp=prompt(`平倉 ${sym}${side==='short'?'（空）':side==='long'?'（多）':''}\n出場價（預設＝目前現價，可自行改）：`, live);
-  if(inp==null)return;
-  const px=parseFloat(inp); if(!(px>0)){ alert('出場價要是正數'); return; }
-  let pnl;
-  if(kind==='crypto'){
-    pnl=(side==='short'?(h.e-px):(px-h.e))*h.q;   // USDT 已實現損益（h.q＝幣量）
-    cryptoHoldings=cryptoHoldings.filter(x=>!(x.s===s&&x.side===side)); saveCryptoHoldings();
-  }else{
-    pnl=(px-h.c)*h.q;                              // 美股：(出場−成本)×股數
-    holdings=holdings.filter(x=>x.s!==s); saveHoldings();
-  }
-  addJournal({t:Date.now(),kind,sym,side:side||'',entry:kind==='crypto'?h.e:h.c,exit:px,qty:h.q,pnl});
-  renderPositions();
+  addJournal({t:Date.now(),kind,sym,side:side||'',entry,exit:px,qty,pnl:net});
+  closeCloseModal(); renderPositions();
 }
 function renderJournalCard(list){
   const js=journalStats();
@@ -1703,7 +1782,7 @@ function renderPositions(){
       <div style="display:flex;align-items:center"><div class="pr">${px??'—'}<br>${pnl==null?'':fmtPct(pnl.toFixed(1))}</div>
       <button class="pclose" title="平倉並記錄已實現損益">平</button>
       <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
-    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); closeAndLog('crypto',h.s,h.side); };
+    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); openCloseDialog('crypto',h.s,h.side); };
     d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delCryptoHolding(h.s,h.side); };
     list.appendChild(d);
   });
@@ -1716,7 +1795,7 @@ function renderPositions(){
       <button class="pclose" title="平倉並記錄已實現損益">平</button>
       <button class="pdel" title="移除（不記錄損益）">×</button></div>`;
     d.querySelector('.pc').onclick=()=>selectSymbol(tkr(h.s),'');
-    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); closeAndLog('stock',h.s); };
+    d.querySelector('.pclose').onclick=e=>{ e.stopPropagation(); openCloseDialog('stock',h.s); };
     d.querySelector('.pdel').onclick=e=>{ e.stopPropagation(); delHolding(h.s); };
     list.appendChild(d);
   });
