@@ -688,21 +688,24 @@ async function futuFetch(path){ const r=await fetch(futu.url.replace(/\/$/,'')+p
 async function connectFutu(){
   if(futu.timer){ clearInterval(futu.timer); futu.timer=null; }
   if(!futu.on){ futu.connected=false; setFutuStatus(false); return; }
-  try{ await futuFetch('/health'); await pollFutu(); futu.timer=setInterval(pollFutu,12000); }
-  catch(e){ futu.connected=false; setFutuStatus(false); }
+  try{ await futuFetch('/health'); futu.connected=true; setFutuStatus(true); }
+  catch(e){ futu.connected=false; setFutuStatus(false); return; }
+  pollFutu(); futu.timer=setInterval(pollFutu,12000);
 }
 async function pollFutu(){
+  try{ await futuFetch('/health'); }
+  catch(e){ futu.connected=false; setFutuStatus(false); return; }
+  futu.connected=true; setFutuStatus(true);
   try{
     const codes=lists['us'].map(x=>futuCode(x.s)).filter(Boolean);
     if(current&&isUS(current)){ const c=futuCode(current); if(c&&!codes.includes(c)) codes.push(c); }
     const q=await futuFetch('/quote?codes='+encodeURIComponent(codes.join(',')));
     (q.quotes||[]).forEach(x=>{ futu.quotes[x.code]=x; });
-    try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
-    try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
-    futu.connected=true; setFutuStatus(true);
-    renderPositions(); updateCurQuote();
-    if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
-  }catch(e){ futu.connected=false; setFutuStatus(false); }
+  }catch(e){}
+  try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
+  try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
+  renderPositions(); updateCurQuote();
+  if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
 }
 function updateCurQuote(){
   const el=document.getElementById('curLabel'); if(!el||!current)return;

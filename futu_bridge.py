@@ -74,26 +74,40 @@ def num(v):
         return None
 
 
-def do_quote(codes):
+def _row(r):
+    last = num(r.get("last_price"))
+    prev = num(r.get("prev_close_price"))
+    chg = round((last - prev) / prev * 100, 2) if (last and prev) else None
+    return {
+        "code": r.get("code"), "name": r.get("name"),
+        "last": last, "open": num(r.get("open_price")),
+        "high": num(r.get("high_price")), "low": num(r.get("low_price")),
+        "prev_close": prev, "change_rate": chg,
+        "volume": num(r.get("volume")), "turnover": num(r.get("turnover")),
+        "after": num(r.get("after_price")), "after_rate": num(r.get("after_change_rate")),
+        "pre": num(r.get("pre_price")), "pre_rate": num(r.get("pre_change_rate")),
+        "update_time": r.get("update_time"),
+    }
+
+
+def _snap(cs):
+    """Snapshot a list of codes; on error, split so one bad code doesn't fail all."""
+    if not cs:
+        return []
     with LOCK:
-        ret, data = get_quote().get_market_snapshot(codes)
+        ret, data = get_quote().get_market_snapshot(cs)
     if ret != RET_OK:
-        return {"error": str(data)}
+        if len(cs) == 1:
+            return []  # skip an unsupported/invalid code instead of failing the batch
+        mid = len(cs) // 2
+        return _snap(cs[:mid]) + _snap(cs[mid:])
+    return [_row(r) for _, r in data.iterrows()]
+
+
+def do_quote(codes):
     out = []
-    for _, r in data.iterrows():
-        last = num(r.get("last_price"))
-        prev = num(r.get("prev_close_price"))
-        chg = round((last - prev) / prev * 100, 2) if (last and prev) else None
-        out.append({
-            "code": r.get("code"), "name": r.get("name"),
-            "last": last, "open": num(r.get("open_price")),
-            "high": num(r.get("high_price")), "low": num(r.get("low_price")),
-            "prev_close": prev, "change_rate": chg,
-            "volume": num(r.get("volume")), "turnover": num(r.get("turnover")),
-            "after": num(r.get("after_price")), "after_rate": num(r.get("after_change_rate")),
-            "pre": num(r.get("pre_price")), "pre_rate": num(r.get("pre_change_rate")),
-            "update_time": r.get("update_time"),
-        })
+    for i in range(0, len(codes), 50):
+        out += _snap(codes[i:i + 50])
     return {"quotes": out}
 
 
