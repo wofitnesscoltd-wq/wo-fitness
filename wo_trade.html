@@ -59,23 +59,23 @@ header .spacer{margin-left:auto;}
 .add-bar button{background:var(--orange);border:none;border-radius:7px;color:white;width:32px;font-size:17px;cursor:pointer;flex-shrink:0;}
 .watchlist{flex:1;overflow-y:auto;padding:6px;}
 .wl-group{font-size:11px;color:var(--muted);letter-spacing:.05em;padding:9px 10px 4px;}
-.wl-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;}
+.wl-item{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:8px;cursor:pointer;}
 .wl-item:hover{background:var(--panel-2);}
 .wl-item.active{background:var(--orange-pale);}
 .wl-item.active .wl-sym{color:var(--orange);}
 .wl-main{flex:1;min-width:0;}
-.wl-sym{font-size:13px;font-weight:600;}
-.wl-name{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wl-sym{font-size:14px;font-weight:600;}
+.wl-name{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wl-del{opacity:0;color:var(--muted);font-size:15px;background:none;border:none;cursor:pointer;}
 .wl-item:hover .wl-del{opacity:.6;}.wl-del:hover{opacity:1!important;color:var(--red);}
 .wl-group{display:flex;align-items:center;justify-content:space-between;gap:6px;}
 .wl-sort{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:2px 7px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0;text-transform:none;}
 .wl-sort:hover{color:var(--orange);border-color:var(--orange);}
-.wl-sec{font-size:11px;font-weight:700;color:var(--orange-light);padding:9px 10px 4px;letter-spacing:.03em;border-top:1px solid var(--border);margin-top:2px;display:flex;align-items:center;gap:6px;}
+.wl-sec{font-size:12.5px;font-weight:700;color:var(--orange-light);padding:10px 11px 5px;letter-spacing:.03em;border-top:1px solid var(--border);margin-top:2px;display:flex;align-items:center;gap:6px;}
 .wl-sec:first-of-type{border-top:none;}
-.wl-q{flex-shrink:0;text-align:right;min-width:74px;cursor:pointer;}
-.wl-px{font-size:12.5px;font-weight:600;line-height:1.3;}
-.wl-ch{font-size:11px;line-height:1.3;}
+.wl-q{flex-shrink:0;text-align:right;min-width:78px;cursor:pointer;}
+.wl-px{font-size:13.5px;font-weight:600;line-height:1.35;}
+.wl-ch{font-size:12px;line-height:1.35;}
 .wl-aft{display:block;font-size:10px;color:var(--muted);}
 /* main */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;}
@@ -219,6 +219,8 @@ header .spacer{margin-left:auto;}
     <button id="btnTW" onclick="setRegion('tw')">台股</button>
   </div>
   <span id="futuStatus" class="futu-status off" title="富途即時數據" onclick="openSettings()">⚪ 富途</span>
+  <button class="icon-btn" title="縮小字級" onclick="bumpScale(-0.1)" style="font-size:12px;font-weight:700">A−</button>
+  <button class="icon-btn" title="放大字級" onclick="bumpScale(0.1)" style="font-size:16px;font-weight:700">A＋</button>
   <button class="icon-btn" title="設定" onclick="openSettings()">⚙</button>
 </header>
 
@@ -434,6 +436,10 @@ let busy = false;
 function setBusy(b){ busy=b; ['tempBtn','briefBtn','stockBtn'].forEach(id=>{const e=document.getElementById(id); if(e)e.disabled=b;}); }
 function save(){ localStorage.setItem('wo_lists2',JSON.stringify(lists)); localStorage.setItem('wo_region',region); }
 function tkr(s){ return s&&s.includes(':') ? s.split(':')[1] : (s||''); }
+/* 介面整體縮放：字和間距一起放大，不會變擠 */
+let uiScale = parseFloat(localStorage.getItem('wo_scale')||'1') || 1;
+function applyScale(){ document.documentElement.style.zoom = uiScale; }
+function bumpScale(d){ uiScale = Math.max(0.85, Math.min(1.7, Math.round((uiScale+d)*100)/100)); localStorage.setItem('wo_scale', uiScale); applyScale(); }
 
 /* ====================================================================
    圖表系統：自製圖（用牛牛即時K線，無延遲、指標不限）＋ TradingView 後備
@@ -728,7 +734,16 @@ function getSector(sym){ const t=tkr(sym); try{ const u=JSON.parse(localStorage.
 let wlGroup = localStorage.getItem('wo_wlgroup')!=='0';   // 預設分板塊
 
 /* ---------- 關注清單渲染（依板塊分組，組內＆組間由強到弱） ---------- */
-function wlChg(it){ const q=futu.quotes[futuCode(it.s)]; return q&&q.change_rate!=null?q.change_rate:null; }
+/* 綜合漲幅：用最新可得價（盤後 → 盤前 → 盤中）對昨收算，這樣盤前/盤後/夜盤的強弱也算進去 */
+function effChange(q){
+  if(!q) return null;
+  if(q.prev_close!=null && q.prev_close!==0){
+    const px=(q.after!=null&&q.after!=='')?q.after:(q.pre!=null&&q.pre!=='')?q.pre:q.last;
+    if(px!=null) return (px/q.prev_close-1)*100;
+  }
+  return q.change_rate!=null?q.change_rate:null;
+}
+function wlChg(it){ return effChange(futu.quotes[futuCode(it.s)]); }
 function renderWlRow(it){
   const row=document.createElement('div');
   row.className='wl-item'+(it.s===current?' active':'');
@@ -1338,6 +1353,7 @@ let alertTimer=null;
   if(window.__WO_FUTU_URL__){ localStorage.setItem('wo_futu_url', window.__WO_FUTU_URL__); }
   if(window.__WO_FUTU_TOKEN__){ localStorage.setItem('wo_futu_token', window.__WO_FUTU_TOKEN__); localStorage.setItem('wo_futu_on','1'); }
   loadFutuCfg(); setFutuStatus(false);
+  applyScale();
   initChartTools(); setupResizers();
   renderWatchlist();
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
