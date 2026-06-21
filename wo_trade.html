@@ -60,6 +60,8 @@ header .spacer{margin-left:auto;}
 .tpsl-row input.tp{border-color:rgba(47,185,138,.45);}
 .tpsl-row input.sl{border-color:rgba(224,102,114,.45);}
 .tpsl-row .tpsl-save{background:var(--orange);color:#fff;border:none;border-radius:6px;padding:6px 11px;font-family:inherit;font-size:12px;cursor:pointer;}
+.tpsl-row .cpct{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;padding:5px 9px;cursor:pointer;}
+.tpsl-row .cpct:hover{color:var(--text);border-color:var(--orange);}
 .tpsl-hint{font-size:10.5px;color:var(--muted-2);margin-top:4px;}
 .detail-actions{display:flex;gap:7px;margin-top:10px;}
 .detail-actions button{flex:1;border-radius:7px;padding:7px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--text);}
@@ -1709,18 +1711,19 @@ function delJournal(i){ journal.splice(i,1); saveJournal(); renderPositions(); }
 /* 平倉對話框：可部分/全部、含手續費與資金費；淨已實現記入日誌。幣價/資金費走 Bitget。 */
 let cmState=null;
 function feeDefault(kind){ const v=parseFloat(localStorage.getItem(kind==='crypto'?'wo_fee_crypto':'wo_fee_stock')); return v>0?v:(kind==='crypto'?0.06:0.15); }
-function openCloseDialog(kind,s,side){
+function openCloseDialog(kind,s,side,presetQty){
   let h,live,sym,fullQty;
   if(kind==='crypto'){ h=cryptoHoldings.find(x=>x.s===s&&x.side===side); if(!h)return; live=cryptoQuotes[h.s]||h.e; sym=h.s; fullQty=h.q; }
   else{ h=holdings.find(x=>x.s===s); if(!h)return; const q=futu.quotes['US.'+tkr(h.s)]; live=(q&&q.last!=null)?q.last:h.c; sym=tkr(h.s); fullQty=h.q; }
   cmState={kind,s,side,h,sym,fullQty,entry:kind==='crypto'?h.e:h.c};
   const cr=kind==='crypto';
+  const initQty=(presetQty>0&&presetQty<=fullQty)?presetQty:fullQty;
   document.getElementById('cmTitle').textContent=`平倉 ${sym}${side==='short'?'（空）':side==='long'?'（多）':''}`;
   const fund=cr?cryptoFunding[h.s]:null;
   const fundHint=(cr&&fund!=null)?`　目前費率 ${(fund*100).toFixed(4)}%/結算（${fund>=0?'多單付':'空單付'}）`:'';
   document.getElementById('cmBody').innerHTML=`
     <label>平倉數量（${cr?'幣量':'股數'}）<span class="cm-eq" id="cmQtyEq"></span></label>
-    <input id="cmQty" type="number" step="any" value="${fullQty}" oninput="cmRecalc()">
+    <input id="cmQty" type="number" step="any" value="${initQty}" oninput="cmRecalc()">
     <div class="cm-pcts">${[25,50,75,100].map(p=>`<button type="button" onclick="cmSetPct(${p})">${p}%</button>`).join('')}</div>
     <label>或填平倉${cr?'名目（USDT）':'金額（$）'} → 自動換算數量</label>
     <input id="cmAmt" type="number" step="any" placeholder="例 ${Math.round(fullQty*live)}（＝全部）" oninput="cmSetAmt()">
@@ -1868,12 +1871,14 @@ function renderPositions(){
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
         <div class="tpsl-hint">到價自動以該價平倉並記盈虧（本軟體記錄＋通知，非交易所下單）</div>
         <div class="liqd">名目 $${Math.round(h.q*(px||h.e))} ‧ 幣量 ${(+h.q).toFixed(4)} ‧ 孤立爆倉≈${liqPrice(h.e,h.l,h.side)?liqPrice(h.e,h.l,h.side).toFixed(2):'—'}（全倉看上方緩衝）</div>
+        <div class="tpsl-row">部分平倉<input class="cqty" type="number" step="any" placeholder="幣量·空=全部"><button type="button" class="cpct" data-p="25">25%</button><button type="button" class="cpct" data-p="50">50%</button><button type="button" class="cpct" data-p="75">75%</button></div>
         <div class="detail-actions"><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
       </div>`;
     d.querySelector('.pos-head').onclick=()=>togglePos(id);
     const det=d.querySelector('.pos-detail'); det.onclick=e=>e.stopPropagation();
+    det.querySelectorAll('.cpct').forEach(b=>b.onclick=()=>{ det.querySelector('.cqty').value=+(h.q*(+b.dataset.p)/100).toFixed(8); });
     d.querySelector('.tpsl-save').onclick=()=>setTPSL('crypto',h.s,h.side,det.querySelector('.tp').value,det.querySelector('.sl').value);
-    d.querySelector('.pclose').onclick=()=>openCloseDialog('crypto',h.s,h.side);
+    d.querySelector('.pclose').onclick=()=>openCloseDialog('crypto',h.s,h.side,parseFloat(det.querySelector('.cqty').value)||null);
     d.querySelector('.pdel').onclick=()=>delCryptoHolding(h.s,h.side);
     grid.appendChild(d);
   });
@@ -1890,13 +1895,15 @@ function renderPositions(){
       <div class="pos-detail">
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
         <div class="tpsl-hint">到價自動以該價平倉並記盈虧</div>
+        <div class="tpsl-row">部分平倉<input class="cqty" type="number" step="any" placeholder="股數·空=全部"><button type="button" class="cpct" data-p="25">25%</button><button type="button" class="cpct" data-p="50">50%</button><button type="button" class="cpct" data-p="75">75%</button></div>
         <div class="detail-actions"><button class="pchart">看圖</button><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
       </div>`;
     d.querySelector('.pos-head').onclick=()=>togglePos(id);
     const det=d.querySelector('.pos-detail'); det.onclick=e=>e.stopPropagation();
+    det.querySelectorAll('.cpct').forEach(b=>b.onclick=()=>{ det.querySelector('.cqty').value=+(h.q*(+b.dataset.p)/100).toFixed(4); });
     d.querySelector('.tpsl-save').onclick=()=>setTPSL('stock',h.s,'',det.querySelector('.tp').value,det.querySelector('.sl').value);
     d.querySelector('.pchart').onclick=()=>selectSymbol(tkr(h.s),'');
-    d.querySelector('.pclose').onclick=()=>openCloseDialog('stock',h.s);
+    d.querySelector('.pclose').onclick=()=>openCloseDialog('stock',h.s,'',parseFloat(det.querySelector('.cqty').value)||null);
     d.querySelector('.pdel').onclick=()=>delHolding(h.s);
     grid.appendChild(d);
   });
