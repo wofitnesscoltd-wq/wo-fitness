@@ -72,6 +72,46 @@ def macd(closes, f=12, s=26, sig=9):
     return line, signal, hist
 
 
+def divergence(bars, w=5):
+    """當日短線背離（RSI＋MACD 柱雙確認）：現在這根 vs 最近一個已確認的擺動低/高。
+       回 'bottom'（底背離・價創新低但動能墊高）/ 'top'（頂背離・價創新高但動能走弱）/ None。"""
+    c = [b["close"] for b in bars if b.get("close") is not None]
+    n = len(c)
+    if n < 40:
+        return None
+    r = rsi(c, 14)
+    _, _, mh = macd(c)
+
+    def ph(i):
+        if i < w or i >= n - w:
+            return False
+        return all(c[j] < c[i] for j in range(i - w, i + w + 1) if j != i)
+
+    def pl(i):
+        if i < w or i >= n - w:
+            return False
+        return all(c[j] > c[i] for j in range(i - w, i + w + 1) if j != i)
+
+    lh = ll = None
+    for i in range(n):
+        if r[i] is None:
+            continue
+        if ph(i):
+            lh = i
+        if pl(i):
+            ll = i
+    cur = n - 1
+    if r[cur] is None:
+        return None
+    lo = min(c[max(0, cur - w):cur + 1])
+    hi = max(c[max(0, cur - w):cur + 1])
+    if ll is not None and c[cur] <= lo and c[cur] < c[ll] and r[cur] > r[ll] and mh[cur] > mh[ll]:
+        return "bottom"
+    if lh is not None and c[cur] >= hi and c[cur] > c[lh] and r[cur] < r[lh] and mh[cur] < mh[lh]:
+        return "top"
+    return None
+
+
 def atr(bars, p=14):
     if len(bars) < 2:
         return None
@@ -893,14 +933,25 @@ class AlertEngine:
         except Exception:
             return []
         bars = [b for b in bars if b.get("close") is not None]
-        if kind == "buy":
+        bars15 = None
+        try:
+            bars15 = [b for b in (self.get_kline(code, "15m", 80) or []) if b.get("close") is not None]
+        except Exception:
             bars15 = None
-            try:
-                bars15 = [b for b in (self.get_kline(code, "15m", 80) or []) if b.get("close") is not None]
-            except Exception:
-                bars15 = None
-            return eval_buy(bars, daily_chg, bars15, ctx, weights)
-        return eval_sell(bars, pos, ctx)
+        out = eval_buy(bars, daily_chg, bars15, ctx, weights) if kind == "buy" else eval_sell(bars, pos, ctx)
+        # 當日短線背離（美股＝現貨）：自選底背離＝左側買點；持倉頂背離＝賣點
+        dv = divergence(bars15 or bars)
+        last = bars[-1]["close"] if bars else None
+        if last:
+            if kind == "buy" and dv == "bottom":
+                out = list(out) + [{"side": "long", "type": "底背離(左側買點)", "grade": "A",
+                    "price": round(last, 4), "stop": round(last * 0.97, 4), "target": round(last * 1.05, 4), "rr": None,
+                    "reason": "當日短線 RSI＋MACD 底背離：價創新低但動能墊高—現貨可左側分批佈局；非確認訊號，跌破前低就停損", "feat": {}}]
+            if kind == "sell" and dv == "top":
+                out = list(out) + [{"side": "exit", "type": "頂背離(賣點)", "grade": "A",
+                    "price": round(last, 4), "stop": round(last, 4), "target": round(last, 4), "rr": None,
+                    "reason": "當日短線 RSI＋MACD 頂背離：價創新高但動能走弱—持倉留意減碼/止盈", "feat": {}}]
+        return out
 
     def _emit(self, con, session, code, sigs, min_grade, order, token, chat):
         sym = (code or "").replace("US.", "")

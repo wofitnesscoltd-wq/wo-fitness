@@ -280,16 +280,27 @@ class CryptoScanner:
             except Exception:
                 fr = 0
             fnote = f"；資金費率 {fr*100:.3f}%" + ("（多頭過熱付費，留意反轉）" if fr > 0.0005 else "（空方付費，偏多有利）" if fr < -0.0005 else "")
+            dv = ae.divergence(bars15 or bars)               # 當日短線背離（永續槓桿）
             cooling = (now_ts - self._cooldown.get(sym, 0)) < cooldown_sec
             if sym in watch and not cooling:                  # 自選找買點（同檔冷卻中不重複洗版）
-                for sig in ae.eval_buy(bars, None, bars15, ctx):
+                sigs = list(ae.eval_buy(bars, None, bars15, ctx))
+                if dv == "bottom":
+                    sigs.append({"side": "long", "type": "底背離(永續進場)", "grade": "A",
+                        "price": round(last, 4), "stop": round(last * 0.97, 4), "target": round(last * 1.06, 4), "rr": None,
+                        "reason": "當日短線 RSI＋MACD 底背離：動能墊高—永續槓桿『等右側確認』(站回均線/破前高)再進，別左側裸接，看錯立刻停", "feat": {}})
+                for sig in sigs:
                     sig["reason"] += fnote
                     n = self._emit(con, session, sym, sig, min_grade, order, token, chat)
                     if n:
                         self._cooldown[sym] = now_ts
                     pushed += n
-            if sym in hmap:                                   # 持有的找賣點（技術出場訊號）
-                for sig in ae.eval_sell(bars, None, ctx):
+            if sym in hmap:                                   # 持有的找賣點＋頂背離（賣點）
+                sigs = list(ae.eval_sell(bars, None, ctx))
+                if dv == "top":
+                    sigs.append({"side": "exit", "type": "頂背離(賣點)", "grade": "A",
+                        "price": round(last, 4), "stop": round(last, 4), "target": round(last, 4), "rr": None,
+                        "reason": "當日短線 RSI＋MACD 頂背離：價創新高但動能走弱—持倉留意減碼/止盈/移動停利", "feat": {}})
+                for sig in sigs:
                     sig["reason"] += fnote
                     pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
         # 全倉爆倉預警：帳戶層級，不是單腿孤立價（多空對沖、同帳戶權益共撐，單腿不獨立爆倉）
