@@ -140,6 +140,15 @@ header .spacer{margin-left:auto;}
 .tag.down{background:rgba(234,57,67,.15);color:var(--red);}
 .tag.mid{background:rgba(138,147,163,.15);color:var(--muted);}
 .news-empty{color:var(--muted);font-size:12.5px;text-align:center;padding:30px 14px;line-height:1.8;}
+.alert-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;border-left:3px solid var(--border);}
+.alert-item.long{border-left-color:var(--green);}
+.alert-item.exit{border-left-color:var(--red);}
+.alert-item .ah{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin-bottom:4px;}
+.alert-item .grade{font-size:11px;font-weight:800;padding:1px 6px;border-radius:5px;background:var(--orange);color:#fff;}
+.alert-item .grade.B{background:var(--blue);}.alert-item .grade.C{background:var(--muted);}
+.alert-item .ameta{font-size:11.5px;color:var(--muted);line-height:1.6;}
+.alert-item .ast{font-size:11px;font-weight:700;margin-left:auto;}
+.ast.hit{color:var(--green);}.ast.miss{color:var(--red);}.ast.open{color:var(--muted);}
 /* modal */
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200;}
 .modal-bg.show{display:flex;}
@@ -237,6 +246,7 @@ header .spacer{margin-left:auto;}
         <div class="news-bar">
           <div class="tab-row">
             <div class="tab active" id="tabNews" onclick="switchTab('news')">⚡ 新聞</div>
+            <div class="tab" id="tabAlert" onclick="switchTab('alert')">🚨 警示</div>
             <div class="tab" id="tabPos" onclick="switchTab('pos')">💼 持股</div>
           </div>
           <div style="flex:1"></div>
@@ -244,6 +254,9 @@ header .spacer{margin-left:auto;}
         </div>
         <div class="news-list" id="newsList">
           <div class="news-empty">按「更新」抓取目前市場與你關注股的最新即時新聞，AI 會自動標注利多 / 利空。</div>
+        </div>
+        <div class="news-list" id="alertList" style="display:none">
+          <div class="news-empty">警示引擎（買賣點自動掃描）需在本機跑 <b>futu_bridge.py --alerts</b>。<br>開盤期間它會掃自選清單找買點、掃持股找賣點，A/B/C 評分＋佐證，並推 Telegram。這裡顯示最近的訊號與追蹤結果。</div>
         </div>
         <div class="pos-acct" id="posAcct" style="display:none"></div>
         <div class="pos-list" id="posList" style="display:none">
@@ -946,7 +959,9 @@ async function pollFutu(){
   }catch(e){}
   try{ const p=await futuFetch('/positions'); if(p.positions) futu.positions=p.positions; }catch(e){}
   try{ const a=await futuFetch('/account'); if(a.account) futu.account=a.account; }catch(e){}
+  try{ const wc=lists['us'].map(x=>futuCode(x.s)).filter(Boolean); if(wc.length) futuFetch('/setwatch?codes='+encodeURIComponent(wc.join(','))); }catch(e){}
   renderPositions(); updateCurQuote(); maybeSwitchChart();
+  if(futu.tab==='alert') renderAlerts();
   if(wlSort!=='none') renderWatchlist(); else updateWatchlistQuotes();
 }
 function updateCurQuote(){
@@ -970,12 +985,44 @@ function renderPositions(){
 function switchTab(t){
   futu.tab=t;
   document.getElementById('tabNews').classList.toggle('active',t==='news');
+  document.getElementById('tabAlert').classList.toggle('active',t==='alert');
   document.getElementById('tabPos').classList.toggle('active',t==='pos');
   document.getElementById('newsList').style.display=t==='news'?'flex':'none';
+  document.getElementById('alertList').style.display=t==='alert'?'flex':'none';
   document.getElementById('posList').style.display=t==='pos'?'flex':'none';
   document.getElementById('posAcct').style.display=(t==='pos'&&futu.account)?'flex':'none';
   if(t==='pos'){ renderPositions(); if(futu.on) pollFutu(); }
+  if(t==='alert') renderAlerts();
 }
+/* ---------- 警示引擎（讀 bridge /alerts） ---------- */
+async function renderAlerts(){
+  const list=document.getElementById('alertList'); if(!list)return;
+  if(!futu.connected){ list.innerHTML='<div class="news-empty">先連上牛牛橋接（⚙ 設定）。警示引擎要用 <b>python futu_bridge.py --alerts</b> 啟動。</div>'; return; }
+  let data;
+  try{ data=await futuFetch('/alerts?num=60'); }catch(e){ list.innerHTML='<div class="news-empty">⚠️ 讀取警示失敗：'+e.message+'</div>'; return; }
+  if(data.engine!=='on'){ list.innerHTML='<div class="news-empty">警示引擎未啟動。重開橋接時加參數：<br><b>python futu_bridge.py --alerts</b><br>（要推 Telegram 再加 <b>--telegram-token</b> 與 <b>--telegram-chat</b>）</div>'; return; }
+  const st=data.status||{}; const al=data.alerts||[];
+  const head=`<div style="font-size:11px;color:var(--muted);padding:2px 4px 6px">引擎狀態：${st.phase||'—'}　本輪掃 ${st.scanned??'—'} 檔　推播 ${st.pushed??0}　${st.ts||''}</div>`;
+  if(!al.length){ list.innerHTML=head+'<div class="news-empty">目前尚無訊號（非開盤時段或還沒掃到觸發）。開盤後會自動出現。</div>'; return; }
+  list.innerHTML=head;
+  al.forEach(a=>{
+    const sym=(a.symbol||'').replace('US.','');
+    const sideCls=a.side==='long'?'long':'exit';
+    const sideTxt=a.side==='long'?'🟢 買':'🔴 賣';
+    const stt=(a.status||'open');
+    const sttTxt=stt==='hit'?'✓ 命中':stt==='miss'?'✗ 停損':'追蹤中';
+    const d=document.createElement('div'); d.className='alert-item '+sideCls;
+    d.innerHTML=`<div class="ah">${sideTxt} ${sym} <span class="grade ${a.grade}">${a.grade}</span>
+        <span class="ast ${stt}">${sttTxt}</span></div>
+      <div class="ameta">${(a.type||'').replace(/</g,'&lt;')}<br>
+        現價 ${a.price}　停損 ${a.stop}　目標 ${a.target}　R:R ${a.rr??'—'}<br>
+        <span style="color:var(--muted)">${(a.reason||'').replace(/</g,'&lt;')}</span><br>
+        <span style="font-size:10.5px;color:var(--muted)">${a.ts||''}　MFE ${a.mfe??'—'} / MAE ${a.mae??'—'}</span></div>`;
+    d.onclick=()=>selectSymbol(sym, '');
+    list.appendChild(d);
+  });
+}
+let alertTimer=null;
 
 /* ---------- 啟動 ---------- */
 (function init(){

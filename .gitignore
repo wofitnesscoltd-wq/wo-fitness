@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .futu_bridge_token
+wo_alerts.db
+wo_watch.json
+.alert_config.json
