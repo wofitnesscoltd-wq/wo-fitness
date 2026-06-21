@@ -202,7 +202,8 @@ def do_account():
 def _ktype(name):
     """Map our short interval codes to Futu KLType, defaulting to daily."""
     table = {"1m": "K_1M", "3m": "K_3M", "5m": "K_5M", "15m": "K_15M",
-             "30m": "K_30M", "60m": "K_60M", "day": "K_DAY", "week": "K_WEEK"}
+             "30m": "K_30M", "60m": "K_60M", "day": "K_DAY", "week": "K_WEEK",
+             "month": "K_MON", "quarter": "K_QUARTER", "year": "K_YEAR"}
     return getattr(KLType, table.get(name, "K_DAY"), KLType.K_DAY)
 
 
