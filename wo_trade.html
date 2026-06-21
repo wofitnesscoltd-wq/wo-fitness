@@ -373,6 +373,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
           <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
+          <button class="btn-primary" id="btBtn" onclick="backtestCurrent()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA">📊 回測</button>
           <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
         </div>
         <div class="funnel" id="funnel">
@@ -777,6 +778,87 @@ function chartSignals(bars,times){
   return out;
 }
 
+/* ====== 網頁內回測（用牛牛真股票 / 幣安加密的歷史K線，當場驗證進出場訊號）======
+   訊號邏輯與 chartSignals／backtest_signals.py 逐條一致、無未來函數。 */
+function backtestTrades(bars){
+  const c=bars.map(b=>b.close),o=bars.map(b=>b.open),n=c.length,trades=[];
+  if(n<60) return trades;
+  const e20=emaArr(c,20),e50=emaArr(c,50),rs=rsiArr(c,14),mk=macdArr(c),bb=bollArr(c,20,2);
+  let state='flat',since=-99,entry=null;
+  for(let i=55;i<n;i++){
+    const slope=(e50[i]-e50[i-10])/(c[i]||1);
+    const up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
+    const nearE20=Math.abs(c[i]/e20[i]-1)<=0.02;
+    const tagLow=bb.low[i]!=null&&bars[i].low<=bb.low[i], tagUp=bb.up[i]!=null&&bars[i].high>=bb.up[i];
+    const rsiUp=rs[i]!=null&&rs[i-1]!=null&&rs[i]>rs[i-1]&&rs[i-1]<50, rsiDn=rs[i]!=null&&rs[i-1]!=null&&rs[i]<rs[i-1]&&rs[i-1]>50;
+    const histUp=mk.hist[i]>mk.hist[i-1]&&mk.hist[i-1]<=mk.hist[i-2], histDn=mk.hist[i]<mk.hist[i-1]&&mk.hist[i-1]>=mk.hist[i-2];
+    const bull=c[i]>o[i]&&c[i]>e20[i], bear=c[i]<o[i]&&c[i]<e20[i];
+    const ls=(up?1:0)+((nearE20||tagLow)?1:0)+((rsiUp||histUp)?1:0)+(bull?1:0);
+    const ss=(dn?1:0)+((nearE20||tagUp)?1:0)+((rsiDn||histDn)?1:0)+(bear?1:0);
+    const macdDead=mk.macd[i]<mk.signal[i]&&mk.macd[i-1]>=mk.signal[i-1], macdGold=mk.macd[i]>mk.signal[i]&&mk.macd[i-1]<=mk.signal[i-1];
+    const held=i-since;
+    if(state==='flat'){
+      if(up&&ls>=3&&held>=3){state='long';since=i;entry={i,px:c[i]};}
+      else if(dn&&ss>=3&&held>=3){state='short';since=i;entry={i,px:c[i]};}
+    } else if(state==='long'){
+      if((macdDead||c[i]<e20[i])&&held>=2){trades.push({dir:'long',i_in:entry.i,i_out:i,px_in:entry.px,px_out:c[i]});state='flat';since=i;}
+    } else if(state==='short'){
+      if((macdGold||c[i]>e20[i])&&held>=2){trades.push({dir:'short',i_in:entry.i,i_out:i,px_in:entry.px,px_out:c[i]});state='flat';since=i;}
+    }
+  }
+  return trades;
+}
+function backtestStats(bars,feePct){
+  const fee=feePct/100, tr=backtestTrades(bars);
+  if(!tr.length) return {trades:0,bars:bars.length};
+  const rets=tr.map(t=>{ const g=t.dir==='long'?t.px_out/t.px_in-1:t.px_in/t.px_out-1; return g-2*fee; });
+  const wins=rets.filter(r=>r>0), losses=rets.filter(r=>r<=0);
+  let eq=1,peak=1,mdd=0; for(const r of rets){eq*=(1+r);peak=Math.max(peak,eq);mdd=Math.min(mdd,eq/peak-1);}
+  const sumW=wins.reduce((a,b)=>a+b,0), sumL=losses.reduce((a,b)=>a+b,0);
+  const avgL=losses.length?sumL/losses.length:0, mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+  const longs=tr.filter(t=>t.dir==='long').length;
+  return {trades:tr.length,bars:bars.length,win:wins.length/tr.length,wins:wins.length,losses:losses.length,
+    avgW:wins.length?sumW/wins.length:0,avgL,expR:avgL?mean/Math.abs(avgL):0,
+    pf:(losses.length&&sumL!==0)?sumW/Math.abs(sumL):Infinity,ret:eq-1,
+    bh:bars[bars.length-1].close/bars[0].close-1,mdd,longs,shorts:tr.length-longs,
+    small:bars.length<250||tr.length<25};
+}
+async function fetchBacktestBars(sym){
+  const cs=cryptoChartSym(sym);
+  if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); return (r.kline||[]).filter(b=>b.close!=null); }
+  const code=futuCode(sym); if(!code) return [];
+  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+}
+async function backtestCurrent(){
+  if(busy) return;
+  const sym=current; if(!sym){ addBubble('請先在左邊清單點一檔、或上方加入個股，再按回測。','ai'); return; }
+  if(!futu.connected){ addBubble('回測要連牛牛橋接（用真實歷史K線）。先確認橋接有開、右上角是綠燈。','ai'); return; }
+  const name=tkr(sym), crypto=!!cryptoChartSym(sym);
+  const feePct=crypto?(parseFloat(localStorage.getItem('wo_fee_crypto'))||0.04):(parseFloat(localStorage.getItem('wo_fee_stock'))||0.15);
+  addBubble('📊 回測 <b>'+name+'</b>（日線，用真實歷史K線跑進出場訊號）','user');
+  const tp=addBubble('跑回測中…抓 K 線、模擬每一筆進出場…','ai');
+  try{
+    const bars=await fetchBacktestBars(sym);
+    if(bars.length<60){ tp.innerHTML='抓不到足夠的日線（這檔牛牛沒給歷史，或代號不對）。bars='+bars.length; return; }
+    const s=backtestStats(bars,feePct);
+    if(!s.trades){ tp.innerHTML='這段期間沒有任何訊號（K棒='+s.bars+'，可能全程橫盤）。'; return; }
+    const pct=v=>(v>=0?'+':'')+(v*100).toFixed(1)+'%', R=v=>(v>=0?'+':'')+v.toFixed(2)+'R';
+    const pf=s.pf===Infinity?'∞':s.pf.toFixed(2);
+    const edge = s.expR>0.15&&s.pf>1.3 ? '<span style="color:var(--green)">✅ 有 edge（順勢型）</span>'
+               : s.expR>0 ? '<span style="color:var(--orange-light)">🟡 邊際正期望值</span>'
+               : '<span style="color:var(--red)">❌ 這段沒 edge</span>';
+    let html='<div style="line-height:1.7">'
+      +'<b>📊 '+name+(crypto?' · 加密日線':' · 美股日線')+'</b>　K棒 '+s.bars+'　交易 '+s.trades+' 筆　手續費 '+feePct+'%/邊<br>'
+      +'<b>期望值 '+R(s.expR)+'/筆</b>　獲利因子 <b>'+pf+'</b>　'+edge+'<br>'
+      +'勝率 <b>'+(s.win*100).toFixed(0)+'%</b>（'+s.wins+'勝/'+s.losses+'敗）　平均賺 '+pct(s.avgW)+' · 平均賠 '+pct(s.avgL)+'<br>'
+      +'策略總報酬 <b>'+pct(s.ret)+'</b>（複利）　Buy&amp;Hold '+pct(s.bh)+'　最大回撤 <b style="color:var(--red)">'+pct(s.mdd)+'</b><br>'
+      +'多單 '+s.longs+' 筆 / 空單 '+s.shorts+' 筆';
+    if(s.small) html+='<br><span style="color:var(--orange-light)">⚠️ 樣本偏小（K棒<250 或 交易<25 筆），數字參考就好，別當鐵證。</span>';
+    html+='<br><span style="color:var(--muted)">※ 同一套圖上 🎯進出場 的訊號，無未來函數。順勢策略：勝率低但靠大波段，橫盤會虧。</span></div>';
+    tp.innerHTML=html;
+    feed().scrollTop=feed().scrollHeight;
+  }catch(e){ tp.innerHTML='回測出錯：'+(e&&e.message||e); }
+}
 function baseChartOpts(extra){
   return Object.assign({
     layout:{background:{color:'#0E1116'},textColor:'#8A93A3',fontFamily:'Noto Sans TC,sans-serif'},
