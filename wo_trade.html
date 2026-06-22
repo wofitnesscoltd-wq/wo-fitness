@@ -863,7 +863,7 @@ function scanThrottle(gap=300){ const now=Date.now(), at=Math.max(now,_scanLast+
 async function fetchBacktestBars(sym, iv){
   iv = iv || selfIv;
   // 日線以上一根K一整天才變一次→快取 45 分鐘(大幅省牛牛額度)；分線變得快→只快取 5 分鐘
-  const ttl = ['day','3day','week','month','year'].includes(iv) ? 2700000 : 300000;
+  const ttl = ['day','3day','week','month','year'].includes(iv) ? 10800000 : 300000;   // 日線快取3小時：盤中一直按雷達也只抓一次牛牛(現價/太誇張用即時報價另算，不受影響)
   const key=sym+'|'+iv, now=Date.now(), hit=_btBars[key];
   if(hit && now-hit.t<ttl) return hit.bars;
   await scanThrottle();
