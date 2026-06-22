@@ -291,7 +291,7 @@ class CryptoScanner:
             fnote = f"；資金費率 {fr*100:.3f}%" + ("（多頭過熱付費，留意反轉）" if fr > 0.0005 else "（空方付費，偏多有利）" if fr < -0.0005 else "")
             dv = ae.divergence(bars15 or bars)               # 當日短線背離（永續槓桿）
             cooling = (now_ts - self._cooldown.get(sym, 0)) < cooldown_sec
-            if sym in watch and not cooling:                  # 自選找買點（同檔冷卻中不重複洗版）
+            if self.cfg.get("signal_alerts", False) and sym in watch and not cooling:   # 自選找買點（預設關閉，--crypto-alerts 開）
                 sigs = list(ae.eval_buy(bars, None, bars15, ctx))
                 if dv == "bottom":
                     sigs.append({"side": "long", "type": "底背離(永續進場)", "grade": "A",
@@ -303,7 +303,7 @@ class CryptoScanner:
                     if n:
                         self._cooldown[sym] = now_ts
                     pushed += n
-            if sym in hmap:                                   # 持有的找賣點＋頂背離（賣點）
+            if self.cfg.get("signal_alerts", False) and sym in hmap:   # 持有的找賣點＋頂背離（預設關閉；改用 App 內出場守護）
                 sigs = list(ae.eval_sell(bars, None, ctx))
                 if dv == "top":
                     sigs.append({"side": "exit", "type": "頂背離(賣點)", "grade": "A",
@@ -312,9 +312,9 @@ class CryptoScanner:
                 for sig in sigs:
                     sig["reason"] += fnote
                     pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
-        # 全倉爆倉預警：帳戶層級，不是單腿孤立價（多空對沖、同帳戶權益共撐，單腿不獨立爆倉）
+        # 全倉爆倉預警：帳戶層級（保命警示，預設保留；--no-crypto-liq 可關）
         avail = load_cmargin()
-        if holds and avail > 0:
+        if holds and avail > 0 and self.cfg.get("liq_alerts", True):
             ac = account_cross(holds, price_of, avail)
             buf = ac["buffer"]
             if buf is not None and buf < self.cfg.get("liq_warn_pct", 15):
