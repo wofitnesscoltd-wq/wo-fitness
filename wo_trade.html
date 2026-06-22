@@ -1306,8 +1306,8 @@ function usSession(){
 function extSpan(q){
   if(!q) return '';
   const s=usSession();
-  if(s==='pre' && q.pre_rate!=null&&q.pre_rate!=='') return `<span class="wl-aft">盤前 ${fmtPct(q.pre_rate)}</span>`;
-  if((s==='after'||s==='closed') && q.after_rate!=null&&q.after_rate!=='') return `<span class="wl-aft">盤後 ${fmtPct(q.after_rate)}</span>`;
+  if(s==='pre' && q.pre_rate!=null&&q.pre_rate!=='') return `<span class="wl-aft">盤前 ${q.pre!=null?q.pre+' ':''}${fmtPct(q.pre_rate)}</span>`;
+  if((s==='after'||s==='closed') && q.after_rate!=null&&q.after_rate!=='') return `<span class="wl-aft">盤後 ${q.after!=null?q.after+' ':''}${fmtPct(q.after_rate)}</span>`;
   return '';
 }
 function wlReg(it){ const q=futu.quotes[futuCode(it.s)]; return q&&q.change_rate!=null?q.change_rate:null; }
@@ -1736,7 +1736,13 @@ async function techSnapshot(tk){
   let vwapStr='';
   if(intr.length>10){ const v=vwapArr(intr).pop(); const ip=intr[intr.length-1].close; if(v) vwapStr=`、盤中VWAP ${v.toFixed(2)}（價在VWAP ${ip>=v?'上方':'下方'}）`; }
   const align=(last>e20&&e20>e60)?'多頭排列(價>EMA20>EMA60)':(last<e20&&e20<e60)?'空頭排列(價<EMA20<EMA60)':'均線糾結/盤整';
-  return `\n・${tk}：現價 ${last}、今開 ${todayOpen}、今量為20日均量 ${(vtoday/v20).toFixed(2)} 倍${vwapStr}；日線 RSI14=${rs?rs.toFixed(0):'—'}、MACD ${ml.toFixed(2)}/訊號 ${msig.toFixed(2)}/柱 ${mh.toFixed(2)}；EMA20=${e20.toFixed(2)}、EMA60=${e60.toFixed(2)}（${align}）；近20日高 ${hi20.toFixed(2)}/低 ${lo20.toFixed(2)}、52週高 ${hi52.toFixed(2)}`;
+  // 盤前/盤後：帶「價位＋漲幅」給 AI，這樣個股分析會把延長時段算進去（用即時報價，不是日K收盤）
+  const q=futu.quotes[code]; let extStr='';
+  if(q){ const sess=usSession();
+    if(sess==='pre' && q.pre_rate!=null&&q.pre_rate!=='') extStr=`；【盤前】現價 ${q.pre??'—'}（${q.pre_rate>=0?'+':''}${q.pre_rate}%，對昨收）`;
+    else if((sess==='after'||sess==='closed') && q.after_rate!=null&&q.after_rate!=='') extStr=`；【盤後】現價 ${q.after??'—'}（${q.after_rate>=0?'+':''}${q.after_rate}%）`;
+  }
+  return `\n・${tk}：現價 ${last}、今開 ${todayOpen}、今量為20日均量 ${(vtoday/v20).toFixed(2)} 倍${vwapStr}${extStr}；日線 RSI14=${rs?rs.toFixed(0):'—'}、MACD ${ml.toFixed(2)}/訊號 ${msig.toFixed(2)}/柱 ${mh.toFixed(2)}；EMA20=${e20.toFixed(2)}、EMA60=${e60.toFixed(2)}（${align}）；近20日高 ${hi20.toFixed(2)}/低 ${lo20.toFixed(2)}、52週高 ${hi52.toFixed(2)}`;
 }
 async function stockAnalysis(){
   if(busy)return;
@@ -1754,7 +1760,7 @@ async function stockAnalysis(){
 請針對以下個股做「個股」分析（不是大盤）：${namesStr}。${snaps?'報價與技術指標已附在上面，你只需用 web 搜尋補「今天日期/星期、最近消息與催化劑」。':'先用 web 搜尋確認今天日期/星期、各股最新報價與最近消息。'}
 最上面標一行【資料截至：日期 週X／美股狀態】。
 ${multi?'每一檔分開、各自用「## 代號 名稱」當標題分段，每檔給：':'輸出（Markdown、粗體、精簡）：'}
-- 現況：價/量位階、均線排列、相對大盤與所屬類股強弱（用上面附的數據）
+- 現況：價/量位階、均線排列、相對大盤與所屬類股強弱（用上面附的數據）；**若數據裡有【盤前】或【盤後】價位與漲幅，務必把延長時段的價與動能納入「進場時機」判斷（例如盤前大漲是追、是等回踩、還是別追），別只看昨收**
 - 催化劑：近期或即將到來的財報、事件、消息(附日期)
 - 短線計畫：進場區、停損、目標、風險報酬比、建議部位(考量我的購買力與持股)、屬當沖/隔日沖/短波段；若美股休市以下一交易日/下週為進場時點並說明觸發條件
 - 風險：會讓你立刻出場的訊號
