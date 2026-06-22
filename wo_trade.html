@@ -376,6 +376,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
           <button class="btn-primary" id="radarBtn" onclick="fishRadar()" style="background:var(--panel-2);border:1px solid #5BC0BE;color:#5BC0BE" title="純技術掃描(不花API)：找剛啟動單邊動能、順大勢、還沒太誇張的卡位標的">🎣 魚身雷達</button>
+          <button class="btn-primary" id="tlightBtn" onclick="tempLight()" style="background:var(--panel-2);border:1px solid #E0A53B;color:#E0A53B" title="純技術秒出(不花API)：大盤趨勢+清單廣度→今天能不能上槓桿紅黃綠燈">🚦 溫度燈</button>
           <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
           <button class="btn-primary" id="btBtn" onclick="backtestCurrent()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA">📊 回測</button>
           <button class="btn-primary" id="btBasketBtn" onclick="backtestBasket()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA" title="把整個關注清單每檔的交易池化算總成績，用當前圖的週期">🧺 一籃子</button>
@@ -867,6 +868,37 @@ function retStats(rets){
     pf:(losses.length&&sumL!==0)?sumW/Math.abs(sumL):Infinity};
 }
 function tradeRets(bars,feePct){ const fee=feePct/100; return backtestTrades(bars).map(t=>{ const g=t.dir==='long'?t.px_out/t.px_in-1:t.px_in/t.px_out-1; return g-2*fee; }); }
+/* 市場溫度紅綠燈：純技術秒出「今天能不能上槓桿」（大盤趨勢 + 清單廣度），不花 API、不取代 AI 市場溫度 */
+async function tempLight(){
+  if(busy) return;
+  if(!futu.connected){ addBubble('溫度燈要連牛牛橋接（用即時K線）。先確認橋接有開、右上角綠燈。','ai'); return; }
+  setBusy(true);
+  addBubble('🚦 溫度燈：量大盤趨勢 + 你清單的廣度 → 今天敢不敢上槓桿','user');
+  const tp=addBubble('量測中…','ai');
+  const idxSym = region==='us' ? 'QQQ' : null;
+  let idx=null;
+  if(idxSym){ try{ const ib=await fetchBacktestBars(idxSym,'day'); if(ib.length>=60){ const c=ib.map(b=>b.close),e20=emaArr(c,20),e50=emaArr(c,50),e100=emaArr(c,100),i=c.length-1; idx={above20:c[i]>e20[i], major:e50[i]>e100[i], slope:(e50[i]-e50[i-10])/(c[i]||1), last:c[i]}; } }catch(e){} }
+  const syms=(lists[region]||[]).map(it=>it.s); let bull=0, n=0;
+  for(const sym of syms){ let b=[]; try{ b=await fetchBacktestBars(sym,'day'); }catch(e){} if(b.length<60) continue; n++;
+    const c=b.map(x=>x.close),e20=emaArr(c,20),e50=emaArr(c,50),e100=emaArr(c,100),i=c.length-1;
+    if(c[i]>e20[i] && e50[i]>e100[i]) bull++; }
+  setBusy(false);
+  const breadth = n? bull/n : 0;
+  const idxUp = idx && idx.above20 && idx.major && idx.slope>0;
+  const idxDn = idx && (!idx.above20 || idx.slope< -0.002);
+  const strong = idx ? idxUp : breadth>=0.60, weak = idx ? idxDn : breadth<0.35;
+  let light, txt, advice, col;
+  if(strong && breadth>=0.55){ light='🟢'; txt='風險偏好 Risk-On'; advice='大盤順、廣度足 → 敢上槓桿、卡單等單邊動能機率高'; col='var(--up)'; }
+  else if(weak || breadth<0.35){ light='🔴'; txt='避險 Risk-Off'; advice='大盤弱或廣度差 → 別上新槓桿單、容易被巴;有單偏防禦或對鎖保險腿'; col='var(--dn)'; }
+  else { light='🟡'; txt='中性·分歧'; advice='訊號不一致 → 減量、只挑最強的卡,別全壓'; col='var(--amber)'; }
+  const idxLine = idx ? `QQQ ${idx.above20?'站上':'跌破'}EMA20 · ${idx.major?'多頭結構':'空頭結構'} · 斜率${idx.slope>=0?'↑':'↓'}` : '（大盤指數未取得）';
+  tp.innerHTML='<div style="line-height:1.7"><b style="font-size:15px;color:'+col+'">'+light+' '+txt+'</b><br>'
+    +'<b>'+advice+'</b><br>'
+    +'大盤：'+idxLine+'<br>'
+    +'清單廣度：<b>'+(breadth*100).toFixed(0)+'%</b> 在順大勢上升（'+bull+'/'+n+' 檔站上EMA20且多頭結構）<br>'
+    +'<span style="color:var(--muted)">※ 純技術快篩：大盤順＋多數股參與＝強單邊動能環境(你的主場);大盤弱＋廣度散＝橫盤洗盤(槓桿墳場)。要深入跨資產(VIX/美元/利率/油金/BTC)就按 🌡️ 市場溫度。</span></div>';
+  feed().scrollTop=feed().scrollHeight;
+}
 /* 魚身雷達：純技術掃關注清單，找「剛啟動單邊動能 + 順大勢 + 還沒太誇張」的卡位標的（不花 API） */
 async function fishRadar(){
   if(busy) return;
