@@ -350,6 +350,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
         <button class="tg" id="tgMACD" data-ind="macd">MACD</button>
         <button class="tg" id="tgSIG" data-ind="sig" title="共振進出場：順勢＋回踩支撐＋動能＋確認，多重共振才標">🎯 進出場</button>
         <button class="tg" id="tgTRAIL" data-ind="trail" title="移動停利(3×ATR Chandelier)：讓利潤奔跑、減少橫盤被巴。關掉＝改用 MACD死叉/破EMA20 出場">🏃 移動停利</button>
+        <button class="tg" id="tgMAJOR" data-ind="major" title="順大勢：EMA50在EMA100之上(多頭結構)才做多、之下才做空，大多頭不逆勢放空、大空頭不逆勢做多。關掉＝可逆勢">🧭 順大勢</button>
         <span class="lbl" id="chartHint"></span>
         <div class="seg src" id="srcSeg">
           <button data-src="self">自製圖·牛牛</button><button data-src="tv">TradingView</button>
@@ -682,7 +683,7 @@ async function fetchSelfBars(sym,iv){
   if(iv==='3day'){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=600&live=1'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
   const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=400&live=1'); return (r.kline||[]).filter(b=>b.close!=null);
 }
-let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:true,trail:true}, JSON.parse(localStorage.getItem('wo_ind')||'{}'));
+let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:true,trail:true,major:true}, JSON.parse(localStorage.getItem('wo_ind')||'{}'));
 let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
 
 let selfNoData = {};   // 記住牛牛抓不到盤中K的標的，別一直重試（避免閃爍）
@@ -757,11 +758,13 @@ function chartSignals(bars,times){
   if(n<60) return out;
   const e20=emaArr(c,20),e50=emaArr(c,50),rs=rsiArr(c,14),mk=macdArr(c),bb=bollArr(c,20,2);
   const useTrail=ind.trail!==false, at=useTrail?atrArr(bars,14):null;
+  const useMajor=ind.major!==false, eL=useMajor?emaArr(c,100):null;
   let state='flat', since=-99, ext=null;
   for(let i=55;i<n;i++){
     // 趨勢過濾：要「均線多/空頭排列 ＋ EMA50 有斜率」才算趨勢，橫盤(糾結/平)一律不給訊號
     const slope=(e50[i]-e50[i-10])/(c[i]||1);
-    const up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
+    let up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
+    if(useMajor&&eL[i]!=null){ up=up&&e50[i]>eL[i]; dn=dn&&e50[i]<eL[i]; }   // 順大勢：EMA50在長EMA之上才多、之下才空
     const nearE20=Math.abs(c[i]/e20[i]-1)<=0.02;
     const tagLow=bb.low[i]!=null&&bars[i].low<=bb.low[i], tagUp=bb.up[i]!=null&&bars[i].high>=bb.up[i];
     const rsiUp=rs[i]!=null&&rs[i-1]!=null&&rs[i]>rs[i-1]&&rs[i-1]<50, rsiDn=rs[i]!=null&&rs[i-1]!=null&&rs[i]<rs[i-1]&&rs[i-1]>50;
@@ -792,10 +795,12 @@ function backtestTrades(bars){
   if(n<60) return trades;
   const e20=emaArr(c,20),e50=emaArr(c,50),rs=rsiArr(c,14),mk=macdArr(c),bb=bollArr(c,20,2);
   const useTrail=ind.trail!==false, at=useTrail?atrArr(bars,14):null;
+  const useMajor=ind.major!==false, eL=useMajor?emaArr(c,100):null;
   let state='flat',since=-99,entry=null,ext=null;
   for(let i=55;i<n;i++){
     const slope=(e50[i]-e50[i-10])/(c[i]||1);
-    const up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
+    let up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
+    if(useMajor&&eL[i]!=null){ up=up&&e50[i]>eL[i]; dn=dn&&e50[i]<eL[i]; }
     const nearE20=Math.abs(c[i]/e20[i]-1)<=0.02;
     const tagLow=bb.low[i]!=null&&bars[i].low<=bb.low[i], tagUp=bb.up[i]!=null&&bars[i].high>=bb.up[i];
     const rsiUp=rs[i]!=null&&rs[i-1]!=null&&rs[i]>rs[i-1]&&rs[i-1]<50, rsiDn=rs[i]!=null&&rs[i-1]!=null&&rs[i]<rs[i-1]&&rs[i-1]>50;
@@ -1023,10 +1028,10 @@ function updateChartToolsUI(sym){
   const eff=effSrc(sym), self=eff==='self';
   document.querySelectorAll('#srcSeg button').forEach(b=>b.classList.toggle('on', b.dataset.src===(chartSrc==='auto'?eff:chartSrc)));
   document.querySelectorAll('#intvSeg button').forEach(b=>b.classList.toggle('on', b.dataset.iv===selfIv));
-  ['ema','boll','vwap','rsi','macd','sig','trail'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.classList.toggle('on', !!ind[k]); });
+  ['ema','boll','vwap','rsi','macd','sig','trail','major'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.classList.toggle('on', !!ind[k]); });
   document.getElementById('chartIntvWrap').style.display = self?'':'none';
   // 指標開關兩種圖都顯示（設一次、套到所有標的）；TV 免費版約上限 2 個
-  ['tgEMA','tgBOLL','tgVWAP','tgRSI','tgMACD','tgSIG','tgTRAIL'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display = ''; });
+  ['tgEMA','tgBOLL','tgVWAP','tgRSI','tgMACD','tgSIG','tgTRAIL','tgMAJOR'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display = ''; });
   document.getElementById('tgEMA').title=document.getElementById('tgVWAP').title=self?'':'TV 免費版最多顯示 2 個指標（依 RSI→MACD→VWAP→EMA 優先序）';
   const hint=document.getElementById('chartHint');
   if(chartSrc!=='tv' && !canSelf(sym)){
@@ -1036,7 +1041,7 @@ function updateChartToolsUI(sym){
 function initChartTools(){
   document.querySelectorAll('#intvSeg button').forEach(b=>{ b.onclick=()=>{ selfIv=b.dataset.iv; localStorage.setItem('wo_chart_iv',selfIv); if(current) delete selfNoData[tkr(current)]; loadChart(current); }; });
   document.querySelectorAll('#srcSeg button').forEach(b=>{ b.onclick=()=>{ chartSrc=b.dataset.src; localStorage.setItem('wo_chart_src',chartSrc); if(b.dataset.src==='self'&&current) delete selfNoData[tkr(current)]; loadChart(current); }; });
-  ['ema','boll','vwap','rsi','macd','sig','trail'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
+  ['ema','boll','vwap','rsi','macd','sig','trail','major'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
 }
 /* ---------- 可拖拉版面（記住大小、圖自動縮放） ---------- */
 function setupResizers(){
