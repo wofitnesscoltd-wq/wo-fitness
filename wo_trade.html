@@ -723,7 +723,7 @@ function renderTVChart(sym){
 function emaArr(vals,p){ const k=2/(p+1); let prev; const out=[]; for(let i=0;i<vals.length;i++){ const v=vals[i]; prev=i===0?v:v*k+prev*(1-k); out.push(prev); } return out; }
 const EMA_COLORS=['#F5874A','#4C8DFF','#16C784','#C792EA','#EAB308'];
 const C_UP='#EA3943', C_DN='#16C784';   // 紅漲綠跌：漲/多/買=紅(C_UP)、跌/空/賣=綠(C_DN)
-const MIN_RANGE_PCT=0.20;   // K棒價格軸「至少」上下囊括這個比例（給K棒上下喘息空間，小波動不會被放到滿版）
+const MIN_RANGE_PCT=0.08;   // K棒價格軸最小上下範圍(~8%)。設小一點＝K棒更有波動感、不被壓扁(短線槓桿要的就是這個);只在超安靜的盤防止過度放大,正常波動就照實際填滿
 function emaPeriods(){ const raw=(localStorage.getItem('wo_ema')||'20,50').split(',').map(x=>parseInt(x.trim(),10)).filter(n=>n>0&&n<=400); return raw.length?raw.slice(0,5):[20,50]; }
 function rsiArr(c,p=14){ const out=new Array(c.length).fill(null); let g=0,l=0; for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],gg=Math.max(d,0),ll=Math.max(-d,0); if(i<=p){ g+=gg; l+=ll; if(i===p){ g/=p; l/=p; out[i]=l===0?100:100-100/(1+g/l);} } else { g=(g*(p-1)+gg)/p; l=(l*(p-1)+ll)/p; out[i]=l===0?100:100-100/(1+g/l);} } return out; }
 function macdArr(c,f=12,s=26,sig=9){ const ef=emaArr(c,f),es=emaArr(c,s),m=c.map((_,i)=>ef[i]-es[i]),si=emaArr(m,sig); return {macd:m,signal:si,hist:m.map((x,i)=>x-si[i])}; }
