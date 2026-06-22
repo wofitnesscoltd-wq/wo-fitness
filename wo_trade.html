@@ -677,15 +677,23 @@ function aggBars(bars,n){ const out=[]; for(let i=0;i<bars.length;i+=n){ const g
 /* 加密永續：把使用者輸入對應到幣安/Bitget 的 USDT 永續代號（BTC/比特幣→BTCUSDT；本來就 *USDT 的直接用） */
 const CRYPTO_ALIAS={BITCOIN:'BTCUSDT',BTC:'BTCUSDT',ETHEREUM:'ETHUSDT',ETH:'ETHUSDT',SOLANA:'SOLUSDT',SOL:'SOLUSDT',BNB:'BNBUSDT',XRP:'XRPUSDT',RIPPLE:'XRPUSDT',DOGE:'DOGEUSDT',DOGECOIN:'DOGEUSDT',ADA:'ADAUSDT',AVAX:'AVAXUSDT',LINK:'LINKUSDT'};
 function cryptoChartSym(sym){ if(!sym)return null; let s=tkr(sym).toUpperCase(); if(CRYPTO_ALIAS[s])return CRYPTO_ALIAS[s]; if(/USD$/.test(s)&&!/USDT$/.test(s))s=s.slice(0,-3)+'USDT'; return /^[A-Z0-9]{2,15}USDT$/.test(s)?s:null; }
+let _selfBarsCache={};   // 圖表K線短快取(12秒)：切指標/重渲不重抓牛牛，省額度、少觸發限流→少掉到TV
 async function fetchSelfBars(sym,iv){
-  const cs=cryptoChartSym(sym);
-  if(cs){   // 加密永續走 /cryptokline（橋接抓幣安/Bitget），這樣自製圖也能畫進出場
-    if(iv==='3day'){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=600'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
-    const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=400'); return (r.kline||[]).filter(b=>b.close!=null);
-  }
-  const code=futuCode(sym);
-  if(iv==='3day'){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=600&live=1'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
-  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=400&live=1'); return (r.kline||[]).filter(b=>b.close!=null);
+  const ckey=tkr(sym)+'|'+iv, now=Date.now(), c=_selfBarsCache[ckey];
+  if(c && now-c.t<12000) return c.bars;
+  const cs=cryptoChartSym(sym); let bars=[];
+  try{
+    if(cs){   // 加密永續走 /cryptokline（橋接抓幣安/Bitget），這樣自製圖也能畫進出場
+      if(iv==='3day'){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=600'); bars=aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
+      else { const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=400'); bars=(r.kline||[]).filter(b=>b.close!=null); }
+    } else {
+      const code=futuCode(sym);
+      if(iv==='3day'){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=600&live=1'); bars=aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
+      else { const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=400&live=1'); bars=(r.kline||[]).filter(b=>b.close!=null); }
+    }
+  }catch(e){ bars=[]; }
+  if(bars.length) _selfBarsCache[ckey]={bars, t:now};   // 只快取成功的
+  return bars;
 }
 let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:true,trail:true,major:true}, JSON.parse(localStorage.getItem('wo_ind')||'{}'));
 let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
@@ -1050,7 +1058,9 @@ function paneResize(host, pane, key, min, max){
 }
 function paneH(key,def){ const v=parseFloat(localStorage.getItem(key)); return v&&v>=50&&v<=400?v:def; }
 
+let _renderTok=0;
 async function renderSelfChart(sym){
+  const myTok=++_renderTok;           // 只讓「最新一次」渲染存活，避免快速切換/同檔重渲產生重複圖層
   destroySelfCharts();
   const host=document.getElementById('chartHost'); host.innerHTML='';
   const loading=document.createElement('div'); loading.className='welcome'; loading.style.margin='auto'; loading.textContent='讀取'+(cryptoChartSym(sym)?'幣安/Bitget ':'牛牛 ')+selfIv+' K 線中…'; host.appendChild(loading);
@@ -1058,7 +1068,15 @@ async function renderSelfChart(sym){
   try{
     bars=await fetchSelfBars(sym, selfIv);
   }catch(e){}
-  if(current!==sym) return;           // 使用者已切走，放棄
+  if(myTok!==_renderTok || current!==sym) return;           // 使用者已切走/有更新的渲染，放棄
+  if(!bars.length){
+    // 一次重試：常常是掃描(雷達/一籃子)把牛牛速率暫時吃滿，等一下再抓一次才不會誤判成「無資料」掉到 TV
+    loading.textContent='牛牛忙線，重試中…';
+    await new Promise(r=>setTimeout(r,900));
+    if(myTok!==_renderTok || current!==sym) return;
+    try{ bars=await fetchSelfBars(sym, selfIv); }catch(e){}
+    if(myTok!==_renderTok || current!==sym) return;
+  }
   if(!bars.length){
     selfNoData[tkr(sym)]=Date.now();      // 記下時間：暫時用 TV，3 分鐘後自動重試（避免閃爍，但不永久卡在 TV）
     renderTVChart(sym); updateChartToolsUI(sym);
@@ -1158,9 +1176,11 @@ function updateSelfData(bars){
 
 async function refreshSelf(){
   if(!selfState.sym || current!==selfState.sym || effSrc(current)!=='self'){ return; }
+  const tok=_renderTok, sym=selfState.sym, iv=selfState.iv;
   try{
-    const bars=await fetchSelfBars(selfState.sym, selfState.iv);
-    if(bars.length){ selfState.bars=bars; updateSelfData(bars); }
+    const bars=await fetchSelfBars(sym, iv);
+    // 抓資料期間若已切走/重渲，別把舊資料寫到新圖
+    if(bars.length && tok===_renderTok && current===sym && selfState.sym===sym){ selfState.bars=bars; updateSelfData(bars); }
   }catch(e){}
 }
 
@@ -1182,14 +1202,20 @@ function updateChartToolsUI(sym){
   ['tgEMA','tgBOLL','tgVWAP','tgRSI','tgMACD','tgSIG','tgTRAIL','tgMAJOR'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display = ''; });
   document.getElementById('tgEMA').title=document.getElementById('tgVWAP').title=self?'':'TV 免費版最多顯示 2 個指標（依 RSI→MACD→VWAP→EMA 優先序）';
   const hint=document.getElementById('chartHint');
-  if(chartSrc!=='tv' && !canSelf(sym)){
-    hint.textContent = !window.LightweightCharts ? '（圖表庫未載入）' : (!futu.connected ? '（未連牛牛→用TV，連上即用即時自製圖）' : '（此標的牛牛無資料→用TV）');
-  } else hint.textContent = self ? '即時·無延遲·你的牛牛數據' : '';
+  if(!self){   // 在 TradingView：我們的進出場箭頭畫不上去，講清楚不是 bug
+    hint.textContent = !window.LightweightCharts ? '（圖表庫未載入）' : (!futu.connected ? '（未連牛牛→用TV，連上即用即時自製圖）' : (chartSrc==='tv' ? '（TradingView 圖：無進出場箭頭，按「自製圖·牛牛」才有）' : '（此標的牛牛暫無資料→用TV；無進出場箭頭，點該檔可重試自製圖）'));
+  } else hint.textContent = '即時·無延遲·你的牛牛數據';
 }
 function initChartTools(){
   document.querySelectorAll('#intvSeg button').forEach(b=>{ b.onclick=()=>{ selfIv=b.dataset.iv; localStorage.setItem('wo_chart_iv',selfIv); if(current) delete selfNoData[tkr(current)]; loadChart(current); }; });
   document.querySelectorAll('#srcSeg button').forEach(b=>{ b.onclick=()=>{ chartSrc=b.dataset.src; localStorage.setItem('wo_chart_src',chartSrc); if(b.dataset.src==='self'&&current) delete selfNoData[tkr(current)]; loadChart(current); }; });
-  ['ema','boll','vwap','rsi','macd','sig','trail','major'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
+  ['ema','boll','vwap','rsi','macd','sig','trail','major'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{
+    ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind));
+    const markerOnly=['sig','trail','major'].includes(k);   // 這三個只是標記，不必重抓K線、重建圖層
+    if(effSrc(current)==='self'){ if(markerOnly && selfState.series&&selfState.series.candle && selfState.bars&&selfState.bars.length){ updateSelfData(selfState.bars); } else renderSelfChart(current); }
+    else renderTVChart(current);
+    updateChartToolsUI(current);
+  }; });
 }
 /* ---------- 可拖拉版面（記住大小、圖自動縮放） ---------- */
 function setupResizers(){
@@ -1438,6 +1464,7 @@ function addToWatch(sym,title){
 }
 function selectSymbol(sym,name){
   current=sym; currentName=name||'';
+  delete selfNoData[tkr(sym)];   // 明確點選＝想看這檔，清掉舊的「無資料」記號，重試自製圖(才有進出場箭頭)
   document.getElementById('curLabel').innerHTML=`${tkr(sym)} <span>${name||''}</span>`;
   loadChart(sym); renderWatchlist(); updateCurQuote();
 }
