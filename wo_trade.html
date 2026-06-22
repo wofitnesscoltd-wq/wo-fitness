@@ -349,6 +349,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
         <button class="tg" id="tgRSI" data-ind="rsi">RSI</button>
         <button class="tg" id="tgMACD" data-ind="macd">MACD</button>
         <button class="tg" id="tgSIG" data-ind="sig" title="共振進出場：順勢＋回踩支撐＋動能＋確認，多重共振才標">🎯 進出場</button>
+        <button class="tg" id="tgTRAIL" data-ind="trail" title="移動停利(3×ATR Chandelier)：讓利潤奔跑、減少橫盤被巴。關掉＝改用 MACD死叉/破EMA20 出場">🏃 移動停利</button>
         <span class="lbl" id="chartHint"></span>
         <div class="seg src" id="srcSeg">
           <button data-src="self">自製圖·牛牛</button><button data-src="tv">TradingView</button>
@@ -681,7 +682,7 @@ async function fetchSelfBars(sym,iv){
   if(iv==='3day'){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=600&live=1'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
   const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=400&live=1'); return (r.kline||[]).filter(b=>b.close!=null);
 }
-let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:true}, JSON.parse(localStorage.getItem('wo_ind')||'{}'));
+let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:true,trail:true}, JSON.parse(localStorage.getItem('wo_ind')||'{}'));
 let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
 
 let selfNoData = {};   // 記住牛牛抓不到盤中K的標的，別一直重試（避免閃爍）
@@ -746,13 +747,17 @@ function rsiDivergence(bars,rsi,times,w=5){
 }
 function barTime(tk,intraday){ if(!tk)return 0; if(!intraday)return tk.slice(0,10); const m=tk.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m?Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5])/1000:Math.floor(Date.parse(tk)/1000); }
 function atrVal(bars,p=14){ if(bars.length<p+1)return 0; let s=0; for(let i=bars.length-p;i<bars.length;i++){ const pc=bars[i-1].close; s+=Math.max(bars[i].high-bars[i].low,Math.abs(bars[i].high-pc),Math.abs(bars[i].low-pc)); } return s/p; }
+/* 逐根 ATR（移動停利用，與 backtest_signals.atr 同公式：TR 的 p 根簡單平均） */
+function atrArr(bars,p=14){ const n=bars.length,out=new Array(n).fill(null),trs=[]; for(let i=1;i<n;i++){ const pc=bars[i-1].close; trs.push(Math.max(bars[i].high-bars[i].low,Math.abs(bars[i].high-pc),Math.abs(bars[i].low-pc))); if(i>=p){ let s=0; for(let j=trs.length-p;j<trs.length;j++)s+=trs[j]; out[i]=s/p; } } return out; }
+const TRAIL_K=3;
 /* 共振進出場(狀態機)：只在「空手」時才進場、「持有」時才平倉，乾淨輪替不洗版。
    四層共振(趨勢EMA50＋位置回踩EMA20/BOLL＋動能RSI/MACD＋確認K站回/破EMA20)至少 3 層才進。 */
 function chartSignals(bars,times){
   const c=bars.map(b=>b.close),o=bars.map(b=>b.open),n=c.length,marks=[],out={marks,latest:null};
   if(n<60) return out;
   const e20=emaArr(c,20),e50=emaArr(c,50),rs=rsiArr(c,14),mk=macdArr(c),bb=bollArr(c,20,2);
-  let state='flat', since=-99;
+  const useTrail=ind.trail!==false, at=useTrail?atrArr(bars,14):null;
+  let state='flat', since=-99, ext=null;
   for(let i=55;i<n;i++){
     // 趨勢過濾：要「均線多/空頭排列 ＋ EMA50 有斜率」才算趨勢，橫盤(糾結/平)一律不給訊號
     const slope=(e50[i]-e50[i-10])/(c[i]||1);
@@ -767,12 +772,14 @@ function chartSignals(bars,times){
     const macdDead=mk.macd[i]<mk.signal[i]&&mk.macd[i-1]>=mk.signal[i-1], macdGold=mk.macd[i]>mk.signal[i]&&mk.macd[i-1]<=mk.signal[i-1];
     const held=i-since;
     if(state==='flat'){
-      if(up && ls>=3 && held>=3){ marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'進場'}); state='long'; since=i; out.latest={i,dir:'long',price:c[i],reasons:lr,score:ls}; }
-      else if(dn && ss>=3 && held>=3){ marks.push({time:times[i],position:'aboveBar',color:'#E06672',shape:'arrowDown',text:'做空'}); state='short'; since=i; out.latest={i,dir:'short',price:c[i],reasons:sr,score:ss}; }
+      if(up && ls>=3 && held>=3){ marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'進場'}); state='long'; since=i; ext=c[i]; out.latest={i,dir:'long',price:c[i],reasons:lr,score:ls}; }
+      else if(dn && ss>=3 && held>=3){ marks.push({time:times[i],position:'aboveBar',color:'#E06672',shape:'arrowDown',text:'做空'}); state='short'; since=i; ext=c[i]; out.latest={i,dir:'short',price:c[i],reasons:sr,score:ss}; }
     } else if(state==='long'){
-      if((macdDead||c[i]<e20[i]) && held>=2){ marks.push({time:times[i],position:'aboveBar',color:'#E0A53B',shape:'circle',text:'平多'}); state='flat'; since=i; }
+      let ex; if(useTrail){ ext=Math.max(ext,c[i]); const a=at[i]||c[i]*0.02; ex=c[i]<ext-TRAIL_K*a && held>=2; } else ex=(macdDead||c[i]<e20[i]) && held>=2;
+      if(ex){ marks.push({time:times[i],position:'aboveBar',color:'#E0A53B',shape:'circle',text:useTrail?'移動停利':'平多'}); state='flat'; since=i; }
     } else if(state==='short'){
-      if((macdGold||c[i]>e20[i]) && held>=2){ marks.push({time:times[i],position:'belowBar',color:'#E0A53B',shape:'circle',text:'平空'}); state='flat'; since=i; }
+      let ex; if(useTrail){ ext=Math.min(ext,c[i]); const a=at[i]||c[i]*0.02; ex=c[i]>ext+TRAIL_K*a && held>=2; } else ex=(macdGold||c[i]>e20[i]) && held>=2;
+      if(ex){ marks.push({time:times[i],position:'belowBar',color:'#E0A53B',shape:'circle',text:useTrail?'移動停利':'平空'}); state='flat'; since=i; }
     }
   }
   return out;
@@ -784,7 +791,8 @@ function backtestTrades(bars){
   const c=bars.map(b=>b.close),o=bars.map(b=>b.open),n=c.length,trades=[];
   if(n<60) return trades;
   const e20=emaArr(c,20),e50=emaArr(c,50),rs=rsiArr(c,14),mk=macdArr(c),bb=bollArr(c,20,2);
-  let state='flat',since=-99,entry=null;
+  const useTrail=ind.trail!==false, at=useTrail?atrArr(bars,14):null;
+  let state='flat',since=-99,entry=null,ext=null;
   for(let i=55;i<n;i++){
     const slope=(e50[i]-e50[i-10])/(c[i]||1);
     const up=c[i]>e50[i]&&e20[i]>e50[i]&&slope>0.002, dn=c[i]<e50[i]&&e20[i]<e50[i]&&slope<-0.002;
@@ -798,12 +806,14 @@ function backtestTrades(bars){
     const macdDead=mk.macd[i]<mk.signal[i]&&mk.macd[i-1]>=mk.signal[i-1], macdGold=mk.macd[i]>mk.signal[i]&&mk.macd[i-1]<=mk.signal[i-1];
     const held=i-since;
     if(state==='flat'){
-      if(up&&ls>=3&&held>=3){state='long';since=i;entry={i,px:c[i]};}
-      else if(dn&&ss>=3&&held>=3){state='short';since=i;entry={i,px:c[i]};}
+      if(up&&ls>=3&&held>=3){state='long';since=i;entry={i,px:c[i]};ext=c[i];}
+      else if(dn&&ss>=3&&held>=3){state='short';since=i;entry={i,px:c[i]};ext=c[i];}
     } else if(state==='long'){
-      if((macdDead||c[i]<e20[i])&&held>=2){trades.push({dir:'long',i_in:entry.i,i_out:i,px_in:entry.px,px_out:c[i]});state='flat';since=i;}
+      let ex; if(useTrail){ext=Math.max(ext,c[i]);const a=at[i]||c[i]*0.02;ex=c[i]<ext-TRAIL_K*a&&held>=2;}else ex=(macdDead||c[i]<e20[i])&&held>=2;
+      if(ex){trades.push({dir:'long',i_in:entry.i,i_out:i,px_in:entry.px,px_out:c[i]});state='flat';since=i;}
     } else if(state==='short'){
-      if((macdGold||c[i]>e20[i])&&held>=2){trades.push({dir:'short',i_in:entry.i,i_out:i,px_in:entry.px,px_out:c[i]});state='flat';since=i;}
+      let ex; if(useTrail){ext=Math.min(ext,c[i]);const a=at[i]||c[i]*0.02;ex=c[i]>ext+TRAIL_K*a&&held>=2;}else ex=(macdGold||c[i]>e20[i])&&held>=2;
+      if(ex){trades.push({dir:'short',i_in:entry.i,i_out:i,px_in:entry.px,px_out:c[i]});state='flat';since=i;}
     }
   }
   return trades;
@@ -847,8 +857,9 @@ async function backtestCurrent(){
     const edge = s.expR>0.15&&s.pf>1.3 ? '<span style="color:var(--green)">✅ 有 edge（順勢型）</span>'
                : s.expR>0 ? '<span style="color:var(--orange-light)">🟡 邊際正期望值</span>'
                : '<span style="color:var(--red)">❌ 這段沒 edge</span>';
+    const exitMode=ind.trail!==false?'🏃移動停利 3×ATR':'MACD/破EMA20';
     let html='<div style="line-height:1.7">'
-      +'<b>📊 '+name+(crypto?' · 加密日線':' · 美股日線')+'</b>　K棒 '+s.bars+'　交易 '+s.trades+' 筆　手續費 '+feePct+'%/邊<br>'
+      +'<b>📊 '+name+(crypto?' · 加密日線':' · 美股日線')+'</b>　K棒 '+s.bars+'　交易 '+s.trades+' 筆　手續費 '+feePct+'%/邊　出場：<b>'+exitMode+'</b><br>'
       +'<b>期望值 '+R(s.expR)+'/筆</b>　獲利因子 <b>'+pf+'</b>　'+edge+'<br>'
       +'勝率 <b>'+(s.win*100).toFixed(0)+'%</b>（'+s.wins+'勝/'+s.losses+'敗）　平均賺 '+pct(s.avgW)+' · 平均賠 '+pct(s.avgL)+'<br>'
       +'策略總報酬 <b>'+pct(s.ret)+'</b>（複利）　Buy&amp;Hold '+pct(s.bh)+'　最大回撤 <b style="color:var(--red)">'+pct(s.mdd)+'</b><br>'
@@ -973,10 +984,16 @@ function updateSelfData(bars){
     try{ const cs=chartSignals(bars,t); marks=marks.concat(cs.marks);
       if(sigEl){
         if(cs.latest && (bars.length-1-cs.latest.i)<=6){
-          const p=cs.latest, a=atrVal(bars)||(p.price*0.01), long=p.dir==='long', entry=p.price;
-          const stop=long?entry-1.5*a:entry+1.5*a, target=long?entry+2.6*a:entry-2.6*a;
-          const rr=Math.abs((target-entry)/(entry-stop)), pp=v=>((v/entry-1)*100).toFixed(1);
-          sigEl.innerHTML=`<b style="color:${long?'var(--green)':'var(--red)'}">${long?'🟢 進場':'🔴 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　停損 <b style="color:var(--red)">${stop.toFixed(2)}</b>(${pp(stop)}%)　目標 <b style="color:var(--green)">${target.toFixed(2)}</b>(${pp(target)}%)　R:R <b>${rr.toFixed(1)}</b><span style="color:var(--muted)">　※等價格確認再動手、槓桿減量</span>`;
+          const p=cs.latest, a=atrVal(bars)||(p.price*0.01), long=p.dir==='long', entry=p.price, useTrail=ind.trail!==false;
+          const pp=v=>((v/entry-1)*100).toFixed(1);
+          if(useTrail){
+            const stop=long?entry-TRAIL_K*a:entry+TRAIL_K*a;
+            sigEl.innerHTML=`<b style="color:${long?'var(--green)':'var(--red)'}">${long?'🟢 進場':'🔴 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　初始停損 <b style="color:var(--red)">${stop.toFixed(2)}</b>(${pp(stop)}%)　<b style="color:#C792EA">🏃移動停利 ${TRAIL_K}×ATR</b> 沿勢推移<span style="color:var(--muted)">　※不設固定目標、讓利潤奔跑；等價格確認再動手、槓桿減量</span>`;
+          } else {
+            const stop=long?entry-1.5*a:entry+1.5*a, target=long?entry+2.6*a:entry-2.6*a;
+            const rr=Math.abs((target-entry)/(entry-stop));
+            sigEl.innerHTML=`<b style="color:${long?'var(--green)':'var(--red)'}">${long?'🟢 進場':'🔴 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　停損 <b style="color:var(--red)">${stop.toFixed(2)}</b>(${pp(stop)}%)　目標 <b style="color:var(--green)">${target.toFixed(2)}</b>(${pp(target)}%)　R:R <b>${rr.toFixed(1)}</b><span style="color:var(--muted)">　※等價格確認再動手、槓桿減量</span>`;
+          }
           sigEl.style.display='block';
         } else { sigEl.style.display='none'; }
       }
@@ -1006,10 +1023,10 @@ function updateChartToolsUI(sym){
   const eff=effSrc(sym), self=eff==='self';
   document.querySelectorAll('#srcSeg button').forEach(b=>b.classList.toggle('on', b.dataset.src===(chartSrc==='auto'?eff:chartSrc)));
   document.querySelectorAll('#intvSeg button').forEach(b=>b.classList.toggle('on', b.dataset.iv===selfIv));
-  ['ema','boll','vwap','rsi','macd','sig'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.classList.toggle('on', !!ind[k]); });
+  ['ema','boll','vwap','rsi','macd','sig','trail'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.classList.toggle('on', !!ind[k]); });
   document.getElementById('chartIntvWrap').style.display = self?'':'none';
   // 指標開關兩種圖都顯示（設一次、套到所有標的）；TV 免費版約上限 2 個
-  ['tgEMA','tgBOLL','tgVWAP','tgRSI','tgMACD','tgSIG'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display = ''; });
+  ['tgEMA','tgBOLL','tgVWAP','tgRSI','tgMACD','tgSIG','tgTRAIL'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display = ''; });
   document.getElementById('tgEMA').title=document.getElementById('tgVWAP').title=self?'':'TV 免費版最多顯示 2 個指標（依 RSI→MACD→VWAP→EMA 優先序）';
   const hint=document.getElementById('chartHint');
   if(chartSrc!=='tv' && !canSelf(sym)){
@@ -1019,7 +1036,7 @@ function updateChartToolsUI(sym){
 function initChartTools(){
   document.querySelectorAll('#intvSeg button').forEach(b=>{ b.onclick=()=>{ selfIv=b.dataset.iv; localStorage.setItem('wo_chart_iv',selfIv); if(current) delete selfNoData[tkr(current)]; loadChart(current); }; });
   document.querySelectorAll('#srcSeg button').forEach(b=>{ b.onclick=()=>{ chartSrc=b.dataset.src; localStorage.setItem('wo_chart_src',chartSrc); if(b.dataset.src==='self'&&current) delete selfNoData[tkr(current)]; loadChart(current); }; });
-  ['ema','boll','vwap','rsi','macd','sig'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
+  ['ema','boll','vwap','rsi','macd','sig','trail'].forEach(k=>{ const b=document.getElementById('tg'+k.toUpperCase()); if(b) b.onclick=()=>{ ind[k]=!ind[k]; localStorage.setItem('wo_ind',JSON.stringify(ind)); if(effSrc(current)==='self') renderSelfChart(current); else renderTVChart(current); updateChartToolsUI(current); }; });
 }
 /* ---------- 可拖拉版面（記住大小、圖自動縮放） ---------- */
 function setupResizers(){

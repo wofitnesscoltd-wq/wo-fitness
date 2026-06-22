@@ -61,8 +61,20 @@ def boll(c, p=20, k=2):
     return up, mid, low
 
 
+# ---------- ATR（移動停利用，因果） ----------
+def atr(bars, p=14):
+    n = len(bars); out = [None] * n; trs = []
+    for i in range(1, n):
+        h, l, pc = bars[i]["high"], bars[i]["low"], bars[i - 1]["close"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+        if i >= p:
+            out[i] = sum(trs[-p:]) / p
+    return out
+
+
 # ---------- 訊號（與 chartSignals 對齊，無未來函數） ----------
-def signals(bars):
+# trail_k>0 → 移動停利(chandelier，讓利潤奔跑)；None/0 → 原本 MACD死叉/破EMA20 出場
+def signals(bars, trail_k=3.0):
     c = [b["close"] for b in bars]; o = [b["open"] for b in bars]; n = len(c)
     trades = []
     if n < 60:
@@ -70,7 +82,8 @@ def signals(bars):
     e20 = ema(c, 20); e50 = ema(c, 50); rs = rsi(c, 14); _, _, hist = macd(c)
     bu, _, bl = boll(c, 20, 2)
     ml, sgl, _ = macd(c)
-    state = "flat"; since = -99; entry = None
+    at = atr(bars, 14) if trail_k else None
+    state = "flat"; since = -99; entry = None; ext = None
     for i in range(55, n):
         slope = (e50[i] - e50[i - 10]) / (c[i] or 1)
         up = c[i] > e50[i] and e20[i] > e50[i] and slope > 0.002
@@ -90,15 +103,25 @@ def signals(bars):
         held = i - since
         if state == "flat":
             if up and ls >= 3 and held >= 3:
-                state = "long"; since = i; entry = (i, c[i])
+                state = "long"; since = i; entry = (i, c[i]); ext = c[i]
             elif dn and ss >= 3 and held >= 3:
-                state = "short"; since = i; entry = (i, c[i])
+                state = "short"; since = i; entry = (i, c[i]); ext = c[i]
         elif state == "long":
-            if (macdDead or c[i] < e20[i]) and held >= 2:
+            if trail_k:
+                ext = max(ext, c[i]); a = at[i] or c[i] * 0.02
+                exit_now = c[i] < ext - trail_k * a and held >= 2
+            else:
+                exit_now = (macdDead or c[i] < e20[i]) and held >= 2
+            if exit_now:
                 trades.append({"dir": "long", "i_in": entry[0], "i_out": i, "px_in": entry[1], "px_out": c[i]})
                 state = "flat"; since = i
         elif state == "short":
-            if (macdGold or c[i] > e20[i]) and held >= 2:
+            if trail_k:
+                ext = min(ext, c[i]); a = at[i] or c[i] * 0.02
+                exit_now = c[i] > ext + trail_k * a and held >= 2
+            else:
+                exit_now = (macdGold or c[i] > e20[i]) and held >= 2
+            if exit_now:
                 trades.append({"dir": "short", "i_in": entry[0], "i_out": i, "px_in": entry[1], "px_out": c[i]})
                 state = "flat"; since = i
     return trades
