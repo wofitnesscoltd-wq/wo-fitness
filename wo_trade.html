@@ -691,7 +691,7 @@ let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:tr
 let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
 
 let selfNoData = {};   // 記住牛牛抓不到盤中K的標的，別一直重試（避免閃爍）
-function canSelf(sym){ if(!(window.LightweightCharts && futu.connected) || selfNoData[tkr(sym)]) return false; return cryptoChartSym(sym) ? true : isUS(sym); }
+function canSelf(sym){ if(!(window.LightweightCharts && futu.connected)) return false; const nd=selfNoData[tkr(sym)]; if(nd && Date.now()-nd<180000) return false; return cryptoChartSym(sym) ? true : isUS(sym); }   // 無資料只記 3 分鐘(可能是掃描把牛牛速率吃滿)，之後自動重試，不必手動刷新
 function effSrc(sym){ return chartSrc==='auto' ? (canSelf(sym)?'self':'tv') : (chartSrc==='self' && !canSelf(sym) ? 'tv' : chartSrc); }
 
 function loadChart(sym){
@@ -845,18 +845,23 @@ function backtestStats(bars,feePct){
     small:bars.length<250||tr.length<25};
 }
 function ivLabel(iv){ return ({'1m':'1分','5m':'5分','15m':'15分','30m':'30分','60m':'60分','3day':'3日','day':'日線','week':'週線','month':'月線','year':'年線'})[iv]||iv; }
-/* 回測抓 K 線：跟著傳入的週期（預設＝你圖上當下的週期），這樣「所見即所測」 */
+/* 回測抓 K 線：跟著傳入的週期（預設＝你圖上當下的週期），這樣「所見即所測」。
+   5 分鐘快取：連續跑 一籃子/雷達/溫度燈 同一檔不重抓，省牛牛歷史K額度、避免把圖也卡到無資料。 */
+let _btBars={};
 async function fetchBacktestBars(sym, iv){
   iv = iv || selfIv;
-  const cs=cryptoChartSym(sym);
-  if(iv==='3day'){
-    if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
-    const code=futuCode(sym); if(!code) return [];
-    const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3);
-  }
-  if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=1000'); return (r.kline||[]).filter(b=>b.close!=null); }
-  const code=futuCode(sym); if(!code) return [];
-  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=1000&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+  const key=sym+'|'+iv, now=Date.now(), hit=_btBars[key];
+  if(hit && now-hit.t<300000) return hit.bars;
+  const cs=cryptoChartSym(sym); let bars=[];
+  try{
+    if(iv==='3day'){
+      if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); bars=aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
+      else{ const code=futuCode(sym); if(code){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); bars=aggBars((r.kline||[]).filter(b=>b.close!=null),3); } }
+    } else if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=1000'); bars=(r.kline||[]).filter(b=>b.close!=null); }
+    else { const code=futuCode(sym); if(code){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=1000&live=0'); bars=(r.kline||[]).filter(b=>b.close!=null); } }
+  }catch(e){ bars=[]; }
+  if(bars.length) _btBars[key]={bars, t:now};   // 只快取成功的；失敗不快取，下次會重試
+  return bars;
 }
 /* 把一串「每筆報酬」算成績效（給池化用） */
 function retStats(rets){
@@ -1041,7 +1046,7 @@ async function renderSelfChart(sym){
   }catch(e){}
   if(current!==sym) return;           // 使用者已切走，放棄
   if(!bars.length){
-    selfNoData[tkr(sym)]=true;            // 記起來：這檔牛牛沒盤中K → 之後直接用 TV，不再重試（停止閃爍）
+    selfNoData[tkr(sym)]=Date.now();      // 記下時間：暫時用 TV，3 分鐘後自動重試（避免閃爍，但不永久卡在 TV）
     renderTVChart(sym); updateChartToolsUI(sym);
     return;
   }
