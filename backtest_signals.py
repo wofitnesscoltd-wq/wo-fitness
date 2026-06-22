@@ -74,7 +74,8 @@ def atr(bars, p=14):
 
 # ---------- 訊號（與 chartSignals 對齊，無未來函數） ----------
 # trail_k>0 → 移動停利(chandelier，讓利潤奔跑)；None/0 → 原本 MACD死叉/破EMA20 出場
-def signals(bars, trail_k=3.0):
+# major_ema>0 → 順大勢過濾(只在長EMA之上做多、之下做空，不逆勢)；0/None → 關閉
+def signals(bars, trail_k=3.0, major_ema=100):
     c = [b["close"] for b in bars]; o = [b["open"] for b in bars]; n = len(c)
     trades = []
     if n < 60:
@@ -83,11 +84,15 @@ def signals(bars, trail_k=3.0):
     bu, _, bl = boll(c, 20, 2)
     ml, sgl, _ = macd(c)
     at = atr(bars, 14) if trail_k else None
+    eL = ema(c, major_ema) if major_ema else None
     state = "flat"; since = -99; entry = None; ext = None
     for i in range(55, n):
         slope = (e50[i] - e50[i - 10]) / (c[i] or 1)
         up = c[i] > e50[i] and e20[i] > e50[i] and slope > 0.002
         dn = c[i] < e50[i] and e20[i] < e50[i] and slope < -0.002
+        if eL is not None:
+            up = up and e50[i] > eL[i]   # 順大勢：EMA50在長EMA之上(多頭結構)才做多
+            dn = dn and e50[i] < eL[i]   # EMA50在長EMA之下(空頭結構)才做空，大多頭不逆勢放空
         nearE20 = abs(c[i] / e20[i] - 1) <= 0.02
         tagLow = bl[i] is not None and bars[i]["low"] <= bl[i]
         tagUp = bu[i] is not None and bars[i]["high"] >= bu[i]
