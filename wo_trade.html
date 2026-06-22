@@ -377,6 +377,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
           <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
           <button class="btn-primary" id="btBtn" onclick="backtestCurrent()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA">📊 回測</button>
+          <button class="btn-primary" id="btBasketBtn" onclick="backtestBasket()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA" title="把整個關注清單每檔的交易池化算總成績，用當前圖的週期">🧺 一籃子</button>
           <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
         </div>
         <div class="funnel" id="funnel">
@@ -720,6 +721,7 @@ function renderTVChart(sym){
 function emaArr(vals,p){ const k=2/(p+1); let prev; const out=[]; for(let i=0;i<vals.length;i++){ const v=vals[i]; prev=i===0?v:v*k+prev*(1-k); out.push(prev); } return out; }
 const EMA_COLORS=['#F5874A','#4C8DFF','#16C784','#C792EA','#EAB308'];
 const C_UP='#EA3943', C_DN='#16C784';   // 紅漲綠跌：漲/多/買=紅(C_UP)、跌/空/賣=綠(C_DN)
+const MIN_RANGE_PCT=0.20;   // K棒價格軸「至少」上下囊括這個比例（給K棒上下喘息空間，小波動不會被放到滿版）
 function emaPeriods(){ const raw=(localStorage.getItem('wo_ema')||'20,50').split(',').map(x=>parseInt(x.trim(),10)).filter(n=>n>0&&n<=400); return raw.length?raw.slice(0,5):[20,50]; }
 function rsiArr(c,p=14){ const out=new Array(c.length).fill(null); let g=0,l=0; for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],gg=Math.max(d,0),ll=Math.max(-d,0); if(i<=p){ g+=gg; l+=ll; if(i===p){ g/=p; l/=p; out[i]=l===0?100:100-100/(1+g/l);} } else { g=(g*(p-1)+gg)/p; l=(l*(p-1)+ll)/p; out[i]=l===0?100:100-100/(1+g/l);} } return out; }
 function macdArr(c,f=12,s=26,sig=9){ const ef=emaArr(c,f),es=emaArr(c,s),m=c.map((_,i)=>ef[i]-es[i]),si=emaArr(m,sig); return {macd:m,signal:si,hist:m.map((x,i)=>x-si[i])}; }
@@ -840,23 +842,82 @@ function backtestStats(bars,feePct){
     bh:bars[bars.length-1].close/bars[0].close-1,mdd,longs,shorts:tr.length-longs,
     small:bars.length<250||tr.length<25};
 }
-async function fetchBacktestBars(sym){
+function ivLabel(iv){ return ({'1m':'1分','5m':'5分','15m':'15分','30m':'30分','60m':'60分','3day':'3日','day':'日線','week':'週線','month':'月線','year':'年線'})[iv]||iv; }
+/* 回測抓 K 線：跟著傳入的週期（預設＝你圖上當下的週期），這樣「所見即所測」 */
+async function fetchBacktestBars(sym, iv){
+  iv = iv || selfIv;
   const cs=cryptoChartSym(sym);
-  if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); return (r.kline||[]).filter(b=>b.close!=null); }
+  if(iv==='3day'){
+    if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
+    const code=futuCode(sym); if(!code) return [];
+    const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3);
+  }
+  if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=1000'); return (r.kline||[]).filter(b=>b.close!=null); }
   const code=futuCode(sym); if(!code) return [];
-  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=1000&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+}
+/* 把一串「每筆報酬」算成績效（給池化用） */
+function retStats(rets){
+  const wins=rets.filter(r=>r>0), losses=rets.filter(r=>r<=0);
+  const sumW=wins.reduce((a,b)=>a+b,0), sumL=losses.reduce((a,b)=>a+b,0);
+  const avgL=losses.length?sumL/losses.length:0, mean=rets.length?rets.reduce((a,b)=>a+b,0)/rets.length:0;
+  return {n:rets.length,wins:wins.length,losses:losses.length,win:rets.length?wins.length/rets.length:0,
+    avgW:wins.length?sumW/wins.length:0,avgL,mean,expR:avgL?mean/Math.abs(avgL):0,
+    pf:(losses.length&&sumL!==0)?sumW/Math.abs(sumL):Infinity};
+}
+function tradeRets(bars,feePct){ const fee=feePct/100; return backtestTrades(bars).map(t=>{ const g=t.dir==='long'?t.px_out/t.px_in-1:t.px_in/t.px_out-1; return g-2*fee; }); }
+/* 一籃子回測：把整個關注清單每檔的交易「池化」起來算總成績，克服單檔樣本太少 */
+async function backtestBasket(){
+  if(busy) return;
+  if(!futu.connected){ addBubble('一籃子回測要連牛牛橋接（用真實歷史K線）。先確認橋接有開、右上角綠燈。','ai'); return; }
+  const syms=(lists[region]||[]).map(it=>it.s);
+  if(!syms.length){ addBubble('關注清單是空的，先加幾檔再回測。','ai'); return; }
+  setBusy(true);
+  const iv=selfIv, lbl=ivLabel(iv);
+  const feeStock=parseFloat(localStorage.getItem('wo_fee_stock'))||0.15, feeCrypto=parseFloat(localStorage.getItem('wo_fee_crypto'))||0.04;
+  addBubble('🧺 一籃子回測 <b>'+(region==='us'?'美股':'台股')+' '+syms.length+' 檔</b>（'+lbl+'，把每檔交易池化算總成績）','user');
+  const tp=addBubble('跑回測中… 0/'+syms.length,'ai');
+  let allRets=[], per=[], tested=0, done=0;
+  for(const sym of syms){
+    done++; try{ tp.textContent='跑回測中… '+done+'/'+syms.length+'（'+tkr(sym)+'）'; }catch(e){}
+    let bars=[]; try{ bars=await fetchBacktestBars(sym, iv); }catch(e){}
+    if(bars.length<60) continue;
+    const rets=tradeRets(bars, cryptoChartSym(sym)?feeCrypto:feeStock);
+    if(!rets.length) continue;
+    tested++; allRets=allRets.concat(rets);
+    const st=retStats(rets); per.push({sym:tkr(sym), n:st.n, win:st.win, expR:st.expR});
+  }
+  setBusy(false);
+  if(!allRets.length){ tp.innerHTML='沒有任何標的跑出足夠交易（'+lbl+'資料太短或全程橫盤）。換個週期或加長歷史再試。'; return; }
+  const a=retStats(allRets);
+  const pct=v=>(v>=0?'+':'')+(v*100).toFixed(1)+'%', R=v=>(v>=0?'+':'')+v.toFixed(2)+'R';
+  const pf=a.pf===Infinity?'∞':a.pf.toFixed(2);
+  const edge = a.expR>0.15&&a.pf>1.3 ? '<span style="color:var(--green)">✅ 整體有 edge</span>'
+             : a.expR>0 ? '<span style="color:var(--orange-light)">🟡 整體邊際正期望值</span>'
+             : '<span style="color:var(--red)">❌ 整體沒 edge</span>';
+  const small=a.n<25;
+  per.sort((x,y)=>y.n-x.n);
+  const rows=per.slice(0,12).map(p=>`${p.sym} <span style="color:var(--muted)">${p.n}筆/${(p.win*100).toFixed(0)}%/${R(p.expR)}</span>`).join('　');
+  let html='<div style="line-height:1.7">'
+    +'<b>🧺 一籃子回測 · '+(region==='us'?'美股':'台股')+lbl+'</b>　測了 <b>'+tested+'/'+syms.length+'</b> 檔　<b>總交易 '+a.n+' 筆</b>（池化）'
+    +(small?'　<span style="color:var(--orange-light)">⚠️樣本仍偏小</span>':'　<span style="color:var(--green)">✅樣本足夠</span>')+'<br>'
+    +'<b>勝率 '+(a.win*100).toFixed(0)+'%</b>（'+a.wins+'勝/'+a.losses+'敗）　<b>期望值 '+R(a.expR)+'/筆</b>　獲利因子 <b>'+pf+'</b>　'+edge+'<br>'
+    +'平均賺 '+pct(a.avgW)+' · 平均賠 '+pct(a.avgL)+' · 每筆期望 <b>'+pct(a.mean)+'</b>　出場：<b>'+(ind.trail!==false?'🏃移動停利':'MACD/破EMA20')+'</b>'+(ind.major!==false?' · 🧭順大勢':'')+'<br>'
+    +'<span style="color:var(--muted);font-size:12px">分檔(筆/勝率/期望R)：'+rows+(per.length>12?' …':'')+'</span>'
+    +'<br><span style="color:var(--muted)">※ 池化＝把各檔交易合併算，這個勝率/期望值才有統計意義（單檔 1~2 筆是噪音）。報酬以「每筆平均」表示，不跨檔複利。</span></div>';
+  tp.innerHTML=html; feed().scrollTop=feed().scrollHeight;
 }
 async function backtestCurrent(){
   if(busy) return;
   const sym=current; if(!sym){ addBubble('請先在左邊清單點一檔、或上方加入個股，再按回測。','ai'); return; }
   if(!futu.connected){ addBubble('回測要連牛牛橋接（用真實歷史K線）。先確認橋接有開、右上角是綠燈。','ai'); return; }
-  const name=tkr(sym), crypto=!!cryptoChartSym(sym);
+  const name=tkr(sym), crypto=!!cryptoChartSym(sym), lbl=ivLabel(selfIv);
   const feePct=crypto?(parseFloat(localStorage.getItem('wo_fee_crypto'))||0.04):(parseFloat(localStorage.getItem('wo_fee_stock'))||0.15);
-  addBubble('📊 回測 <b>'+name+'</b>（日線，用真實歷史K線跑進出場訊號）','user');
+  addBubble('📊 回測 <b>'+name+'</b>（'+lbl+'，用真實歷史K線跑進出場訊號）','user');
   const tp=addBubble('跑回測中…抓 K 線、模擬每一筆進出場…','ai');
   try{
-    const bars=await fetchBacktestBars(sym);
-    if(bars.length<60){ tp.innerHTML='抓不到足夠的日線（這檔牛牛沒給歷史，或代號不對）。bars='+bars.length; return; }
+    const bars=await fetchBacktestBars(sym, selfIv);
+    if(bars.length<60){ tp.innerHTML='抓不到足夠的'+lbl+'K線（這檔牛牛這個週期沒給足歷史，或代號不對）。bars='+bars.length; return; }
     const s=backtestStats(bars,feePct);
     if(!s.trades){ tp.innerHTML='這段期間沒有任何訊號（K棒='+s.bars+'，可能全程橫盤）。'; return; }
     const pct=v=>(v>=0?'+':'')+(v*100).toFixed(1)+'%', R=v=>(v>=0?'+':'')+v.toFixed(2)+'R';
@@ -866,7 +927,7 @@ async function backtestCurrent(){
                : '<span style="color:var(--red)">❌ 這段沒 edge</span>';
     const exitMode=ind.trail!==false?'🏃移動停利 3×ATR':'MACD/破EMA20';
     let html='<div style="line-height:1.7">'
-      +'<b>📊 '+name+(crypto?' · 加密日線':' · 美股日線')+'</b>　K棒 '+s.bars+'　交易 '+s.trades+' 筆　手續費 '+feePct+'%/邊　出場：<b>'+exitMode+'</b><br>'
+      +'<b>📊 '+name+' · '+(crypto?'加密':'美股')+lbl+'</b>　K棒 '+s.bars+'　交易 '+s.trades+' 筆　手續費 '+feePct+'%/邊　出場：<b>'+exitMode+'</b><br>'
       +'<b>期望值 '+R(s.expR)+'/筆</b>　獲利因子 <b>'+pf+'</b>　'+edge+'<br>'
       +'勝率 <b>'+(s.win*100).toFixed(0)+'%</b>（'+s.wins+'勝/'+s.losses+'敗）　平均賺 '+pct(s.avgW)+' · 平均賠 '+pct(s.avgL)+'<br>'
       +'策略總報酬 <b>'+pct(s.ret)+'</b>（複利）　Buy&amp;Hold '+pct(s.bh)+'　最大回撤 <b style="color:var(--red)">'+pct(s.mdd)+'</b><br>'
@@ -926,7 +987,8 @@ async function renderSelfChart(sym){
   // ---- 價格 pane（K棒＋EMA＋VWAP＋量）：主圖自動填滿，指標欄各自可拖 ----
   const pxEl=mkPane(host,'1 1 80px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA'+emaPeriods().join('/'):'')+(ind.boll?'  BOLL20':'')+(ind.vwap&&intraday?'  VWAP':''));
   const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
-  const candle=pc.addCandlestickSeries({upColor:C_UP,downColor:C_DN,borderVisible:false,wickUpColor:C_UP,wickDownColor:C_DN});
+  const candle=pc.addCandlestickSeries({upColor:C_UP,downColor:C_DN,borderVisible:false,wickUpColor:C_UP,wickDownColor:C_DN,
+    autoscaleInfoProvider:orig=>{ const r=orig(); if(!r||!r.priceRange)return r; let lo=r.priceRange.minValue,hi=r.priceRange.maxValue; const mid=(lo+hi)/2,want=mid*MIN_RANGE_PCT; if(hi-lo<want){ const pad=(want-(hi-lo))/2; lo-=pad; hi+=pad; } return {priceRange:{minValue:lo,maxValue:hi},margins:r.margins}; }});
   selfState.series.candle=candle;
   // 強制停損視覺化：停損/進場/目標線 ＋ 前日收盤硬出場線
   try{
