@@ -1281,7 +1281,29 @@ function effChange(q){
 }
 let wlBasis = (localStorage.getItem('wo_wlbasis')==='ext')?'ext':'reg';   // reg盤中 / ext盤前後
 let wlDir = (localStorage.getItem('wo_wldir')==='asc')?'asc':'desc';      // desc強→弱 / asc弱→強
-function wlExt(q){ if(!q)return null; if(q.after_rate!=null&&q.after_rate!=='')return q.after_rate; if(q.pre_rate!=null&&q.pre_rate!=='')return q.pre_rate; return null; }
+function wlExt(q){ if(!q)return null; const s=usSession(); if(s==='pre'&&q.pre_rate!=null&&q.pre_rate!=='')return q.pre_rate; if((s==='after'||s==='closed')&&q.after_rate!=null&&q.after_rate!=='')return q.after_rate; return null; }
+/* 目前美股盤別（美東時間）：pre盤前 / regular盤中 / after盤後 / closed休市夜盤。
+   牛牛的 after_change_rate/pre_change_rate 在「非當前時段」是上一場的舊值，要按時段才顯示，否則會顯示過時數字。 */
+function usSession(){
+  try{
+    const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
+    const g=t=>{const x=p.find(z=>z.type===t);return x?x.value:'';};
+    const wd=g('weekday'); let h=+g('hour'); if(h===24)h=0; const t=h*60+(+g('minute'));
+    if(wd==='Sat'||wd==='Sun') return 'closed';
+    if(t>=240 && t<570) return 'pre';        // 04:00–09:30 ET
+    if(t>=570 && t<960) return 'regular';     // 09:30–16:00 ET
+    if(t>=960 && t<1200) return 'after';      // 16:00–20:00 ET
+    return 'closed';
+  }catch(e){ return 'regular'; }
+}
+/* 依當前時段給「盤前/盤後」那行；盤中或無資料就不顯示（避免顯示上一場的舊值） */
+function extSpan(q){
+  if(!q) return '';
+  const s=usSession();
+  if(s==='pre' && q.pre_rate!=null&&q.pre_rate!=='') return `<span class="wl-aft">盤前 ${fmtPct(q.pre_rate)}</span>`;
+  if((s==='after'||s==='closed') && q.after_rate!=null&&q.after_rate!=='') return `<span class="wl-aft">盤後 ${fmtPct(q.after_rate)}</span>`;
+  return '';
+}
 function wlReg(it){ const q=futu.quotes[futuCode(it.s)]; return q&&q.change_rate!=null?q.change_rate:null; }
 function wlExtOf(it){ return wlExt(futu.quotes[futuCode(it.s)]); }
 function wlChg(it){ return wlBasis==='ext'?wlExtOf(it):wlReg(it); }
@@ -1325,9 +1347,9 @@ function renderWatchlist(){
     const hasQ=list.some(it=>wlChg(it)!=null);
     const names=Object.keys(groups).sort((a,b)=>{ if(hasQ){ const A=avgBasis(a)==null?SINK:avgBasis(a), B=avgBasis(b)==null?SINK:avgBasis(b); return wlDir==='desc'?B-A:A-B; } return (SECTOR_ORDER.indexOf(a)+1||99)-(SECTOR_ORDER.indexOf(b)+1||99); });
     names.forEach(s=>{
-      const ra=avgList(groups[s].map(wlReg)), ea=avgList(groups[s].map(wlExtOf));
+      const ra=avgList(groups[s].map(wlReg)), ea=avgList(groups[s].map(wlExtOf)), extLbl=usSession()==='pre'?'盤前':'盤後';
       const gh=document.createElement('div'); gh.className='wl-sec';
-      gh.innerHTML=`<span>${s} <span style="color:var(--muted);font-weight:400">(${groups[s].length})</span></span> <span style="display:flex;gap:6px;flex-wrap:wrap">${fmtPctLbl(ra,'盤中')}${fmtPctLbl(ea,'盤後')}</span>`;
+      gh.innerHTML=`<span>${s} <span style="color:var(--muted);font-weight:400">(${groups[s].length})</span></span> <span style="display:flex;gap:6px;flex-wrap:wrap">${fmtPctLbl(ra,'盤中')}${fmtPctLbl(ea,extLbl)}</span>`;
       el.appendChild(gh);
       groups[s].slice().sort(key).forEach(it=>el.appendChild(renderWlRow(it)));
     });
@@ -1355,8 +1377,7 @@ function updateWatchlistQuotes(){
       px.textContent=q.last;
       px.style.color=(q.change_rate||0)>=0?'var(--up)':'var(--dn)';
       let h=fmtPct(q.change_rate);
-      if(q.after_rate!=null&&q.after_rate!=='') h+=`<span class="wl-aft">盤後 ${fmtPct(q.after_rate)}</span>`;
-      else if(q.pre_rate!=null&&q.pre_rate!=='') h+=`<span class="wl-aft">盤前 ${fmtPct(q.pre_rate)}</span>`;
+      h+=extSpan(q);
       ch.innerHTML=h;
     } else { px.textContent=''; ch.textContent=''; }
   });
