@@ -1042,11 +1042,11 @@ function paneResize(host, pane, key, min, max){
     e.preventDefault();
     const startY=e.clientY, startH=pane.offsetHeight;
     dv.classList.add('dragging'); ov.classList.add('show'); ov.style.cursor='row-resize';
-    function move(ev){ const h=Math.max(min,Math.min(max,startH-(ev.clientY-startY))); pane.style.flex='0 0 '+h+'px'; localStorage.setItem(key,h); }
+    function move(ev){ const h=Math.max(min,Math.min(max,startH+(ev.clientY-startY))); pane.style.flex='0 1 '+h+'px'; localStorage.setItem(key,h); }
     function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); dv.classList.remove('dragging'); ov.classList.remove('show'); }
     document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
   });
-  dv.addEventListener('dblclick',()=>{ localStorage.removeItem(key); pane.style.flex='0 0 120px'; });
+  dv.addEventListener('dblclick',()=>{ localStorage.removeItem(key); pane.style.flex='0 1 120px'; });
 }
 function paneH(key,def){ const v=parseFloat(localStorage.getItem(key)); return v&&v>=50&&v<=400?v:def; }
 
@@ -1069,7 +1069,7 @@ async function renderSelfChart(sym){
   const intraday=isIntraday(selfIv);
 
   // ---- 價格 pane（K棒＋EMA＋VWAP＋量）：主圖自動填滿，指標欄各自可拖 ----
-  const pxEl=mkPane(host,'1 1 80px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA'+emaPeriods().join('/'):'')+(ind.boll?'  BOLL20':'')+(ind.vwap&&intraday?'  VWAP':''));
+  const pxEl=mkPane(host,'1 0 150px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA'+emaPeriods().join('/'):'')+(ind.boll?'  BOLL20':'')+(ind.vwap&&intraday?'  VWAP':''));   // 1 0 150：K棒永遠保留至少150px、不被指標欄擠到消失
   const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
   const candle=pc.addCandlestickSeries({upColor:C_UP,downColor:C_DN,borderVisible:false,wickUpColor:C_UP,wickDownColor:C_DN,
     autoscaleInfoProvider:orig=>{ const r=orig(); if(!r||!r.priceRange)return r; let lo=r.priceRange.minValue,hi=r.priceRange.maxValue; const mid=(lo+hi)/2,want=mid*MIN_RANGE_PCT; if(hi-lo<want){ const pad=(want-(hi-lo))/2; lo-=pad; hi+=pad; } return {priceRange:{minValue:lo,maxValue:hi},margins:r.margins}; }});
@@ -1093,7 +1093,7 @@ async function renderSelfChart(sym){
 
   // ---- RSI pane ----
   if(ind.rsi){
-    const rEl=mkPane(host,'0 0 '+paneH('wo_pane_rsi',120)+'px','RSI 14');
+    const rEl=mkPane(host,'0 1 '+paneH('wo_pane_rsi',120)+'px','RSI 14');   // 0 1：視窗太矮時指標欄先讓位給K棒
     paneResize(host, rEl, 'wo_pane_rsi', 50, 360);
     const rc=LightweightCharts.createChart(rEl,baseChartOpts({rightPriceScale:{borderColor:'#262C38',scaleMargins:{top:0.1,bottom:0.1}}}));
     const rsiS=rc.addLineSeries({color:'#E8620A',lineWidth:1.5,priceLineVisible:false,lastValueVisible:true});
@@ -1104,7 +1104,7 @@ async function renderSelfChart(sym){
   }
   // ---- MACD pane ----
   if(ind.macd){
-    const mEl=mkPane(host,'0 0 '+paneH('wo_pane_macd',120)+'px','MACD 12/26/9');
+    const mEl=mkPane(host,'0 1 '+paneH('wo_pane_macd',120)+'px','MACD 12/26/9');
     paneResize(host, mEl, 'wo_pane_macd', 50, 360);
     const mc=LightweightCharts.createChart(mEl,baseChartOpts());
     selfState.series.macdHist=mc.addHistogramSeries({priceLineVisible:false,lastValueVisible:false});
