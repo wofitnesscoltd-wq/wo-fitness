@@ -433,6 +433,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <div class="hold-add">
             <input id="hSym" placeholder="代號 NVDA" onkeydown="if(event.key==='Enter')addHolding()">
             <input id="hQty" type="number" placeholder="股數" onkeydown="if(event.key==='Enter')addHolding()">
+            <button type="button" id="hUnit" onclick="toggleQtyUnit()" title="切換填法：保證金USDT ⟷ 幣數量(數量×進場價÷槓桿=保證金)" style="display:none;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--orange-light);padding:0 8px;font-size:10.5px;cursor:pointer;font-family:inherit;white-space:nowrap">保證金</button>
             <input id="hCost" type="number" step="0.01" placeholder="成本" onkeydown="if(event.key==='Enter')addHolding()">
             <input id="hLev" type="number" step="1" placeholder="槓桿" style="display:none" onkeydown="if(event.key==='Enter')addHolding()">
             <select id="hSide" style="display:none;flex:1"><option value="long">多</option><option value="short">空</option></select>
@@ -1930,7 +1931,9 @@ function addHolding(){
   if(!s||!(q>0)||!(c>0)){ return; }
   if(holdType==='crypto'){
     const l=parseFloat(document.getElementById('hLev').value)||1, side=document.getElementById('hSide').value;
-    const margin=q, notional=margin*l, qty=c>0?notional/c:0;   // 加密這格＝保證金 USDT；名目=保證金×槓桿
+    let margin, notional, qty;
+    if(cryptoQtyMode==='qty'){ qty=q; notional=qty*c; margin=l>0?notional/l:notional; }   // 填幣數量：名目=數量×進場價，保證金=名目÷槓桿
+    else { margin=q; notional=margin*l; qty=c>0?notional/c:0; }                            // 填保證金USDT：名目=保證金×槓桿，數量=名目÷進場價
     const isNew=!cryptoHoldings.some(h=>h.s===s&&h.side===side);
     cryptoHoldings = cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); cryptoHoldings.push({s,q:qty,e:c,l,side,m:margin});
     saveCryptoHoldings(); if(isNew) noteEntry();
@@ -1954,6 +1957,14 @@ let cryptoQuotes = {};
 let cryptoFunding = {};
 let holdType = 'stock';
 function toggleHoldForm(){ const f=document.getElementById('holdForm'); const open=f.style.display==='none'; f.style.display=open?'block':'none'; const c=document.getElementById('holdToggleCaret'); if(c)c.textContent=open?'▴':'▾'; }
+let cryptoQtyMode = localStorage.getItem('wo_cqmode')==='qty'?'qty':'margin';   // 加密填法：margin保證金USDT / qty幣數量
+function toggleQtyUnit(){ cryptoQtyMode = cryptoQtyMode==='margin'?'qty':'margin'; localStorage.setItem('wo_cqmode',cryptoQtyMode); applyQtyUnit(); }
+function applyQtyUnit(){
+  const u=document.getElementById('hUnit'), inp=document.getElementById('hQty'); if(!u||!inp) return;
+  if(holdType!=='crypto'){ u.style.display='none'; return; }
+  u.style.display=''; const qm=cryptoQtyMode==='qty';
+  u.textContent=qm?'數量':'保證金'; inp.placeholder=qm?'數量(幣)':'保證金 USDT';
+}
 function setHoldType(t){
   holdType=t;
   document.querySelectorAll('#holdType button').forEach(b=>b.classList.toggle('on',b.dataset.ht===t));
@@ -1963,6 +1974,7 @@ function setHoldType(t){
   document.getElementById('hSym').placeholder=cr?'幣種 BTCUSDT':'代號 NVDA';
   document.getElementById('hQty').placeholder=cr?'保證金 USDT':'股數';
   document.getElementById('hCost').placeholder=cr?'進場均價':'成本';
+  applyQtyUnit();
 }
 function liqPrice(entry,lev,side){ if(!(entry>0)||!(lev>0))return null; const mmr=0.005; return side==='short'? entry*(1+1/lev-mmr) : entry*(1-1/lev+mmr); }
 function saveCryptoHoldings(){ localStorage.setItem('wo_crypto_holdings',JSON.stringify(cryptoHoldings)); pushCryptoHoldings(); }
