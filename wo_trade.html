@@ -12,6 +12,7 @@
   --bg:#0E1116;--panel:#161A21;--panel-2:#1C212B;--border:#252B36;--border-soft:#1E2530;
   --text:#E6E9EF;--muted:#7E8796;--muted-2:#5B6472;
   --green:#2FB98A;--red:#E06672;--blue:#5B8DEF;
+  --up:#E06672;--dn:#2FB98A;   /* 紅漲綠跌：漲/獲利=紅(--up)、跌/虧損=綠(--dn) */
   --amber:#E0A53B;
   --t:200ms cubic-bezier(.4,0,.2,1);
 }
@@ -80,7 +81,7 @@ header .spacer{margin-left:auto;}
 .pos-item .liqd{font-size:10.5px;color:var(--muted);margin-top:3px;}
 #posToast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--orange);color:var(--text);padding:11px 17px;border-radius:10px;font-size:13px;z-index:300;opacity:0;pointer-events:none;transition:opacity .3s;max-width:90vw;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.45);}
 #posToast.show{opacity:1;}
-.up{color:var(--green);}.down{color:var(--red);}
+.up{color:var(--up);}.down{color:var(--dn);}
 .layout{display:flex;height:calc(var(--apph,100vh) - 52px - var(--hudh,40px));}
 /* sidebar */
 .sidebar{width:230px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;}
@@ -192,12 +193,12 @@ header .spacer{margin-left:auto;}
 .news-item .nh{font-size:13px;font-weight:600;line-height:1.5;margin-bottom:5px;}
 .news-item .nn{font-size:12px;color:var(--muted);line-height:1.6;}
 .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;margin-bottom:6px;}
-.tag.up{background:rgba(22,199,132,.15);color:var(--green);}
-.tag.down{background:rgba(234,57,67,.15);color:var(--red);}
+.tag.up{background:rgba(234,57,67,.15);color:var(--up);}
+.tag.down{background:rgba(22,199,132,.15);color:var(--dn);}
 .tag.mid{background:rgba(138,147,163,.15);color:var(--muted);}
 .news-empty{color:var(--muted);font-size:12.5px;text-align:center;padding:30px 14px;line-height:1.8;}
 .alert-item{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;border-left:3px solid var(--border);}
-.alert-item.long{border-left-color:var(--green);}
+.alert-item.long{border-left-color:var(--up);}
 .alert-item.exit{border-left-color:var(--red);}
 .alert-item .ah{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin-bottom:4px;}
 .alert-item .grade{font-size:11px;font-weight:800;padding:1px 6px;border-radius:5px;background:var(--orange);color:#fff;}
@@ -718,6 +719,7 @@ function renderTVChart(sym){
 /* ---- 指標數學 ---- */
 function emaArr(vals,p){ const k=2/(p+1); let prev; const out=[]; for(let i=0;i<vals.length;i++){ const v=vals[i]; prev=i===0?v:v*k+prev*(1-k); out.push(prev); } return out; }
 const EMA_COLORS=['#F5874A','#4C8DFF','#16C784','#C792EA','#EAB308'];
+const C_UP='#EA3943', C_DN='#16C784';   // 紅漲綠跌：漲/多/買=紅(C_UP)、跌/空/賣=綠(C_DN)
 function emaPeriods(){ const raw=(localStorage.getItem('wo_ema')||'20,50').split(',').map(x=>parseInt(x.trim(),10)).filter(n=>n>0&&n<=400); return raw.length?raw.slice(0,5):[20,50]; }
 function rsiArr(c,p=14){ const out=new Array(c.length).fill(null); let g=0,l=0; for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],gg=Math.max(d,0),ll=Math.max(-d,0); if(i<=p){ g+=gg; l+=ll; if(i===p){ g/=p; l/=p; out[i]=l===0?100:100-100/(1+g/l);} } else { g=(g*(p-1)+gg)/p; l=(l*(p-1)+ll)/p; out[i]=l===0?100:100-100/(1+g/l);} } return out; }
 function macdArr(c,f=12,s=26,sig=9){ const ef=emaArr(c,f),es=emaArr(c,s),m=c.map((_,i)=>ef[i]-es[i]),si=emaArr(m,sig); return {macd:m,signal:si,hist:m.map((x,i)=>x-si[i])}; }
@@ -733,16 +735,16 @@ function rsiDivergence(bars,rsi,times,w=5){
   // 走一遍歷史：在每個「已確認的擺動高/低」上，若相對前一個同型擺動點出現 RSI＋MACD 背離 → 標
   let lh=null,ll=null;
   for(let i=0;i<n;i++){ if(rsi[i]==null)continue;
-    if(ph(i)){ if(lh!=null && c[i]>c[lh] && rsi[i]<rsi[lh] && mh[i]<mh[lh]) marks.push({time:times[i],position:'aboveBar',color:'#EA3943',shape:'arrowDown',text:'頂背離'}); lh=i; }
-    if(pl(i)){ if(ll!=null && c[i]<c[ll] && rsi[i]>rsi[ll] && mh[i]>mh[ll]) marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'底背離'}); ll=i; }
+    if(ph(i)){ if(lh!=null && c[i]>c[lh] && rsi[i]<rsi[lh] && mh[i]<mh[lh]) marks.push({time:times[i],position:'aboveBar',color:C_DN,shape:'arrowDown',text:'頂背離'}); lh=i; }
+    if(pl(i)){ if(ll!=null && c[i]<c[ll] && rsi[i]>rsi[ll] && mh[i]>mh[ll]) marks.push({time:times[i],position:'belowBar',color:C_UP,shape:'arrowUp',text:'底背離'}); ll=i; }
   }
   // 即時背離：用「現在這根」跟最近確認的擺動低/高比 RSI＋MACD柱，不必等 5 根確認
   const cur=n-1, lb=Math.max(0,cur-w);
   if(rsi[cur]!=null){
     if(ll!=null && c[cur]<=Math.min(...c.slice(lb,cur+1)) && c[cur]<c[ll] && rsi[cur]>rsi[ll] && mh[cur]>mh[ll])
-      marks.push({time:times[cur],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'底背離'});
+      marks.push({time:times[cur],position:'belowBar',color:C_UP,shape:'arrowUp',text:'底背離'});
     if(lh!=null && c[cur]>=Math.max(...c.slice(lb,cur+1)) && c[cur]>c[lh] && rsi[cur]<rsi[lh] && mh[cur]<mh[lh])
-      marks.push({time:times[cur],position:'aboveBar',color:'#EA3943',shape:'arrowDown',text:'頂背離'});
+      marks.push({time:times[cur],position:'aboveBar',color:C_DN,shape:'arrowDown',text:'頂背離'});
   }
   return marks;
 }
@@ -775,8 +777,8 @@ function chartSignals(bars,times){
     const macdDead=mk.macd[i]<mk.signal[i]&&mk.macd[i-1]>=mk.signal[i-1], macdGold=mk.macd[i]>mk.signal[i]&&mk.macd[i-1]<=mk.signal[i-1];
     const held=i-since;
     if(state==='flat'){
-      if(up && ls>=3 && held>=3){ marks.push({time:times[i],position:'belowBar',color:'#16C784',shape:'arrowUp',text:'進場'}); state='long'; since=i; ext=c[i]; out.latest={i,dir:'long',price:c[i],reasons:lr,score:ls}; }
-      else if(dn && ss>=3 && held>=3){ marks.push({time:times[i],position:'aboveBar',color:'#E06672',shape:'arrowDown',text:'做空'}); state='short'; since=i; ext=c[i]; out.latest={i,dir:'short',price:c[i],reasons:sr,score:ss}; }
+      if(up && ls>=3 && held>=3){ marks.push({time:times[i],position:'belowBar',color:C_UP,shape:'arrowUp',text:'進場'}); state='long'; since=i; ext=c[i]; out.latest={i,dir:'long',price:c[i],reasons:lr,score:ls}; }
+      else if(dn && ss>=3 && held>=3){ marks.push({time:times[i],position:'aboveBar',color:C_DN,shape:'arrowDown',text:'做空'}); state='short'; since=i; ext=c[i]; out.latest={i,dir:'short',price:c[i],reasons:sr,score:ss}; }
     } else if(state==='long'){
       let ex; if(useTrail){ ext=Math.max(ext,c[i]); const a=at[i]||c[i]*0.02; ex=c[i]<ext-TRAIL_K*a && held>=2; } else ex=(macdDead||c[i]<e20[i]) && held>=2;
       if(ex){ marks.push({time:times[i],position:'aboveBar',color:'#E0A53B',shape:'circle',text:useTrail?'移動停利':'平多'}); state='flat'; since=i; }
@@ -924,14 +926,14 @@ async function renderSelfChart(sym){
   // ---- 價格 pane（K棒＋EMA＋VWAP＋量）：主圖自動填滿，指標欄各自可拖 ----
   const pxEl=mkPane(host,'1 1 80px', tkr(sym)+'  '+selfIv+(ind.ema?'  EMA'+emaPeriods().join('/'):'')+(ind.boll?'  BOLL20':'')+(ind.vwap&&intraday?'  VWAP':''));
   const pc=LightweightCharts.createChart(pxEl,baseChartOpts());
-  const candle=pc.addCandlestickSeries({upColor:'#16C784',downColor:'#EA3943',borderVisible:false,wickUpColor:'#16C784',wickDownColor:'#EA3943'});
+  const candle=pc.addCandlestickSeries({upColor:C_UP,downColor:C_DN,borderVisible:false,wickUpColor:C_UP,wickDownColor:C_DN});
   selfState.series.candle=candle;
   // 強制停損視覺化：停損/進場/目標線 ＋ 前日收盤硬出場線
   try{
     const st=(JSON.parse(localStorage.getItem('wo_stops')||'{}'))[tkr(sym)];
-    if(st&&st.stop){ candle.createPriceLine({price:st.stop,color:'#E06672',lineWidth:1,axisLabelVisible:true,title:'停損'});
+    if(st&&st.stop){ candle.createPriceLine({price:st.stop,color:C_DN,lineWidth:1,axisLabelVisible:true,title:'停損'});
       if(st.entry) candle.createPriceLine({price:st.entry,color:'#7E8796',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'進場'});
-      if(st.target) candle.createPriceLine({price:st.target,color:'#2FB98A',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'目標'}); }
+      if(st.target) candle.createPriceLine({price:st.target,color:C_UP,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'目標'}); }
     const days=[...new Set(bars.map(b=>(b.time||'').slice(0,10)))];
     if(days.length>=2){ const pv=bars.filter(b=>(b.time||'').slice(0,10)===days[days.length-2]).slice(-1)[0]; if(pv) candle.createPriceLine({price:pv.close,color:'rgba(224,165,59,.55)',lineWidth:1,lineStyle:3,axisLabelVisible:true,title:'前日收盤'}); }
   }catch(e){}
@@ -977,12 +979,12 @@ function updateSelfData(bars){
   const t=bars.map(b=>barTime(b.time,intraday));
   const S=selfState.series;
   S.candle.setData(bars.map((b,i)=>({time:t[i],open:b.open,high:b.high,low:b.low,close:b.close})));
-  if(S.vol) S.vol.setData(bars.map((b,i)=>({time:t[i],value:b.volume||0,color:b.close>=b.open?'rgba(22,199,132,.35)':'rgba(234,57,67,.35)'})));
+  if(S.vol) S.vol.setData(bars.map((b,i)=>({time:t[i],value:b.volume||0,color:b.close>=b.open?'rgba(234,57,67,.35)':'rgba(22,199,132,.35)'})));
   if(S.emas){ S.emas.forEach(o=>{ const e=emaArr(closes,o.p); o.s.setData(t.map((x,i)=>({time:x,value:e[i]}))); }); }
   if(S.bollU){ const bb=bollArr(closes,20,2); const mp=a=>t.map((x,i)=>a[i]==null?null:({time:x,value:a[i]})).filter(Boolean); S.bollU.setData(mp(bb.up)); S.bollL.setData(mp(bb.low)); S.bollM.setData(mp(bb.mid)); }
   if(S.vwap){ const vw=vwapArr(bars); S.vwap.setData(t.map((x,i)=>({time:x,value:vw[i]}))); }
   if(S.rsi){ const rs=rsiArr(closes,14); S.rsi.setData(t.map((x,i)=>rs[i]==null?null:({time:x,value:rs[i]})).filter(Boolean)); }
-  if(S.macdHist){ const mk=macdArr(closes); S.macdHist.setData(t.map((x,i)=>({time:x,value:mk.hist[i],color:mk.hist[i]>=0?'rgba(22,199,132,.6)':'rgba(234,57,67,.6)'}))); S.macdLine.setData(t.map((x,i)=>({time:x,value:mk.macd[i]}))); S.macdSig.setData(t.map((x,i)=>({time:x,value:mk.signal[i]}))); }
+  if(S.macdHist){ const mk=macdArr(closes); S.macdHist.setData(t.map((x,i)=>({time:x,value:mk.hist[i],color:mk.hist[i]>=0?'rgba(234,57,67,.6)':'rgba(22,199,132,.6)'}))); S.macdLine.setData(t.map((x,i)=>({time:x,value:mk.macd[i]}))); S.macdSig.setData(t.map((x,i)=>({time:x,value:mk.signal[i]}))); }
   // 標記：共振進出場(ind.sig) ＋ 背離(ind.rsi)
   let marks=[]; const sigEl=document.getElementById('sigInfo');
   if(ind.sig){
@@ -993,11 +995,11 @@ function updateSelfData(bars){
           const pp=v=>((v/entry-1)*100).toFixed(1);
           if(useTrail){
             const stop=long?entry-TRAIL_K*a:entry+TRAIL_K*a;
-            sigEl.innerHTML=`<b style="color:${long?'var(--green)':'var(--red)'}">${long?'🟢 進場':'🔴 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　初始停損 <b style="color:var(--red)">${stop.toFixed(2)}</b>(${pp(stop)}%)　<b style="color:#C792EA">🏃移動停利 ${TRAIL_K}×ATR</b> 沿勢推移<span style="color:var(--muted)">　※不設固定目標、讓利潤奔跑；等價格確認再動手、槓桿減量</span>`;
+            sigEl.innerHTML=`<b style="color:${long?'var(--up)':'var(--dn)'}">${long?'🔴 進場':'🟢 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　初始停損 <b style="color:var(--dn)">${stop.toFixed(2)}</b>(${pp(stop)}%)　<b style="color:#C792EA">🏃移動停利 ${TRAIL_K}×ATR</b> 沿勢推移<span style="color:var(--muted)">　※不設固定目標、讓利潤奔跑；等價格確認再動手、槓桿減量</span>`;
           } else {
             const stop=long?entry-1.5*a:entry+1.5*a, target=long?entry+2.6*a:entry-2.6*a;
             const rr=Math.abs((target-entry)/(entry-stop));
-            sigEl.innerHTML=`<b style="color:${long?'var(--green)':'var(--red)'}">${long?'🟢 進場':'🔴 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　停損 <b style="color:var(--red)">${stop.toFixed(2)}</b>(${pp(stop)}%)　目標 <b style="color:var(--green)">${target.toFixed(2)}</b>(${pp(target)}%)　R:R <b>${rr.toFixed(1)}</b><span style="color:var(--muted)">　※等價格確認再動手、槓桿減量</span>`;
+            sigEl.innerHTML=`<b style="color:${long?'var(--up)':'var(--dn)'}">${long?'🔴 進場':'🟢 做空'}</b> 共振 ${p.score}/4（${p.reasons.join('・')}）　進場≈<b>${entry.toFixed(2)}</b>　停損 <b style="color:var(--dn)">${stop.toFixed(2)}</b>(${pp(stop)}%)　目標 <b style="color:var(--up)">${target.toFixed(2)}</b>(${pp(target)}%)　R:R <b>${rr.toFixed(1)}</b><span style="color:var(--muted)">　※等價格確認再動手、槓桿減量</span>`;
           }
           sigEl.style.display='block';
         } else { sigEl.style.display='none'; }
@@ -1225,7 +1227,7 @@ function updateWatchlistQuotes(){
     if(!px||!ch)return;
     if(q&&q.last!=null){
       px.textContent=q.last;
-      px.style.color=(q.change_rate||0)>=0?'var(--green)':'var(--red)';
+      px.style.color=(q.change_rate||0)>=0?'var(--up)':'var(--dn)';
       let h=fmtPct(q.change_rate);
       if(q.after_rate!=null&&q.after_rate!=='') h+=`<span class="wl-aft">盤後 ${fmtPct(q.after_rate)}</span>`;
       else if(q.pre_rate!=null&&q.pre_rate!=='') h+=`<span class="wl-aft">盤前 ${fmtPct(q.pre_rate)}</span>`;
@@ -1959,7 +1961,7 @@ function cmRecalc(){
   const eq=document.getElementById('cmQtyEq');
   if(eq){ const pct=fullQty>0?qty/fullQty*100:0; const mp=h.m?h.m*(fullQty>0?qty/fullQty:0):0;
     eq.textContent=`＝${pct.toFixed(0)}%${kind==='crypto'?`・保證金≈$${Math.round(mp)}・名目≈$${Math.round(qty*px)}`:`・金額≈$${Math.round(qty*px)}`}`; }
-  const col=v=>v>0?'var(--green)':v<0?'var(--red)':'var(--text)';
+  const col=v=>v>0?'var(--up)':v<0?'var(--dn)':'var(--text)';
   const m=v=>(v>=0?'+':'−')+'$'+Math.abs(v).toFixed(2);
   document.getElementById('cmCalc').innerHTML=overridden
     ? `淨已實現（交易所數字）<b style="color:${col(net)};font-size:14px">${m(net)}</b>`
@@ -1989,7 +1991,7 @@ function confirmClose(){
 function renderJournalCard(list){
   const js=journalStats();
   const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
-  const col=v=>v>0?'var(--green)':v<0?'var(--red)':'var(--text)';
+  const col=v=>v>0?'var(--up)':v<0?'var(--dn)':'var(--text)';
   const money=v=>(v>=0?'+':'−')+'$'+Math.abs(Math.round(v)).toLocaleString();
   let detail='';
   if(showJournalDetail){
@@ -2035,7 +2037,7 @@ function renderPositions(){
     const bufCol = sm.buffer==null?'var(--green)':(sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)');
     const bufTxt = sm.buffer==null?'已對沖':sm.buffer.toFixed(1)+'%';
     const head=`<div onclick="toggleCryptoSum()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:12px;gap:6px">
-        <span><b>加密全倉</b> <span style="color:var(--muted)">權益</span> $${Math.round(sm.equity).toLocaleString()} <span style="color:var(--muted)">未實現</span> <b style="color:${sm.upnl>=0?'var(--green)':'var(--red)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b> <span style="color:var(--muted)">緩衝</span> <b style="color:${bufCol}">${bufTxt}</b></span>
+        <span><b>加密全倉</b> <span style="color:var(--muted)">權益</span> $${Math.round(sm.equity).toLocaleString()} <span style="color:var(--muted)">未實現</span> <b style="color:${sm.upnl>=0?'var(--up)':'var(--dn)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b> <span style="color:var(--muted)">緩衝</span> <b style="color:${bufCol}">${bufTxt}</b></span>
         <span style="color:var(--muted-2);flex:0 0 auto">${exp?'▴':'▾'}</span></div>`;
     let body='';
     if(exp){
@@ -2063,9 +2065,9 @@ function renderPositions(){
     const px=cryptoQuotes[h.s];
     const pnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
     const id='c|'+h.s+'|'+h.side; const exp=expandedPos.has(id);
-    const sideTxt=h.side==='short'?'空':'多', sideCol=h.side==='short'?'var(--red)':'var(--green)';
+    const sideTxt=h.side==='short'?'空':'多', sideCol=h.side==='short'?'var(--dn)':'var(--up)';
     const margin=Math.round(h.m||(h.q*h.e/(h.l||1)));
-    const lim=(h.tp||h.sl)?`<div class="plim">${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}</div>`:'';
+    const lim=(h.tp||h.sl)?`<div class="plim">${h.tp?'<span style="color:var(--up)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--dn)">🛑'+h.sl+'</span>':''}</div>`:'';
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
         <div class="phl"><span class="pc">${h.s.replace('USDT','')} <span style="font-size:10px;color:${sideCol}">${h.l}x${sideTxt}</span></span><span class="pr">${fmtMoney(pnlU)}<span class="pcaret">▾</span></span></div>
@@ -2090,7 +2092,7 @@ function renderPositions(){
     const q=futu.quotes['US.'+tkr(h.s)]; const px=q&&q.last!=null?q.last:null;
     const plU=px?(px-h.c)*h.q:null;
     const id='s|'+h.s; const exp=expandedPos.has(id);
-    const lim=(h.tp||h.sl)?`<div class="plim">${h.tp?'<span style="color:var(--green)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--red)">🛑'+h.sl+'</span>':''}</div>`:'';
+    const lim=(h.tp||h.sl)?`<div class="plim">${h.tp?'<span style="color:var(--up)">🎯'+h.tp+'</span>':''}${h.sl?(h.tp?' ':'')+'<span style="color:var(--dn)">🛑'+h.sl+'</span>':''}</div>`:'';
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
         <div class="phl"><span class="pc">${tkr(h.s)} <span style="font-size:10px;color:var(--muted)">現股</span></span><span class="pr">${fmtMoney(plU)}<span class="pcaret">▾</span></span></div>
