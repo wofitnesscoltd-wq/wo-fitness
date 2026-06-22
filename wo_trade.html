@@ -928,9 +928,10 @@ async function fishRadar(){
   setBusy(true);
   addBubble('🎣 魚身雷達：掃 <b>'+(region==='us'?'美股':'台股')+' '+syms.length+' 檔</b>（日線，找剛啟動、順大勢、還沒太誇張的卡位點）','user');
   const tp=addBubble('掃描中… 0/'+syms.length,'ai');
-  const cands=[]; let done=0; const flt={nodata:0,nosig:0,flat:0,old:0,ext:0};
+  const cands=[]; let done=0; const flt={nodata:0,nosig:0,flat:0,old:0,ext:0,nonus:0};
   for(const sym of syms){
     done++; try{ tp.textContent='掃描中… '+done+'/'+syms.length+'（'+tkr(sym)+'）'; }catch(e){}
+    if(region==='us' && !cryptoChartSym(sym) && /^\d/.test(tkr(sym))){ flt.nonus++; continue; }   // 非美股(韓股000660/台股2454…)在美股清單，牛牛US抓不到，直接略過、不浪費額度
     let bars=[]; try{ bars=await fetchBacktestBars(sym,'day'); }catch(e){}
     if(bars.length<60){ flt.nodata++; continue; }
     const t=bars.map((b,i)=>i), cs=chartSignals(bars,t);
@@ -951,7 +952,7 @@ async function fishRadar(){
     cands.push({sym:tkr(sym), long, score:cs.latest.score, reasons:cs.latest.reasons, price:livePx, pxNote, stop, age, ext});
   }
   setBusy(false);
-  const breakdown='<span style="color:var(--muted);font-size:11px">掃 '+syms.length+' 檔分佈：可卡位 <b>'+cands.length+'</b>｜已跑太久 '+flt.old+'｜太延伸 '+flt.ext+'｜橫盤/無趨勢 '+(flt.nosig+flt.flat)+'｜資料不足 '+flt.nodata+'</span>';
+  const breakdown='<span style="color:var(--muted);font-size:11px">掃 '+syms.length+' 檔分佈：可卡位 <b>'+cands.length+'</b>｜已跑太久 '+flt.old+'｜太延伸 '+flt.ext+'｜橫盤/無趨勢 '+(flt.nosig+flt.flat)+'｜資料不足 '+flt.nodata+(flt.nonus?'｜非美股略過 '+flt.nonus:'')+'</span>';
   if(!cands.length){ tp.innerHTML='<div style="line-height:1.6">今天沒有「剛啟動又還沒太誇張」的標的——市場可能在橫盤、或你清單裡的都已經噴過頭了。空手等更好的卡位點，別硬追。<br>'+breakdown+'</div>'; return; }
   cands.sort((x,y)=>y.score-x.score || x.ext-y.ext);
   const rows=cands.map(c=>`<div style="padding:3px 0;border-top:1px solid var(--border)"><b style="cursor:pointer;color:var(--blue);text-decoration:underline" onclick="selectSymbol('${c.sym}','')" title="點開看圖＋進場價建議">${c.sym}</b> <span style="color:${c.long?'var(--up)':'var(--dn)'}">${c.long?'🔴做多':'🟢做空'}</span> 共振${c.score}/4　現價≈${c.price.toFixed(2)}${c.pxNote?'<span style="color:var(--amber);font-size:10px">('+c.pxNote+')</span>':''}　初始停損 ${c.stop.toFixed(2)}　<span style="color:var(--muted);font-size:11px">${c.reasons.join('・')}・離均線${c.ext.toFixed(1)}ATR・啟動${c.age}根前</span></div>`).join('');
