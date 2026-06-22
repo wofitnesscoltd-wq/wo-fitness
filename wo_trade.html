@@ -691,7 +691,7 @@ let ind = Object.assign({ema:true,boll:true,vwap:false,rsi:true,macd:true,sig:tr
 let selfState = { sym:null, iv:null, bars:[], charts:[], series:{}, timer:null };
 
 let selfNoData = {};   // 記住牛牛抓不到盤中K的標的，別一直重試（避免閃爍）
-function canSelf(sym){ if(!(window.LightweightCharts && futu.connected) || selfNoData[tkr(sym)]) return false; return cryptoChartSym(sym) ? true : isUS(sym); }
+function canSelf(sym){ if(!(window.LightweightCharts && futu.connected)) return false; const nd=selfNoData[tkr(sym)]; if(nd && Date.now()-nd<180000) return false; return cryptoChartSym(sym) ? true : isUS(sym); }   // 無資料只記 3 分鐘(可能是掃描把牛牛速率吃滿)，之後自動重試，不必手動刷新
 function effSrc(sym){ return chartSrc==='auto' ? (canSelf(sym)?'self':'tv') : (chartSrc==='self' && !canSelf(sym) ? 'tv' : chartSrc); }
 
 function loadChart(sym){
@@ -845,18 +845,23 @@ function backtestStats(bars,feePct){
     small:bars.length<250||tr.length<25};
 }
 function ivLabel(iv){ return ({'1m':'1分','5m':'5分','15m':'15分','30m':'30分','60m':'60分','3day':'3日','day':'日線','week':'週線','month':'月線','year':'年線'})[iv]||iv; }
-/* 回測抓 K 線：跟著傳入的週期（預設＝你圖上當下的週期），這樣「所見即所測」 */
+/* 回測抓 K 線：跟著傳入的週期（預設＝你圖上當下的週期），這樣「所見即所測」。
+   5 分鐘快取：連續跑 一籃子/雷達/溫度燈 同一檔不重抓，省牛牛歷史K額度、避免把圖也卡到無資料。 */
+let _btBars={};
 async function fetchBacktestBars(sym, iv){
   iv = iv || selfIv;
-  const cs=cryptoChartSym(sym);
-  if(iv==='3day'){
-    if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
-    const code=futuCode(sym); if(!code) return [];
-    const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); return aggBars((r.kline||[]).filter(b=>b.close!=null),3);
-  }
-  if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=1000'); return (r.kline||[]).filter(b=>b.close!=null); }
-  const code=futuCode(sym); if(!code) return [];
-  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=1000&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+  const key=sym+'|'+iv, now=Date.now(), hit=_btBars[key];
+  if(hit && now-hit.t<300000) return hit.bars;
+  const cs=cryptoChartSym(sym); let bars=[];
+  try{
+    if(iv==='3day'){
+      if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=1000'); bars=aggBars((r.kline||[]).filter(b=>b.close!=null),3); }
+      else{ const code=futuCode(sym); if(code){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=1000&live=0'); bars=aggBars((r.kline||[]).filter(b=>b.close!=null),3); } }
+    } else if(cs){ const r=await futuFetch('/cryptokline?sym='+cs+'&iv='+iv+'&num=1000'); bars=(r.kline||[]).filter(b=>b.close!=null); }
+    else { const code=futuCode(sym); if(code){ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype='+iv+'&num=1000&live=0'); bars=(r.kline||[]).filter(b=>b.close!=null); } }
+  }catch(e){ bars=[]; }
+  if(bars.length) _btBars[key]={bars, t:now};   // 只快取成功的；失敗不快取，下次會重試
+  return bars;
 }
 /* 把一串「每筆報酬」算成績效（給池化用） */
 function retStats(rets){
@@ -908,26 +913,27 @@ async function fishRadar(){
   setBusy(true);
   addBubble('🎣 魚身雷達：掃 <b>'+(region==='us'?'美股':'台股')+' '+syms.length+' 檔</b>（日線，找剛啟動、順大勢、還沒太誇張的卡位點）','user');
   const tp=addBubble('掃描中… 0/'+syms.length,'ai');
-  const cands=[]; let done=0;
+  const cands=[]; let done=0; const flt={nodata:0,nosig:0,flat:0,old:0,ext:0};
   for(const sym of syms){
     done++; try{ tp.textContent='掃描中… '+done+'/'+syms.length+'（'+tkr(sym)+'）'; }catch(e){}
     let bars=[]; try{ bars=await fetchBacktestBars(sym,'day'); }catch(e){}
-    if(bars.length<60) continue;
+    if(bars.length<60){ flt.nodata++; continue; }
     const t=bars.map((b,i)=>i), cs=chartSignals(bars,t);
-    if(!cs.latest || !cs.marks.length) continue;
+    if(!cs.latest || !cs.marks.length){ flt.nosig++; continue; }
     const last=cs.marks[cs.marks.length-1];
-    if(!(last.text==='進場'||last.text==='做空')) continue;       // 現在必須是「剛進場、還抱著」的狀態
-    const age=bars.length-1-cs.latest.i; if(age>5) continue;       // 近5根才算「剛啟動」
+    if(!(last.text==='進場'||last.text==='做空')){ flt.flat++; continue; }   // 現在空手(已出場)
+    const age=bars.length-1-cs.latest.i; if(age>5){ flt.old++; continue; }   // 已跑太久(>5根)
     const c=bars.map(b=>b.close), e20=emaArr(c,20), a=atrVal(bars)||(c[c.length-1]*0.01), i=c.length-1;
-    const ext=Math.abs(c[i]-e20[i])/a; if(ext>3) continue;        // 離均線>3ATR＝太誇張別追
+    const ext=Math.abs(c[i]-e20[i])/a; if(ext>3){ flt.ext++; continue; }     // 太延伸(>3ATR)
     const long=cs.latest.dir==='long', stop=long?cs.latest.price-3*a:cs.latest.price+3*a;
     cands.push({sym:tkr(sym), long, score:cs.latest.score, reasons:cs.latest.reasons, price:c[i], stop, age, ext});
   }
   setBusy(false);
-  if(!cands.length){ tp.innerHTML='今天沒有「剛啟動又還沒太誇張」的標的——市場可能在橫盤、或你清單裡的都已經噴過頭了。空手等更好的卡位點，別硬追。'; return; }
+  const breakdown='<span style="color:var(--muted);font-size:11px">掃 '+syms.length+' 檔分佈：可卡位 <b>'+cands.length+'</b>｜已跑太久 '+flt.old+'｜太延伸 '+flt.ext+'｜橫盤/無趨勢 '+(flt.nosig+flt.flat)+'｜資料不足 '+flt.nodata+'</span>';
+  if(!cands.length){ tp.innerHTML='<div style="line-height:1.6">今天沒有「剛啟動又還沒太誇張」的標的——市場可能在橫盤、或你清單裡的都已經噴過頭了。空手等更好的卡位點，別硬追。<br>'+breakdown+'</div>'; return; }
   cands.sort((x,y)=>y.score-x.score || x.ext-y.ext);
   const rows=cands.map(c=>`<div style="padding:3px 0;border-top:1px solid var(--border)"><b>${c.sym}</b> <span style="color:${c.long?'var(--up)':'var(--dn)'}">${c.long?'🔴做多':'🟢做空'}</span> 共振${c.score}/4　現價≈${c.price.toFixed(2)}　初始停損 ${c.stop.toFixed(2)}　<span style="color:var(--muted);font-size:11px">${c.reasons.join('・')}・離均線${c.ext.toFixed(1)}ATR・啟動${c.age}根前</span></div>`).join('');
-  tp.innerHTML='<div style="line-height:1.6"><b>🎣 魚身雷達 · '+(region==='us'?'美股':'台股')+'日線</b>　掃出 <b>'+cands.length+'</b> 檔可卡位（順大勢、剛啟動、未過度延伸）：<br>'+rows+'<br><span style="color:var(--muted)">※ 這些是「卡位點」候選——進場不必漂亮,求的是卡進去等單邊動能。停損 3×ATR 初始,之後交給移動停利;太誇張(離均線>3ATR)的已濾掉。要不要進、進多大,你決定。</span></div>';
+  tp.innerHTML='<div style="line-height:1.6"><b>🎣 魚身雷達 · '+(region==='us'?'美股':'台股')+'日線</b>　掃出 <b>'+cands.length+'</b> 檔可卡位（順大勢、剛啟動、未過度延伸）：<br>'+breakdown+'<br>'+rows+'<br><span style="color:var(--muted)">※ 這些是「卡位點」候選——進場不必漂亮,求的是卡進去等單邊動能。停損 3×ATR 初始,之後交給移動停利;太誇張(離均線>3ATR)的已濾掉。要不要進、進多大,你決定。</span></div>';
   feed().scrollTop=feed().scrollHeight;
 }
 /* 一籃子回測：把整個關注清單每檔的交易「池化」起來算總成績，克服單檔樣本太少 */
@@ -1040,7 +1046,7 @@ async function renderSelfChart(sym){
   }catch(e){}
   if(current!==sym) return;           // 使用者已切走，放棄
   if(!bars.length){
-    selfNoData[tkr(sym)]=true;            // 記起來：這檔牛牛沒盤中K → 之後直接用 TV，不再重試（停止閃爍）
+    selfNoData[tkr(sym)]=Date.now();      // 記下時間：暫時用 TV，3 分鐘後自動重試（避免閃爍，但不永久卡在 TV）
     renderTVChart(sym); updateChartToolsUI(sym);
     return;
   }
