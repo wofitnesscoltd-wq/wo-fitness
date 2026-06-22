@@ -375,6 +375,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="stockBtn" onclick="stockAnalysis()" style="background:var(--panel-2);border:1px solid var(--blue);color:var(--blue)">🔬 個股分析</button>
           <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
           <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
+          <button class="btn-primary" id="radarBtn" onclick="fishRadar()" style="background:var(--panel-2);border:1px solid #5BC0BE;color:#5BC0BE" title="純技術掃描(不花API)：找剛啟動單邊動能、順大勢、還沒太誇張的卡位標的">🎣 魚身雷達</button>
           <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
           <button class="btn-primary" id="btBtn" onclick="backtestCurrent()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA">📊 回測</button>
           <button class="btn-primary" id="btBasketBtn" onclick="backtestBasket()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA" title="把整個關注清單每檔的交易池化算總成績，用當前圖的週期">🧺 一籃子</button>
@@ -866,6 +867,37 @@ function retStats(rets){
     pf:(losses.length&&sumL!==0)?sumW/Math.abs(sumL):Infinity};
 }
 function tradeRets(bars,feePct){ const fee=feePct/100; return backtestTrades(bars).map(t=>{ const g=t.dir==='long'?t.px_out/t.px_in-1:t.px_in/t.px_out-1; return g-2*fee; }); }
+/* 魚身雷達：純技術掃關注清單，找「剛啟動單邊動能 + 順大勢 + 還沒太誇張」的卡位標的（不花 API） */
+async function fishRadar(){
+  if(busy) return;
+  if(!futu.connected){ addBubble('魚身雷達要連牛牛橋接（用真實K線）。先確認橋接有開、右上角綠燈。','ai'); return; }
+  const syms=(lists[region]||[]).map(it=>it.s);
+  if(!syms.length){ addBubble('關注清單是空的，先加幾檔再掃。','ai'); return; }
+  setBusy(true);
+  addBubble('🎣 魚身雷達：掃 <b>'+(region==='us'?'美股':'台股')+' '+syms.length+' 檔</b>（日線，找剛啟動、順大勢、還沒太誇張的卡位點）','user');
+  const tp=addBubble('掃描中… 0/'+syms.length,'ai');
+  const cands=[]; let done=0;
+  for(const sym of syms){
+    done++; try{ tp.textContent='掃描中… '+done+'/'+syms.length+'（'+tkr(sym)+'）'; }catch(e){}
+    let bars=[]; try{ bars=await fetchBacktestBars(sym,'day'); }catch(e){}
+    if(bars.length<60) continue;
+    const t=bars.map((b,i)=>i), cs=chartSignals(bars,t);
+    if(!cs.latest || !cs.marks.length) continue;
+    const last=cs.marks[cs.marks.length-1];
+    if(!(last.text==='進場'||last.text==='做空')) continue;       // 現在必須是「剛進場、還抱著」的狀態
+    const age=bars.length-1-cs.latest.i; if(age>5) continue;       // 近5根才算「剛啟動」
+    const c=bars.map(b=>b.close), e20=emaArr(c,20), a=atrVal(bars)||(c[c.length-1]*0.01), i=c.length-1;
+    const ext=Math.abs(c[i]-e20[i])/a; if(ext>3) continue;        // 離均線>3ATR＝太誇張別追
+    const long=cs.latest.dir==='long', stop=long?cs.latest.price-3*a:cs.latest.price+3*a;
+    cands.push({sym:tkr(sym), long, score:cs.latest.score, reasons:cs.latest.reasons, price:c[i], stop, age, ext});
+  }
+  setBusy(false);
+  if(!cands.length){ tp.innerHTML='今天沒有「剛啟動又還沒太誇張」的標的——市場可能在橫盤、或你清單裡的都已經噴過頭了。空手等更好的卡位點，別硬追。'; return; }
+  cands.sort((x,y)=>y.score-x.score || x.ext-y.ext);
+  const rows=cands.map(c=>`<div style="padding:3px 0;border-top:1px solid var(--border)"><b>${c.sym}</b> <span style="color:${c.long?'var(--up)':'var(--dn)'}">${c.long?'🔴做多':'🟢做空'}</span> 共振${c.score}/4　現價≈${c.price.toFixed(2)}　初始停損 ${c.stop.toFixed(2)}　<span style="color:var(--muted);font-size:11px">${c.reasons.join('・')}・離均線${c.ext.toFixed(1)}ATR・啟動${c.age}根前</span></div>`).join('');
+  tp.innerHTML='<div style="line-height:1.6"><b>🎣 魚身雷達 · '+(region==='us'?'美股':'台股')+'日線</b>　掃出 <b>'+cands.length+'</b> 檔可卡位（順大勢、剛啟動、未過度延伸）：<br>'+rows+'<br><span style="color:var(--muted)">※ 這些是「卡位點」候選——進場不必漂亮,求的是卡進去等單邊動能。停損 3×ATR 初始,之後交給移動停利;太誇張(離均線>3ATR)的已濾掉。要不要進、進多大,你決定。</span></div>';
+  feed().scrollTop=feed().scrollHeight;
+}
 /* 一籃子回測：把整個關注清單每檔的交易「池化」起來算總成績，克服單檔樣本太少 */
 async function backtestBasket(){
   if(busy) return;
