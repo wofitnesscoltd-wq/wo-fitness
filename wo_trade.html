@@ -110,8 +110,8 @@ header .spacer{margin-left:auto;}
 .wl-ch{font-size:12px;line-height:1.35;}
 .wl-aft{display:block;font-size:10px;color:var(--muted);}
 /* main */
-.main{flex:1;display:flex;flex-direction:column;min-width:0;}
-.chart-area{height:48vh;min-height:180px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;}
+.main{flex:1;display:flex;flex-direction:row;min-width:0;}
+.chart-area{flex:1;min-width:0;min-height:0;border-right:1px solid var(--border);display:flex;flex-direction:column;}
 .chart-host{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}
 .chart-host .tradingview-widget-container{height:100%;width:100%;}
 .chart-tools{display:flex;align-items:center;gap:5px;padding:5px 9px;border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:12px;background:var(--panel);}
@@ -130,7 +130,7 @@ header .spacer{margin-left:auto;}
 .calc-out .warn{color:var(--red);font-size:12px;margin-top:6px;}
 .calc-row{display:flex;gap:10px;}
 .calc-row>div{flex:1;}
-.work{flex:1;display:flex;min-height:0;}
+.work{flex:0 0 56%;display:flex;min-height:0;min-width:360px;}
 /* brain */
 .brain{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border);}
 .brain-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);}
@@ -183,7 +183,7 @@ header .spacer{margin-left:auto;}
 .chat-box textarea:focus{border-color:var(--orange);}
 .chat-box button{background:var(--orange);border:none;border-radius:9px;color:white;width:42px;font-size:17px;cursor:pointer;}
 /* news */
-.news{width:410px;flex-shrink:0;display:flex;flex-direction:column;background:var(--panel);}
+.news{width:340px;flex-shrink:0;min-width:240px;display:flex;flex-direction:column;background:var(--panel);}
 .news-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);}
 .news-bar .t{font-size:13px;font-weight:600;flex:1;}
 .news-bar button{background:var(--panel-2);border:1px solid var(--border);color:var(--muted);border-radius:7px;padding:5px 10px;font-family:inherit;font-size:12px;cursor:pointer;}
@@ -288,8 +288,9 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
   body{overflow:auto;height:auto;}
   .layout{flex-direction:column;height:auto;}
   .sidebar{width:100%;max-height:200px;}
-  .chart-area{height:300px;}
-  .work{flex-direction:column;}
+  .main{flex-direction:column;}
+  .chart-area{flex:none;height:300px;border-right:none;border-bottom:1px solid var(--border);}
+  .work{flex:none;width:100%;flex-direction:column;min-width:0;}
   .brain{border-right:none;border-bottom:1px solid var(--border);height:520px;}
   .news{width:100%;height:400px;}
 }
@@ -361,8 +362,8 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
       <div id="sigInfo" style="display:none;font-size:11.5px;padding:5px 12px;border-bottom:1px solid var(--border);background:#0A0D12;line-height:1.5;font-variant-numeric:tabular-nums"></div>
       <div class="chart-host" id="chartHost"></div>
     </div>
-    <div class="splitter-h" id="splitChart" title="拖拉調整圖表高度"></div>
-    <div class="work">
+    <div class="splitter-v" id="splitChart" title="拖拉調整圖表 / 右側寬度"></div>
+    <div class="work" id="work">
       <section class="brain">
         <div class="brain-bar">
           <div class="cur" id="curLabel">—</div>
@@ -1246,7 +1247,7 @@ function setupResizers(){
   const maxH=Math.max(320,window.innerHeight-220);
   drag(document.getElementById('splitSide'),document.getElementById('sidebar'),'x',1,160,520,'wo_w_side');
   drag(document.getElementById('splitNews'),document.getElementById('news'),'x',-1,240,760,'wo_w_news');
-  drag(document.getElementById('splitChart'),document.getElementById('chartArea'),'y',1,180,maxH,'wo_h_chart');
+  drag(document.getElementById('splitChart'),document.getElementById('work'),'x',-1,360,1300,'wo_w_work');
 }
 /* 牛牛連線狀態改變時，auto 模式自動在 TV / 自製圖之間切換 */
 function maybeSwitchChart(){
