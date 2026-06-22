@@ -848,10 +848,15 @@ function ivLabel(iv){ return ({'1m':'1分','5m':'5分','15m':'15分','30m':'30�
 /* 回測抓 K 線：跟著傳入的週期（預設＝你圖上當下的週期），這樣「所見即所測」。
    5 分鐘快取：連續跑 一籃子/雷達/溫度燈 同一檔不重抓，省牛牛歷史K額度、避免把圖也卡到無資料。 */
 let _btBars={};
+/* 掃描節流：把抓牛牛歷史K的請求間隔開（預設 300ms），避免一次上百檔把牛牛速率衝爆→一堆「資料不足」。
+   只對「真的要連網抓」的請求節流；命中快取的不受影響。 */
+let _scanLast=0;
+function scanThrottle(gap=300){ const now=Date.now(), at=Math.max(now,_scanLast+gap); _scanLast=at; const w=at-now; return w>0?new Promise(r=>setTimeout(r,w)):Promise.resolve(); }
 async function fetchBacktestBars(sym, iv){
   iv = iv || selfIv;
   const key=sym+'|'+iv, now=Date.now(), hit=_btBars[key];
   if(hit && now-hit.t<300000) return hit.bars;
+  await scanThrottle();
   const cs=cryptoChartSym(sym); let bars=[];
   try{
     if(iv==='3day'){
