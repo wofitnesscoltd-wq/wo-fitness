@@ -1841,6 +1841,7 @@ async function pollCrypto(){
   if(bucket!==pollCrypto._fundBucket){
     try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; pollCrypto._fundBucket=bucket; }catch(e){}
   }
+  updateFishStates();
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
 function toggleCryptoSum(){ localStorage.setItem('wo_sumexp', localStorage.getItem('wo_sumexp')==='1'?'0':'1'); renderPositions(); }
@@ -2079,6 +2080,65 @@ function renderJournalCard(list){
     </div>${detail}`;
   list.appendChild(card);
 }
+/* ====== 出場守護：每個持倉一個 魚身🟢/轉弱🟡/魚尾🔴 燈號（純加值，不取代任何功能；可開關） ====== */
+function fishOn(){ return localStorage.getItem('wo_fish')!=='0'; }
+function toggleFish(){ localStorage.setItem('wo_fish', fishOn()?'0':'1'); forceRenderPositions?forceRenderPositions():renderPositions(); }
+const PURE_CRYPTO=new Set(['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','LTC','BCH','DOT','MATIC','POL','TRX','TON','NEAR','APT','ARB','OP','SUI','SEI','PEPE','WIF','INJ','TIA','RUNE','FIL','ATOM','ETC','UNI','AAVE','HBAR','ICP']);
+/* 動能判讀用的日K：代幣化美股永續→用真實個股(週間較具代表性)，純幣→幣價，現股→個股 */
+async function momBars(sym){
+  const cs=cryptoChartSym(sym);
+  if(cs){ const base=cs.replace('USDT','');
+    if(!PURE_CRYPTO.has(base)){ try{ const r=await futuFetch('/kline?code=US.'+base+'&ktype=day&num=200&live=0'); const k=(r.kline||[]).filter(b=>b.close!=null); if(k.length>=60) return k; }catch(e){} }
+    const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'); return (r.kline||[]).filter(b=>b.close!=null);
+  }
+  const code=futuCode(sym); if(!code) return [];
+  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=200&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+}
+function curDiv(bars,rs,hist,w=5){
+  const c=bars.map(b=>b.close), n=c.length, cur=n-1, lb=Math.max(0,cur-w);
+  const ph=i=>{ if(i<w||i>=n-w)return false; for(let j=i-w;j<=i+w;j++) if(j!==i&&c[j]>=c[i])return false; return true; };
+  const pl=i=>{ if(i<w||i>=n-w)return false; for(let j=i-w;j<=i+w;j++) if(j!==i&&c[j]<=c[i])return false; return true; };
+  let lh=null,ll=null; for(let i=0;i<n;i++){ if(ph(i))lh=i; if(pl(i))ll=i; }
+  if(rs[cur]==null) return null;
+  if(lh!=null && c[cur]>=Math.max(...c.slice(lb,cur+1)) && c[cur]>c[lh] && rs[cur]<rs[lh] && hist[cur]<hist[lh]) return 'top';
+  if(ll!=null && c[cur]<=Math.min(...c.slice(lb,cur+1)) && c[cur]<c[ll] && rs[cur]>rs[ll] && hist[cur]>hist[ll]) return 'bottom';
+  return null;
+}
+/* 魚身狀態：吃魚身的人最需要的——動能還在(抱住) / 轉弱(留意) / 竭盡(該收) */
+function fishState(bars, side){
+  if(!bars||bars.length<60) return null;
+  const c=bars.map(b=>b.close), n=c.length, i=n-1, long=side!=='short';
+  const e20=emaArr(c,20), rs=rsiArr(c,14), mk=macdArr(c), hist=mk.hist;
+  const histFall=hist[i]<hist[i-1]&&hist[i-1]<=hist[i-2], histRise=hist[i]>hist[i-1]&&hist[i-1]>=hist[i-2];
+  const macdDead=mk.macd[i]<mk.signal[i]&&mk.macd[i-1]>=mk.signal[i-1], macdGold=mk.macd[i]>mk.signal[i]&&mk.macd[i-1]<=mk.signal[i-1];
+  const div=curDiv(bars,rs,hist);
+  if(long){
+    if(div==='top' || (c[i]<e20[i]&&(macdDead||hist[i]<0))) return {t:'🔴 魚尾·該收', r:div==='top'?'頂背離·動能竭盡':'破EMA20·MACD轉空'};
+    if(histFall || (rs[i]!=null&&rs[i-1]!=null&&rs[i]<rs[i-1]&&rs[i-1]>68)) return {t:'🟡 轉弱', r:'動能在縮·留意進魚尾'};
+    return {t:'🟢 魚身·抱住', r:'趨勢動能還在,別提早下車'};
+  } else {
+    if(div==='bottom' || (c[i]>e20[i]&&(macdGold||hist[i]>0))) return {t:'🔴 魚尾·該收', r:div==='bottom'?'底背離·空方竭盡':'站回EMA20·MACD轉多'};
+    if(histRise || (rs[i]!=null&&rs[i-1]!=null&&rs[i]>rs[i-1]&&rs[i-1]<32)) return {t:'🟡 轉弱', r:'空方動能在縮'};
+    return {t:'🟢 魚身·抱住', r:'空方動能還在'};
+  }
+}
+let fishCache={};
+async function updateFishStates(){
+  const els=document.querySelectorAll('#posList .fishb'); if(!els.length) return;
+  if(!fishOn()){ els.forEach(e=>e.style.display='none'); return; }
+  if(!futu.connected) return;
+  const now=Date.now();
+  for(const el of els){
+    const sym=el.dataset.fsym, side=el.dataset.fside||'', key=sym+'|'+side;
+    let cached=fishCache[key];
+    if(!cached || now-cached.t>180000){
+      let bars=[]; try{ bars=await momBars(sym); }catch(e){}
+      fishCache[key]={st:fishState(bars,side), t:now}; cached=fishCache[key];
+    }
+    if(cached.st){ el.textContent=cached.st.t; el.title='魚身狀態：'+cached.st.r+'（日線動能；代幣化美股永續用真實個股）'; el.style.display=''; }
+    else el.style.display='none';
+  }
+}
 function renderPositions(){
   const acct=document.getElementById('posAcct'), list=document.getElementById('posList');
   // 使用者正在輸入(止盈/止損/部分平倉/可用保證金)時，別重建 DOM，否則會把還沒送出的數字清掉
@@ -2092,6 +2152,9 @@ function renderPositions(){
     list.insertAdjacentHTML('beforeend','<div class="news-empty"'+(journal.length?' style="margin-top:8px"':'')+'>輸入你<b>實際的持股</b>（國泰／永豐／加密都行）：上面切「股票／加密永續」，打代號、數量、成本按＋。<br>引擎會用即時報價盯這些部位，到賣點／爆倉距離就通知你。</div>');
     return;
   }
+  { const fb=document.createElement('div'); fb.style.cssText='padding:5px 10px;margin:0 0 6px;font-size:11px;border-radius:7px;cursor:pointer;border:1px solid var(--border);background:var(--panel-2);color:'+(fishOn()?'var(--text)':'var(--muted)');
+    fb.innerHTML='🐟 出場守護 <b>'+(fishOn()?'開':'關')+'</b> <span style="color:var(--muted)">'+(fishOn()?'· 每個部位顯示 魚身🟢/轉弱🟡/魚尾🔴，幫你判斷動能是否到底':'· 點開來顯示魚身/魚尾燈號')+'</span>';
+    fb.onclick=toggleFish; list.appendChild(fb); }
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
     const exp=localStorage.getItem('wo_sumexp')==='1';
@@ -2133,7 +2196,7 @@ function renderPositions(){
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
         <div class="phl"><span class="pc">${h.s.replace('USDT','')} <span style="font-size:10px;color:${sideCol}">${h.l}x${sideTxt}</span></span><span class="pr">${fmtMoney(pnlU)}<span class="pcaret">▾</span></span></div>
-        <div class="pn">進場 ${h.e} ‧ 保證金 $${margin}${px?' ‧ 現價 '+px:'<span style="color:var(--muted-2)"> ‧ 未連線</span>'}</div>${lim}
+        <div class="pn">進場 ${h.e} ‧ 保證金 $${margin}${px?' ‧ 現價 '+px:'<span style="color:var(--muted-2)"> ‧ 未連線</span>'}<span class="fishb" data-fsym="${h.s}" data-fside="${h.side}" style="display:none;margin-left:6px;font-size:10.5px;font-weight:700"></span></div>${lim}
       </div>
       <div class="pos-detail">
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
@@ -2158,7 +2221,7 @@ function renderPositions(){
     const d=document.createElement('div'); d.className='pos-item'+(exp?' expanded':'');
     d.innerHTML=`<div class="pos-head">
         <div class="phl"><span class="pc">${tkr(h.s)} <span style="font-size:10px;color:var(--muted)">現股</span></span><span class="pr">${fmtMoney(plU)}<span class="pcaret">▾</span></span></div>
-        <div class="pn">成本 ${h.c} ‧ ${h.q}股${px?' ‧ 現價 '+px:''}</div>${lim}
+        <div class="pn">成本 ${h.c} ‧ ${h.q}股${px?' ‧ 現價 '+px:''}<span class="fishb" data-fsym="${tkr(h.s)}" data-fside="" style="display:none;margin-left:6px;font-size:10.5px;font-weight:700"></span></div>${lim}
       </div>
       <div class="pos-detail">
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
@@ -2181,6 +2244,7 @@ function renderPositions(){
     d.querySelector('.pos-head').onclick=()=>selectSymbol((p.code||'').replace('US.',''), p.name||'');
     grid.appendChild(d);
   });
+  updateFishStates();
 }
 function tpslChip(h){ return (h.tp||h.sl)?`<span class="tpslchip">${h.tp?'🎯'+h.tp:''}${h.sl?(h.tp?' ':'')+'🛑'+h.sl:''}</span>`:''; }
 let expandedPos=new Set();
