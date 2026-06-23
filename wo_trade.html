@@ -440,6 +440,10 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
             <select id="hSide" style="display:none;flex:1"><option value="long">多</option><option value="short">空</option></select>
             <button onclick="addHolding()" title="加入持股">＋</button>
           </div>
+          <div id="bitgetRow" style="display:none;align-items:center;gap:8px;padding:0 8px 8px;flex-wrap:wrap">
+            <button id="bitgetSyncBtn" onclick="syncBitget()" style="background:var(--panel-2);border:1px solid var(--orange);border-radius:6px;color:var(--orange-light);padding:5px 11px;font-family:inherit;font-size:12px;cursor:pointer">🔄 同步 Bitget</button>
+            <span style="font-size:10.5px;color:var(--muted)">自動帶入合約倉位＋真實可用保證金（唯讀金鑰存在你電腦的橋接，不經瀏覽器）</span>
+          </div>
           <div style="display:flex;gap:6px;align-items:center;padding:0 8px 8px;font-size:11px;color:var(--muted);flex-wrap:wrap">
             <span>💾 自動存本機＋同步橋接，改版不會消失</span>
             <button onclick="exportData()" style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:3px 8px;font-family:inherit;font-size:11px;cursor:pointer">匯出備份</button>
@@ -1758,6 +1762,9 @@ function positionCtx(){
     s+=`各幣種淨部位（多空對沖後，同幣種單腿不會獨立爆倉）：${symNet}。\n`;
     s+=`\n【全倉總覽——爆倉以帳戶層級為準，不是單倉孤立價】可用保證金${Math.round(sm.avail)}U，帳戶權益${Math.round(sm.equity)}U，未實現${Math.round(sm.upnl)}U，總名目${Math.round(sm.gross)}U，淨曝險${Math.round(sm.net)}U（整體偏${netSigned>=0?'多':'空'}），整體槓桿${sm.grossLev.toFixed(1)}x、淨槓桿${sm.netLev.toFixed(1)}x，距全倉爆倉緩衝${sm.buffer==null?'已對沖、極低':sm.buffer.toFixed(1)+'%'}（＝帳戶權益還能讓「淨曝險方向」逆走多少才被強平；單一腿被同帳戶權益與同幣種反向腿撐住，不會自己爆）。\n`;
   }
+  if(bitgetOrders&&bitgetOrders.length){
+    s+='\n【我在 Bitget 的未成交掛單（唯讀同步）】'+bitgetOrders.map(o=>`${o.sym} ${o.side||''} ${o.size??''}@${o.price??'市價'}`).join('、')+'。\n';
+  }
   const c=riskCfg();
   s+=`\n【我的紀律與對鎖手法（請先懂再評論，別套教科書）】我是全倉永續操盤手，三個月做到 +800% 的方法如下：
 - 爆倉看「帳戶權益 vs 維持保證金」的整體緩衝，不是任何單腿的孤立爆倉價；同幣種多空互相抵消，**單腿不會獨立爆倉**。別拿某腿的孤立爆倉距離或單腿高槓桿浮虧% 來判定我危險或違規——要看淨部位與帳戶層級。
@@ -2020,6 +2027,7 @@ function setHoldType(t){
   const cr=t==='crypto';
   document.getElementById('hLev').style.display=cr?'block':'none';
   document.getElementById('hSide').style.display=cr?'block':'none';
+  const br=document.getElementById('bitgetRow'); if(br) br.style.display=cr?'flex':'none';
   document.getElementById('hSym').placeholder=cr?'幣種 BTCUSDT':'代號 NVDA';
   document.getElementById('hQty').placeholder=cr?'保證金 USDT':'股數';
   document.getElementById('hCost').placeholder=cr?'進場均價':'成本';
@@ -2031,6 +2039,49 @@ function pushCryptoHoldings(){
   if(!futu.connected || !bridgeSynced) return;   // 同上，避免空資料覆蓋橋接備份
   const h=cryptoHoldings.map(x=>`${x.s}:${x.q}:${x.e}:${x.l}:${x.side}`).join(',');
   try{ futuFetch('/setcryptoholdings?h='+encodeURIComponent(h)); }catch(e){}
+}
+/* Bitget 唯讀同步：自動帶入真實合約倉位＋可用保證金＋掛單。
+   非破壞合併：只替換上次同步進來的 src='bitget' 部位；手動/幣安部位預設保留（同所重複會問你）。 */
+let bitgetOrders = [];
+async function syncBitget(){
+  if(!futu.connected){ addBubble('🔄 要先連上牛牛橋接（右上角綠燈）才能同步 Bitget——金鑰是存在橋接那台電腦上。','ai'); return; }
+  const btn=document.getElementById('bitgetSyncBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ 同步中…'; }
+  try{
+    const r=await futuFetch('/bitgetsync');
+    if(!r || r.configured===false){
+      addBubble('🔄 <b>Bitget 同步尚未設定</b>。請到「跑 futu_bridge.py 的那台電腦」設好<b>唯讀</b>金鑰的環境變數，再重啟橋接：<br>'
+        +'<code>BITGET_API_KEY</code>、<code>BITGET_API_SECRET</code>、<code>BITGET_API_PASSPHRASE</code><br>'
+        +'<span style="color:var(--muted)">（金鑰只留在你電腦、不經瀏覽器、也不會傳給 AI；權限只需唯讀）</span>'
+        +(r&&r.error?'<br>細節：'+String(r.error).replace(/</g,'&lt;'):''),'ai');
+      return;
+    }
+    if(r.error){ addBubble('⚠️ Bitget 同步失敗：'+String(r.error).replace(/</g,'&lt;')+'<br><span style="color:var(--muted)">常見原因：金鑰打錯、權限非唯讀、或有綁 IP 白名單但這台不在名單內。</span>','ai'); return; }
+    const poss=(r.positions||[]);
+    // 若已有手動加密部位，問清楚要不要清掉（避免同一交易所重複計算；幣安等別所的部位則保留）
+    let dropManual=false;
+    if(cryptoHoldings.some(h=>h.src!=='bitget')){
+      dropManual=confirm('要用 Bitget 即時同步「取代」你目前手動輸入的加密部位嗎？\n\n● 確定＝清掉手動加密部位，改用 Bitget（同一個交易所建議這樣，避免重複計算）。\n● 取消＝保留手動部位（你手動那些是幣安等其他交易所的部位時選這個）。');
+    }
+    cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');   // 移除上次的 bitget 部位
+    if(dropManual) cryptoHoldings = [];                            // 使用者同意才清手動
+    poss.forEach(p=>{
+      const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l));
+      cryptoHoldings.push({s:p.sym, q:p.size, e:p.entry, l, side:p.side, m, src:'bitget', liq:p.liq});
+    });
+    saveCryptoHoldings();
+    if(r.account && r.account.avail!=null) setCMargin(r.account.avail);   // 真實可用保證金 → 餵爆倉預警
+    bitgetOrders = r.orders||[];
+    await pollCrypto(); renderPositions();
+    const avail=(r.account&&r.account.avail!=null)?Math.round(r.account.avail).toLocaleString()+' USDT':'—';
+    let ordTxt='';
+    if(bitgetOrders.length){
+      ordTxt='<br>未成交掛單：'+bitgetOrders.slice(0,8).map(o=>`${o.sym} ${o.side||''} ${o.size??''}@${o.price??'市價'}`).join('、')+(bitgetOrders.length>8?` …共 ${bitgetOrders.length} 筆`:'');
+    }
+    addBubble(`✅ <b>Bitget 已同步</b>：${poss.length} 個合約倉位、可用保證金 <b>${avail}</b>${bitgetOrders.length?`、${bitgetOrders.length} 筆掛單`:''}。`
+      +(dropManual?'（已用 Bitget 取代手動加密部位）':(poss.length||cryptoHoldings.some(h=>h.src!=='bitget')?'（手動/幣安部位保留不動）':''))
+      +ordTxt,'ai');
+  }catch(e){ addBubble('⚠️ Bitget 同步失敗：'+(e.message||e),'ai'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='🔄 同步 Bitget'; } }
 }
 async function pollCrypto(){
   if(!cryptoHoldings.length) return;

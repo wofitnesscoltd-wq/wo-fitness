@@ -38,6 +38,11 @@ try:
 except Exception:
     crypto_mod = None
 
+try:
+    import bitget_private as bitget_mod    # Bitget 唯讀私有 API（自動同步合約倉位/保證金/掛單）
+except Exception:
+    bitget_mod = None
+
 ARGS = None
 QUOTE = None
 TRD = None
@@ -376,6 +381,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "count": len(items)})
             elif path == "/cryptoholdings":
                 self._json({"holdings": crypto_mod.load_crypto_holdings() if crypto_mod else []})
+            elif path == "/bitgetsync":
+                # Bitget 唯讀同步：拉真實合約倉位 + 可用保證金 + 掛單。金鑰只從本機環境變數讀。
+                if not bitget_mod:
+                    self._json({"configured": False, "error": "找不到 bitget_private.py"})
+                elif not bitget_mod.configured():
+                    self._json({"configured": False,
+                                "error": "未設定 Bitget 唯讀金鑰（環境變數 BITGET_API_KEY / BITGET_API_SECRET / BITGET_API_PASSPHRASE）"})
+                else:
+                    try:
+                        self._json(bitget_mod.sync())
+                    except Exception as e:
+                        self._json({"configured": True, "error": str(e)})
             elif path == "/setcmargin":
                 # 可用保證金（全倉）—引擎用來算帳戶層級爆倉緩衝
                 try:
@@ -596,6 +613,10 @@ def main():
     print(f"  FutuOpenD: {ARGS.futu_host}:{ARGS.futu_port}（請確認已啟動並登入）")
     start_engine()
     start_crypto()
+    if bitget_mod and bitget_mod.configured():
+        print("  Bitget   : 唯讀金鑰已設定 → 網頁可按「🔄 同步 Bitget」自動帶入倉位/保證金/掛單")
+    else:
+        print("  Bitget   : 未設金鑰（要自動同步倉位，設環境變數 BITGET_API_KEY/SECRET/PASSPHRASE，唯讀權限即可）")
     print("  Ctrl+C 結束。只讀、不下單。" + ("⚠️ 已開放區網(--lan)，端點有 Token 保護；請在自家 WiFi 用。" if ARGS.host == "0.0.0.0" else "僅綁定本機。"))
     print("=" * 56)
 
