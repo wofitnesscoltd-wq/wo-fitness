@@ -18,6 +18,11 @@ from datetime import datetime
 
 import alert_engine as ae
 
+try:
+    import bitget_private as bitget_mod   # Bitget 唯讀私有 API（自動同步真實倉位/保證金，給爆倉預警用）
+except Exception:
+    bitget_mod = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CRYPTO_WATCH = os.path.join(HERE, "crypto_watch.json")
 CRYPTO_HOLDINGS = os.path.join(HERE, "crypto_holdings.json")
@@ -256,6 +261,20 @@ class CryptoScanner:
         token, chat = self.cfg.get("telegram_token"), self.cfg.get("telegram_chat")
         watch = self.load_watch(self.cfg.get("symbols"))
         holds = load_crypto_holdings()
+        # 若設定了 Bitget 唯讀金鑰：每輪直接從交易所拉真實倉位＋可用保證金（最準），寫回檔案。
+        # 這樣 ⚠️ 全倉爆倉預警不必開著網頁也是即時的（手動/幣安部位＝src!='bitget' 會保留）。
+        if bitget_mod is not None and bitget_mod.configured():
+            try:
+                bpos = bitget_mod.positions()
+                others = [h for h in holds if h.get("src") != "bitget"]
+                holds = others + [{"sym": p["sym"], "size": p["size"], "entry": p["entry"],
+                                   "lev": p["lev"], "side": p["side"], "src": "bitget"} for p in bpos]
+                save_crypto_holdings(holds)
+                bacct = bitget_mod.account()
+                if bacct.get("avail") is not None:
+                    save_cmargin(bacct["avail"])
+            except Exception:
+                pass
         hmap = {h.get("sym"): h for h in holds if h.get("sym")}
         all_syms = list(dict.fromkeys(list(watch) + list(hmap)))
         pushed = 0
