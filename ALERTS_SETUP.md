@@ -83,11 +83,10 @@ python futu_bridge.py --alerts \
 python futu_bridge.py --alerts --crypto --crypto-source binance \
   --crypto-symbols BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT --telegram-token "<t>" --telegram-chat "<id>"
 ```
-- 24h 不分盤，重用同一套訊號引擎（VWAP/ORB/RSI/MACD/EMA＋多週期），market regime 用 **BTC** 當大盤。
-- 每則加上**資金費率**解讀（多頭過熱付費＝留意反轉）。
-- 換 Bitget：`--crypto-source bitget`。加密訊號跟美股一起進 🚨 警示分頁與 Telegram。
-- 公開行情免 API 金鑰、只讀不下單。⚠️ 永續槓桿可能爆倉，務必設停損。
-- **加密持股**：網頁 💼 持股分頁切到「加密永續」，輸入幣種／倉位／進場／槓桿／多空。引擎會盯這些部位的賣點，並算**距估算爆倉價**，<15% 自動推 ⚠️ 爆倉預警（減倉/補保證金/降槓桿）。爆倉價為 isolated 近似，各所階梯保證金不同僅供參考。
+- 24h 不分盤，只用來顧**全倉爆倉緩衝**，market regime 用 **BTC** 當大盤。
+- **加密買賣點/背離推播已永久移除**（太吵、你不需要）；`--crypto-alerts` 旗標保留為相容用但無作用。永續進出場改在 App 內的 🐟 出場守護／🎣 魚身雷達自己看。
+- 換 Bitget：`--crypto-source bitget`。公開行情免 API 金鑰、只讀不下單。⚠️ 永續槓桿可能爆倉，務必設停損。
+- **唯一保留的加密 Telegram 推播＝⚠️ 全倉爆倉預警**：網頁 💼 持股分頁切到「加密永續」，輸入幣種／倉位／進場／槓桿／多空。引擎只算**距估算爆倉價**，緩衝 <15% 自動推 ⚠️ 爆倉預警（減倉/補保證金/降槓桿）。要連這個也關：`--no-crypto-liq`。爆倉價為 isolated 近似，各所階梯保證金不同僅供參考。
 
 ## 績效、自我優化與每日報告
 - **🚨 警示分頁頂部**會顯示績效：已結算筆數、勝率、期望值(R)、獲利因子，分 A/B/C 等級，以及目前市場 regime。

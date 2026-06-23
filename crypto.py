@@ -258,8 +258,6 @@ class CryptoScanner:
         holds = load_crypto_holdings()
         hmap = {h.get("sym"): h for h in holds if h.get("sym")}
         all_syms = list(dict.fromkeys(list(watch) + list(hmap)))
-        cooldown_sec = float(self.cfg.get("alert_cooldown_sec", 4 * 3600))   # 同檔買點冷卻，預設 4 小時
-        now_ts = time.time()
         pushed = 0
         price_of = {}
         for sym in all_syms:
@@ -275,43 +273,13 @@ class CryptoScanner:
                     except Exception:
                         pass
                 continue
+            # 加密買賣點推播已移除（太吵、你不需要）。這裡只取現價，給帳戶層級『全倉爆倉預警』用。
             try:
-                bars = [b for b in self.kl(sym, "5m", 160) if b.get("close") is not None]
-                bars15 = [b for b in self.kl(sym, "15m", 80) if b.get("close") is not None]
+                kb = self.kl(sym, "5m", 2)
+                if kb and kb[-1].get("close") is not None:
+                    price_of[sym] = kb[-1]["close"]
             except Exception:
                 continue
-            if len(bars) < 40:
-                continue
-            last = bars[-1]["close"]
-            price_of[sym] = last
-            try:
-                fr = self.fund(sym).get("funding", 0)
-            except Exception:
-                fr = 0
-            fnote = f"；資金費率 {fr*100:.3f}%" + ("（多頭過熱付費，留意反轉）" if fr > 0.0005 else "（空方付費，偏多有利）" if fr < -0.0005 else "")
-            dv = ae.divergence(bars15 or bars)               # 當日短線背離（永續槓桿）
-            cooling = (now_ts - self._cooldown.get(sym, 0)) < cooldown_sec
-            if self.cfg.get("signal_alerts", False) and sym in watch and not cooling:   # 自選找買點（預設關閉，--crypto-alerts 開）
-                sigs = list(ae.eval_buy(bars, None, bars15, ctx))
-                if dv == "bottom":
-                    sigs.append({"side": "long", "type": "底背離(永續進場)", "grade": "A",
-                        "price": round(last, 4), "stop": round(last * 0.97, 4), "target": round(last * 1.06, 4), "rr": None,
-                        "reason": "當日短線 RSI＋MACD 底背離：動能墊高—永續槓桿『等右側確認』(站回均線/破前高)再進，別左側裸接，看錯立刻停", "feat": {}})
-                for sig in sigs:
-                    sig["reason"] += fnote
-                    n = self._emit(con, session, sym, sig, min_grade, order, token, chat)
-                    if n:
-                        self._cooldown[sym] = now_ts
-                    pushed += n
-            if self.cfg.get("signal_alerts", False) and sym in hmap:   # 持有的找賣點＋頂背離（預設關閉；改用 App 內出場守護）
-                sigs = list(ae.eval_sell(bars, None, ctx))
-                if dv == "top":
-                    sigs.append({"side": "exit", "type": "頂背離(賣點)", "grade": "A",
-                        "price": round(last, 4), "stop": round(last, 4), "target": round(last, 4), "rr": None,
-                        "reason": "當日短線 RSI＋MACD 頂背離：價創新高但動能走弱—持倉留意減碼/止盈/移動停利", "feat": {}})
-                for sig in sigs:
-                    sig["reason"] += fnote
-                    pushed += self._emit(con, session, sym, sig, min_grade, order, token, chat)
         # 全倉爆倉預警：帳戶層級（保命警示，預設保留；--no-crypto-liq 可關）
         avail = load_cmargin()
         if holds and avail > 0 and self.cfg.get("liq_alerts", True):
@@ -348,7 +316,7 @@ class CryptoScanner:
                 sig["reason"] += "｜AI複核：" + v["verdict"] + ("，" + v["note"] if v.get("note") else "")
                 if v["verdict"] == "不建議":
                     allow = False
-        side = {"long": "🟢 加密買點", "exit": "🔴 加密賣點"}.get(sig["side"], sig["side"])
+        side = "⚠️ 全倉爆倉預警" if "爆倉" in sig.get("type", "") else {"long": "🟢 加密買點", "exit": "🔴 加密賣點"}.get(sig["side"], sig["side"])
         msg = (f"<b>{side}・{sym}（{self.source}）</b>　等級 <b>{sig['grade']}</b>\n"
                f"型態：{sig['type']}\n現價 {sig['price']}　停損 {sig['stop']}　目標 {sig['target']}　R:R {sig.get('rr')}\n"
                f"理由：{sig['reason']}\n⚠️ 永續槓桿風險高、可能爆倉；非投資建議，務必設停損。")
