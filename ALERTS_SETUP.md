@@ -88,6 +88,22 @@ python futu_bridge.py --alerts --crypto --crypto-source binance \
 - 換 Bitget：`--crypto-source bitget`。公開行情免 API 金鑰、只讀不下單。⚠️ 永續槓桿可能爆倉，務必設停損。
 - **唯一保留的加密 Telegram 推播＝⚠️ 全倉爆倉預警**：網頁 💼 持股分頁切到「加密永續」，輸入幣種／倉位／進場／槓桿／多空。引擎只算**距估算爆倉價**，緩衝 <15% 自動推 ⚠️ 爆倉預警（減倉/補保證金/降槓桿）。要連這個也關：`--no-crypto-liq`。爆倉價為 isolated 近似，各所階梯保證金不同僅供參考。
 
+### 🔄 自動同步 Bitget 倉位（唯讀，不用再手動輸入）
+不想手動打倉位，可以接 Bitget 私有 API 自動帶入「合約倉位＋真實可用保證金＋未成交掛單」。
+1. Bitget 後台建一把 **API Key**，權限**只勾「唯讀（Read-only）」**——不要勾任何交易/劃轉/提現；建議綁定你跑橋接那台的對外 IP。
+2. 在**跑 `futu_bridge.py` 的那台電腦**設三個環境變數（金鑰只留本機、不經瀏覽器、不會傳給 AI）：
+   ```bash
+   export BITGET_API_KEY="bg_xxx"
+   export BITGET_API_SECRET="xxx"
+   export BITGET_API_PASSPHRASE="你建 key 時設的 passphrase"
+   ```
+   （Windows PowerShell：`$env:BITGET_API_KEY="bg_xxx"` …）
+3. 重啟橋接，啟動訊息會顯示「Bitget：唯讀金鑰已設定」。
+4. 網頁 💼 持股 → 切「加密永續」→ 按 **🔄 同步 Bitget**：自動帶入倉位、用**真實可用保證金**餵爆倉預警、列出未成交掛單（也會進「🩺 持倉診斷」的脈絡）。
+- **非破壞**：手動/幣安的部位預設保留；同所重複時會問你要不要用 Bitget 取代。
+- 自我檢查：`python bitget_private.py`（沒設金鑰會印簽名範例＋提示；設了會試拉一次倉位數）。
+- ⚠️ 唯讀金鑰最壞只會被「看到」倉位，不能下單/提現；但仍請勿截圖外流，外洩就到後台撤銷重建。
+
 ## 績效、自我優化與每日報告
 - **🚨 警示分頁頂部**會顯示績效：已結算筆數、勝率、期望值(R)、獲利因子，分 A/B/C 等級，以及目前市場 regime。
 - **每個交易日收盤後（美東 16:00–20:00）自動跑一次**：
