@@ -283,7 +283,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
 .pane-divider:hover::after{opacity:0;}
 #dragOverlay{position:fixed;inset:0;z-index:190;display:none;}
 #dragOverlay.show{display:block;}
-@media(max-width:920px){
+@media(max-width:920px) and (min-width:641px){
   .splitter-v,.splitter-h{display:none;}
   body{overflow:auto;height:auto;}
   .layout{flex-direction:column;height:auto;}
@@ -294,9 +294,43 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
   .brain{border-right:none;border-bottom:1px solid var(--border);height:520px;}
   .news{width:100%;height:400px;}
 }
+
+/* ===== iPhone / 手機版（≤640px 直向）：底部分頁，一次一個全螢幕，貼合瀏海與底部安全區 ===== */
+.mtabs{display:none;}
+@media(max-width:640px){
+  html,body{height:100dvh;overflow:hidden;}
+  header{position:fixed;top:0;left:0;right:0;z-index:100;height:calc(50px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);box-sizing:border-box;gap:6px;}
+  header h1{font-size:15px;}
+  header h1 .sub{display:none;}
+  header #focusBtn,header .icon-btn[onclick*="bumpScale"]{display:none;}
+  .hud,.disclaimer{display:none!important;}
+  .splitter-v,.splitter-h{display:none!important;}
+  .layout{position:fixed;left:0;right:0;top:calc(50px + env(safe-area-inset-top));bottom:calc(56px + env(safe-area-inset-bottom));display:block;height:auto;}
+  .main,.work{display:contents;}
+  .sidebar,.chart-area,.brain,.news{
+    position:absolute!important;inset:0!important;display:none!important;
+    width:auto!important;max-width:none!important;min-width:0!important;
+    height:auto!important;max-height:none!important;border:none!important;flex-direction:column;}
+  body[data-mtab="watch"] #sidebar,
+  body[data-mtab="chart"] #chartArea,
+  body[data-mtab="brain"] .brain,
+  body[data-mtab="hold"]  #news{display:flex!important;}
+  .watchlist,.feed{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  #news{overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  .chart-host{flex:1 1 auto;min-height:0;}
+  .chart-tools{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;}
+  .mtabs{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:200;background:var(--panel);border-top:1px solid var(--border);
+    height:calc(56px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);}
+  .mtabs button{flex:1;background:none;border:none;color:var(--muted);font-family:inherit;font-size:10.5px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;}
+  .mtabs button .ic{font-size:21px;line-height:1;}
+  .mtabs button.on{color:var(--orange-light);}
+  input,select,textarea{font-size:16px!important;}   /* iOS：≥16px 才不會聚焦時自動放大頁面 */
+}
+
 </style>
 </head>
-<body>
+<body data-mtab="chart">
 <header>
   <div class="logo">窩</div>
   <h1>Trading 大腦 <span class="sub">美股・台股 AI 看盤副駕</span></h1>
@@ -463,6 +497,13 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
 
 <div id="dragOverlay"></div>
 <div class="disclaimer">⚠️ 本工具僅供研究參考，非投資建議。短線槓桿風險高，AI 可能出錯，最終決策與風險由你自行負責，務必設停損。</div>
+
+<nav class="mtabs" id="mtabs" aria-label="手機分頁">
+  <button data-mt="chart" onclick="mobileTab('chart')"><span class="ic">📈</span>圖表</button>
+  <button data-mt="watch" onclick="mobileTab('watch')"><span class="ic">⭐</span>自選</button>
+  <button data-mt="brain" onclick="mobileTab('brain')"><span class="ic">🧠</span>分析</button>
+  <button data-mt="hold" onclick="mobileTab('hold')"><span class="ic">💼</span>持股</button>
+</nav>
 
 <!-- settings modal -->
 <div class="modal-bg" id="settingsModal">
@@ -1940,6 +1981,13 @@ function loadFutuCfg(){ futu.on=localStorage.getItem('wo_futu_on')==='1'; futu.u
 function isUS(sym){ return !!futuCode(sym); }
 function futuCode(sym){ if(!sym)return null; if(/^TWSE:|^TPEX:/.test(sym))return null; if(sym.includes(':')){ const p=sym.split(':'); return ['NASDAQ','NYSE','AMEX','BATS','ARCA'].includes(p[0])?'US.'+p[1]:null; } return 'US.'+sym; }
 function setFutuStatus(ok){ const e=document.getElementById('futuStatus'); if(!e)return; e.className='futu-status '+(ok?'on':'off'); e.textContent=(ok?'🟢':'⚪')+' 富途'+(ok&&futu.version?' v'+futu.version:''); e.title=ok?('富途即時數據｜橋接版本 '+(futu.version||'(舊版，無版本號)')+(futu.bitget?'｜Bitget 金鑰已設定':'｜Bitget 未設金鑰')):'富途即時數據'; }
+/* 手機底部分頁：一次顯示一個全螢幕區塊（圖表/自選/分析/持股）。桌面寬螢幕不受影響。 */
+function mobileTab(name){
+  document.body.dataset.mtab=name;
+  document.querySelectorAll('#mtabs button').forEach(b=>b.classList.toggle('on',b.dataset.mt===name));
+  if(name==='chart'){ setTimeout(()=>{ try{ window.dispatchEvent(new Event('resize')); }catch(e){} }, 80); }   // 圖表由隱藏轉可見時重新量尺寸
+}
+mobileTab(document.body.dataset.mtab||'chart');
 function fmtPct(v){ if(v===null||v===undefined||v==='')return ''; const n=parseFloat(v); return `<span class="${n>=0?'up':'down'}">${n>=0?'+':''}${n}%</span>`; }
 function fmtMoney(v){ if(v===null||v===undefined||v==='')return '—'; const n=Math.round(parseFloat(v)); return `<span class="${n>=0?'up':'down'}">${n>=0?'+':'-'}$${Math.abs(n).toLocaleString()}</span>`; }
 async function futuFetch(path){ const r=await fetch(futu.url.replace(/\/$/,'')+path,{headers:{'X-Token':futu.token}}); if(!r.ok) throw new Error('bridge '+r.status); return r.json(); }
