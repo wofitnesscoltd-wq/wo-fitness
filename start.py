@@ -54,7 +54,8 @@ def main():
     print("=" * 56)
     ensure_deps()
     first_run_setup()
-    cmd = [sys.executable, os.path.join(HERE, "futu_bridge.py"), "--alerts", "--crypto"]
+    # 預設開 --lan：手機同 WiFi 就能連（端點都有 Token 保護）。啟動訊息會印出手機用的網址。
+    cmd = [sys.executable, os.path.join(HERE, "futu_bridge.py"), "--alerts", "--crypto", "--lan"]
     if len(sys.argv) > 1:                       # 允許附加參數，如 --firm FUTUINC
         cmd += sys.argv[1:]
     print("• 啟動橋接＋警示引擎…（Ctrl+C 結束）")
