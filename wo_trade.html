@@ -1632,8 +1632,36 @@ function futuLiveStr(){
 function ctx(){
   return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?tkr(current)+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>tkr(x.s)).join('、')}。`+futuLiveStr()+holdingsLiveStr();
 }
+/* 關注清單即時報價快照：餵給 AI 做「市場溫度／強勢選股」時用真實漲跌，
+   避免它靠 web 搜尋或記憶亂編數字（例如把今天 +2% 的 MSFT 說成 -3%）。 */
+function wlSnapshot(){
+  if(!futu.connected) return '';
+  const list=lists['us']||[];
+  if(!list.length) return '';
+  const groups={}; list.forEach(it=>{ const s=getSector(it.s); (groups[s]=groups[s]||[]).push(it); });
+  const sess=usSession();
+  const sessLbl={pre:'盤前',regular:'盤中',after:'盤後',closed:'夜盤/週末休市'}[sess]||'盤中';
+  const fmt=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2)+'%';
+  const names=Object.keys(groups).sort((a,b)=>(SECTOR_ORDER.indexOf(a)+1||99)-(SECTOR_ORDER.indexOf(b)+1||99));
+  const lines=[]; let upN=0,dnN=0,n=0;
+  names.forEach(s=>{
+    const secVals=[];
+    const parts=groups[s].map(it=>{
+      const q=futu.quotes[futuCode(it.s)];
+      const chg=q&&q.change_rate!=null?q.change_rate:null;
+      const px=q&&q.last!=null?q.last:null;
+      const ext=wlExt(q);
+      if(chg!=null){ secVals.push(chg); if(chg>=0)upN++;else dnN++; n++; }
+      return `${tkr(it.s)} ${px!=null?px:'—'}(${fmt(chg)}${ext!=null?'，'+sessLbl+fmt(ext):''})`;
+    });
+    const avg=avgList(secVals);
+    lines.push(`・${s}${avg!=null?'（板塊均'+fmt(avg)+'）':''}：${parts.join('、')}`);
+  });
+  if(!n) return '';
+  return `\n【我的關注清單・即時報價快照（來源：牛牛/富途，盤別=${sessLbl}；做「我的關注清單點評」與「市場廣度」時，務必『以這份實際漲跌為準』，不要用 web 搜尋或記憶中的舊數字）｜清單廣度：上漲 ${upN} / 下跌 ${dnN}（共 ${n} 檔有報價）】\n`+lines.join('\n')+'\n';
+}
 function marketCtx(){
-  return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>tkr(x.s)).join('、')}。`+futuLiveStr()+holdingsLiveStr();
+  return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>tkr(x.s)).join('、')}。`+wlSnapshot()+futuLiveStr()+holdingsLiveStr();
 }
 
 /* ---------- 盤面導讀 → 研究方向 ---------- */
@@ -1652,13 +1680,13 @@ S&P500、那斯達克、道瓊、費半SOX、羅素2000小型股 的收盤價、
 ## 市場溫度（跨資產）
 逐項給數值＋方向＋時間：VIX與期限結構、MOVE、信用利差、10Y、2Y、殖利率曲線、DXY、油價WTI、銅金比、黃金、USDJPY、比特幣。
 ## 市場廣度
-騰落 / %站上50或200日均線 / RSP-SPY，有無背離。
+騰落 / %站上50或200日均線 / RSP-SPY，有無背離。**我關注清單的即時廣度（上漲/下跌家數、板塊均值）以上方「即時報價快照」為準。**
 ## 結論與下週展望
 **風險評分：進攻 / 中性 / 防禦** ＋「建議槓桿上限」＋一句理由；若休市，加「下一個交易日/下週最可能的走勢與觸發條件」。
 ## 資金輪動 / 板塊（多週期）
 三個時間框排序11大類股相對SPY：短(5日/20日)、中(1–3月)、長(6–12月)；標出領先、轉強中、是否對齊、**下週最可能輪到的板塊＋理由**(循環位置＋溫度＋intermarket＋近1–2週催化劑)。
 ## 我的關注清單點評
-針對我關注清單裡的個股，逐檔(或挑重點)點評它在此大盤/板塊環境下的相對強弱與位階。`,{maxTokens:4500});
+**務必使用上方「即時報價快照」裡的實際漲跌與板塊均值**（那是牛牛即時數據，不是你記憶或 web 搜到的）。逐檔(或挑重點)點評它在此大盤/板塊環境下的相對強弱與位階。若你的總體判讀（如 risk-off）跟快照的實際漲跌方向相反，先明講矛盾與原因（例如「漲但量縮/背離、僅反彈」），**不可直接套用記憶中的舊行情**（例如快照顯示 MSFT +2% 就不能寫成 -3%）。`,{maxTokens:4500});
     tp.remove(); addBubble(md(txt),'ai');
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
