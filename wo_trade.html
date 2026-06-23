@@ -1560,14 +1560,23 @@ function todayStr(){ return new Date().toLocaleDateString('zh-TW'); }
 function nowStr(){ const d=new Date(); const wk=['日','一','二','三','四','五','六'][d.getDay()]; return d.toLocaleString('zh-TW',{hour12:false})+`（週${wk}）`; }
 function isWeekend(){ const g=new Date().getDay(); return g===0||g===6; }
 
-async function callClaude(userText, {json=false, maxTokens=3000}={}){
+/* ---------- 對話記憶：讓追問（例如「左側分析上面那些股」）能接續上文，不再每則都從零開始 ---------- */
+let chatHistory=[];
+function recordTurn(userContent, assistantContent){
+  if(!assistantContent) return;
+  chatHistory.push({role:'user',content:String(userContent).slice(0,8000)});
+  chatHistory.push({role:'assistant',content:String(assistantContent).slice(0,12000)});
+  if(chatHistory.length>8) chatHistory=chatHistory.slice(-8);   // 最多帶最近 4 來回，避免無限膨脹
+}
+function clearChatMemory(){ chatHistory=[]; }
+async function callClaude(userText, {json=false, maxTokens=3000, history=null}={}){
   const key=localStorage.getItem('wo_key');
   if(!key){ openSettings(); throw new Error('請先在 ⚙ 設定你的 Anthropic API 金鑰'); }
   const model=localStorage.getItem('wo_model')||'claude-opus-4-8';
   const body={
     model, max_tokens:maxTokens,
     system:SYSTEM+`\n（現在是使用者當地時間 ${nowStr()}。請以此為「現在」，並用 web 搜尋確認美股最新交易日收盤與目前休市/開盤狀態；務必在輸出最上面標一行【資料截至：日期 週X 時間／美股狀態】，每個數據與新聞都附其時間點。${isWeekend()?'今天是週末、美股休市：請做「收盤回顧＋下週展望與預測」，不要假裝盤中即時。':''}）`+(json?'\n本次請「只」輸出我要求的 JSON，不要任何多餘文字（JSON 內含 as_of 欄位放資料截至時間）。':''),
-    messages:[{role:'user',content:userText}],
+    messages:(history&&history.length?history.concat([{role:'user',content:userText}]):[{role:'user',content:userText}]),
     tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}]
   };
   currentAbort=new AbortController();
@@ -1630,7 +1639,7 @@ function futuLiveStr(){
   return live;
 }
 function ctx(){
-  return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?tkr(current)+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>tkr(x.s)).join('、')}。`+futuLiveStr()+holdingsLiveStr();
+  return `目前市場：${region==='us'?'美股':'台股'}。使用者正在看的標的：${current?tkr(current)+(currentName?'（'+currentName+'）':''):'（未指定）'}。關注清單：${lists[region].map(x=>tkr(x.s)).join('、')}。`+(region==='us'?wlSnapshot():'')+futuLiveStr()+holdingsLiveStr();
 }
 /* 關注清單即時報價快照：餵給 AI 做「市場溫度／強勢選股」時用真實漲跌，
    避免它靠 web 搜尋或記憶亂編數字（例如把今天 +2% 的 MSFT 說成 -3%）。 */
@@ -1688,6 +1697,7 @@ S&P500、那斯達克、道瓊、費半SOX、羅素2000小型股 的收盤價、
 ## 我的關注清單點評
 **務必使用上方「即時報價快照」裡的實際漲跌與板塊均值**（那是牛牛即時數據，不是你記憶或 web 搜到的）。逐檔(或挑重點)點評它在此大盤/板塊環境下的相對強弱與位階。若你的總體判讀（如 risk-off）跟快照的實際漲跌方向相反，先明講矛盾與原因（例如「漲但量縮/背離、僅反彈」），**不可直接套用記憶中的舊行情**（例如快照顯示 MSFT +2% 就不能寫成 -3%）。`,{maxTokens:4500});
     tp.remove(); addBubble(md(txt),'ai');
+    recordTurn('（市場溫度掃描：跨資產＋板塊輪動＋我的關注清單點評）', txt);
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
 }
@@ -1719,6 +1729,7 @@ async function marketBrief(){
         if(ab) ab.onclick=()=>{ addToWatch(sym,d.title); ab.textContent='✓ 已加入'; ab.disabled=true; };
         feed().appendChild(card); feed().scrollTop=feed().scrollHeight;
       });
+      recordTurn('（強勢選股：挑出值得短線研究的方向）', '我挑出的方向：'+dirs.map(d=>d.title+(d.why?'（'+d.why+'）':'')).join('；'));
     }else{
       addBubble(md(txt),'ai');
     }
@@ -1784,8 +1795,9 @@ async function positionDoctor(){
 - **投組層級**：淨偏多方向對不對、整體淨槓桿要不要降、全倉緩衝夠不夠撐過我不看盤的時段、要不要先落袋到提取門檻。
 - 全程在我的手法框架內，尊重紀律規則。
 
-用 Markdown：先「## 大盤＆投組總評」，再每個部位一段「## 代號 方向（趨勢腿/保險腿）」，最後「## 今天就執行的 3 件事」。粗體標關鍵價位與動作，精簡可執行。`,{maxTokens:6000});
+用 Markdown：先「## 大盤＆投組總評」，再每個部位一段「## 代號 方向（趨勢腿/保險腿）」，最後「## 今天就執行的 3 件事」。粗體標關鍵價位與動作，精簡可執行。`,{maxTokens:6000,history:chatHistory});
     tp.remove(); addBubble(md(txt),'ai');
+    recordTurn('（持倉診斷：逐倉＋投組層級體檢我所有部位）', txt);
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
 }
@@ -1837,8 +1849,9 @@ ${multi?'每一檔分開、各自用「## 代號 名稱」當標題分段，每�
 - 短線計畫：進場區、停損、目標、風險報酬比、建議部位(考量我的購買力與持股)、屬當沖/隔日沖/短波段；若美股休市以下一交易日/下週為進場時點並說明觸發條件
 - 風險：會讓你立刻出場的訊號
 ${multi?'最後加「## 綜合比較」：這幾檔裡現在最值得短線的排序與理由。':''}
-數據已附齊，請直接給出可執行結論，**不要列一串叫我去 TradingView 抓數據**（軟體已有即時圖與指標）。`,{maxTokens:multi?5000:3500});
+數據已附齊，請直接給出可執行結論，**不要列一串叫我去 TradingView 抓數據**（軟體已有即時圖與指標）。`,{maxTokens:multi?5000:3500,history:chatHistory});
     tp.remove(); addBubble(md(txt),'ai');
+    recordTurn('（個股分析）對這些股做逐檔分析：'+namesStr+'。\n當下即時技術數據：'+snaps, txt);
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   setBusy(false);
 }
@@ -1860,8 +1873,9 @@ async function deepResearch(title,why){
 3. 具體短線操作計畫：進場區間、停損價、目標價、風險報酬比、建議部位大小、屬於（當沖/隔日沖/短波段）
 4. 風險與會讓你立刻出場的訊號
 請直接定進出場；**不要列一串叫我去 TradingView 抓數據**（軟體已有即時圖與指標，缺特定數字才簡短說明）。
-用 Markdown，標題用 ##，重點用粗體，精簡。`,{maxTokens:3500});
+用 Markdown，標題用 ##，重點用粗體，精簡。`,{maxTokens:3500,history:chatHistory});
     tp.remove(); addBubble(md(txt),'ai');
+    recordTurn('（深入研究：'+title+'）', txt);
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   busy=false;
 }
@@ -1873,9 +1887,15 @@ async function sendChat(){
   inp.value=''; inp.style.height='auto';
   addBubble(q.replace(/</g,'&lt;'),'user');
   busy=true; const tp=addTyping();
+  // 追問也帶技術快照（問題裡提到的代號），加上對話記憶＋禁止再叫使用者去 TradingView
+  let snaps='';
+  if(futu.connected){ const m=(q.toUpperCase().match(/\b[A-Z]{1,5}\b/g)||[]); const seen={}; for(const t of m){ if(seen[t]||!isUS(t))continue; seen[t]=1; try{ const s=await techSnapshot(t); if(s) snaps+=s; }catch(e){} } }
   try{
-    const txt=await callClaude(`${ctx()}\n使用者問：${q}\n請用最新資料回答；若牽涉進出場，附上進場/停損/目標/部位/風險。`,{maxTokens:3000});
+    const txt=await callClaude(`${ctx()}${snaps?'\n【系統已用牛牛即時 K 線算好下列報價與技術指標，直接採用，別叫我去 TradingView 抓】'+snaps+'\n':''}
+使用者問：${q}
+請接續上文脈絡回答——若問題提到「上面/那些股/這些」等，指的是先前已分析過的那些標的（不是只看我現在開著的那一檔）。用最新資料；若牽涉進出場，附上進場/停損/目標/部位/風險。系統已有即時圖與指標，**不要列一串叫我去 TradingView 抓數據**；缺特定數字才簡短指出缺哪一個。`,{maxTokens:3500,history:chatHistory});
     tp.remove(); addBubble(md(txt),'ai');
+    recordTurn(q, txt);
   }catch(e){ tp.remove(); addBubble('⚠️ '+e.message,'ai'); }
   busy=false;
 }
