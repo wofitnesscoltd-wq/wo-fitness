@@ -531,12 +531,11 @@ def start_crypto():
            "anthropic_key": ai_key, "ai_model": ARGS.ai_model,
            "min_move": max(ARGS.min_move, 0.06), "min_rr": max(ARGS.min_rr, 1.8),
            "min_rvol": max(ARGS.min_rvol, 0.8),
-           "signal_alerts": ARGS.crypto_alerts, "liq_alerts": not ARGS.no_crypto_liq}
+           "liq_alerts": not ARGS.no_crypto_liq}
     CRYPTO = crypto_mod.CryptoScanner(cfg)
     CRYPTO.start()
-    _sa = "開" if ARGS.crypto_alerts else "關（預設，--crypto-alerts 可開）"
     _la = "關" if ARGS.no_crypto_liq else "開"
-    print(f"  加密監測: 已啟動（{ARGS.crypto_source}）24h　幣種 {syms or '預設主流幣'}　訊號警示:{_sa}　爆倉預警:{_la}")
+    print(f"  加密監測: 已啟動（{ARGS.crypto_source}）24h　幣種 {syms or '預設主流幣'}　買賣點推播:已移除　爆倉預警:{_la}")
 
 
 def main():
@@ -566,7 +565,7 @@ def main():
     p.add_argument("--crypto", action="store_true", help="同時啟動 24h 加密永續監測")
     p.add_argument("--crypto-source", default="binance", choices=["binance", "bitget"], help="加密行情來源")
     p.add_argument("--crypto-symbols", default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT", help="監測幣種，逗號分隔")
-    p.add_argument("--crypto-alerts", action="store_true", help="開啟加密買賣點/背離推播（預設關閉，太吵）")
+    p.add_argument("--crypto-alerts", action="store_true", help="（已停用）加密買賣點推播已永久移除；此旗標保留為相容用，無作用")
     p.add_argument("--no-crypto-liq", action="store_true", help="連加密『全倉爆倉預警』也關掉（預設保留這個保命警示）")
     ARGS = p.parse_args()
     if ARGS.lan:
