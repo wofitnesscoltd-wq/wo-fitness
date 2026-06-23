@@ -43,6 +43,9 @@ try:
 except Exception:
     bitget_mod = None
 
+# 橋接版本：每次改 .py 都會 bump。網頁與啟動橫幅都會顯示，方便確認本機程式有沒有更新到。
+BRIDGE_VERSION = "2026.06.24"
+
 ARGS = None
 QUOTE = None
 TRD = None
@@ -312,7 +315,8 @@ class Handler(BaseHTTPRequestHandler):
                 get_quote()
             except Exception as e:
                 ok = False
-            self._json({"ok": True, "futu": ok})
+            self._json({"ok": True, "futu": ok, "version": BRIDGE_VERSION,
+                        "bitget": bool(bitget_mod and bitget_mod.configured())})
             return
 
         if not self._check_token(q):
@@ -602,6 +606,7 @@ def main():
 
     print("=" * 56)
     print(" 窩 Trading 大腦 — 富途數據橋接（只讀）")
+    print(f"  版本     : {BRIDGE_VERSION}")
     print("=" * 56)
     print(f"  本機網址 : http://127.0.0.1:{ARGS.port}")
     if ARGS.host == "0.0.0.0":
