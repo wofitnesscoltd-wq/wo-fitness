@@ -2398,15 +2398,31 @@ function renderJournalCard(list){
 function fishOn(){ return localStorage.getItem('wo_fish')!=='0'; }
 function toggleFish(){ localStorage.setItem('wo_fish', fishOn()?'0':'1'); forceRenderPositions?forceRenderPositions():renderPositions(); }
 const PURE_CRYPTO=new Set(['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','LTC','BCH','DOT','MATIC','POL','TRX','TON','NEAR','APT','ARB','OP','SUI','SEI','PEPE','WIF','INJ','TIA','RUNE','FIL','ATOM','ETC','UNI','AAVE','HBAR','ICP']);
-/* 動能判讀用的日K：代幣化美股永續→用真實個股(週間較具代表性)，純幣→幣價，現股→個股 */
+/* 動能判讀用的日K：代幣化美股永續→用真實個股(週間較具代表性)，純幣→幣價，現股→個股。
+   日K一天才變一根→快取 3 小時，大幅省牛牛歷史K額度；抓失敗就沿用上次成功的，避免燈號閃掉。 */
+let _momBars={};
 async function momBars(sym){
   const cs=cryptoChartSym(sym);
+  let fkey, fetcher;
   if(cs){ const base=cs.replace('USDT','');
-    if(!PURE_CRYPTO.has(base)){ try{ const r=await futuFetch('/kline?code=US.'+base+'&ktype=day&num=200&live=0'); const k=(r.kline||[]).filter(b=>b.close!=null); if(k.length>=60) return k; }catch(e){} }
-    const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'); return (r.kline||[]).filter(b=>b.close!=null);
+    if(!PURE_CRYPTO.has(base)){
+      fkey='US.'+base;
+      fetcher=async()=>{ const r=await futuFetch('/kline?code=US.'+base+'&ktype=day&num=200&live=0'); const k=(r.kline||[]).filter(b=>b.close!=null); if(k.length>=60) return k;
+        const r2=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'); return (r2.kline||[]).filter(b=>b.close!=null); };
+    } else { fkey=cs;
+      fetcher=async()=>{ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'); return (r.kline||[]).filter(b=>b.close!=null); };
+    }
+  } else {
+    const code=futuCode(sym); if(!code) return [];
+    fkey=code;
+    fetcher=async()=>{ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=200&live=0'); return (r.kline||[]).filter(b=>b.close!=null); };
   }
-  const code=futuCode(sym); if(!code) return [];
-  const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=200&live=0'); return (r.kline||[]).filter(b=>b.close!=null);
+  const now=Date.now(), hit=_momBars[fkey];
+  if(hit && hit.bars.length && now-hit.t<10800000) return hit.bars;   // 命中 3 小時快取
+  let bars=[]; try{ bars=await fetcher(); }catch(e){}
+  if(bars.length){ _momBars[fkey]={bars,t:now}; return bars; }
+  if(hit && hit.bars.length) return hit.bars;                          // 這次抓失敗→沿用上次成功的，燈號不閃掉
+  return bars;
 }
 function curDiv(bars,rs,hist,w=5){
   const c=bars.map(b=>b.close), n=c.length, cur=n-1, lb=Math.max(0,cur-w);
@@ -2440,17 +2456,18 @@ let fishCache={};
 async function updateFishStates(){
   const els=document.querySelectorAll('#posList .fishb'); if(!els.length) return;
   if(!fishOn()){ els.forEach(e=>e.style.display='none'); return; }
-  if(!futu.connected) return;
+  if(!futu.connected){ els.forEach(e=>{ e.textContent='· 連牛牛後顯示'; e.title='出場守護要連牛牛橋接（用日線動能）'; e.style.color='var(--muted-2)'; e.style.display=''; }); return; }
   const now=Date.now();
   for(const el of els){
     const sym=el.dataset.fsym, side=el.dataset.fside||'', key=sym+'|'+side;
     let cached=fishCache[key];
-    if(!cached || now-cached.t>180000){
+    const stale = !cached || (cached.st ? now-cached.t>180000 : now-cached.t>30000);   // 成功快取3分鐘；沒資料只快取30秒，盡快重試
+    if(stale){
       let bars=[]; try{ bars=await momBars(sym); }catch(e){}
       fishCache[key]={st:fishState(bars,side), t:now}; cached=fishCache[key];
     }
-    if(cached.st){ el.textContent=cached.st.t; el.title='魚身狀態：'+cached.st.r+'（日線動能；代幣化美股永續用真實個股）'; el.style.display=''; }
-    else el.style.display='none';
+    if(cached.st){ el.textContent=cached.st.t; el.title='魚身狀態：'+cached.st.r+'（日線動能；代幣化美股永續用真實個股）'; el.style.color=''; el.style.display=''; }
+    else { el.textContent='· 動能載入中…'; el.title='正在抓日線動能（牛牛歷史K）。若一直空白：多半是牛牛歷史K額度/速率限制，或該標的沒美股行情權限。'; el.style.color='var(--muted-2)'; el.style.display=''; }
   }
 }
 function renderPositions(){
