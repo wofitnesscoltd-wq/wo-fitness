@@ -1626,15 +1626,27 @@ async function callClaude(userText, {json=false, maxTokens=3000, history=null}={
   };
   currentAbort=new AbortController();
   const stopB=document.getElementById('stopBtn'); if(stopB) stopB.style.display='inline-block';
+  const BACKOFF=[1200,3000,6000,10000];   // 529過載/429限流/5xx：自動退避重試，不要一次就把錯誤丟到使用者臉上
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify(body), signal:currentAbort.signal
-    });
-    if(!res.ok){ const t=await res.text(); throw new Error('API 錯誤 '+res.status+'：'+t.slice(0,300)); }
-    const data=await res.json();
-    return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+    for(let attempt=0;;attempt++){
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify(body), signal:currentAbort.signal
+      });
+      if(res.ok){ const data=await res.json(); return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim(); }
+      const status=res.status; const t=await res.text();
+      const retryable=(status===429||status===529||status>=500);
+      if(retryable && attempt<BACKOFF.length){
+        const ra=parseInt(res.headers.get('retry-after')||'0',10);
+        await new Promise(r=>setTimeout(r, ra>0?ra*1000:BACKOFF[attempt]));
+        if(currentAbort.signal.aborted) throw new Error('⏹ 已停止');
+        continue;
+      }
+      if(status===529) throw new Error('Anthropic 伺服器忙線中（529 過載），自動重試多次仍滿載。這是對方 server 的暫時尖峰，過 10–30 秒再按一次即可。');
+      if(status===429) throw new Error('Anthropic 速率限制（429）。稍等一下再按，或到 ⚙ 設定改用 Sonnet/Haiku 較不易塞。');
+      throw new Error('API 錯誤 '+status+'：'+t.slice(0,300));
+    }
   }catch(e){
     if(e.name==='AbortError') throw new Error('⏹ 已停止');
     throw e;
