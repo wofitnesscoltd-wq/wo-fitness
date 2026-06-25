@@ -2026,6 +2026,7 @@ async function pollFutu(){
   // 自選清單只有改變時才推給橋接（不必每輪重送）
   try{ const wc=lists['us'].map(x=>futuCode(x.s)).filter(Boolean).join(','); if(wc && wc!==pollFutu._lastWatch){ futuFetch('/setwatch?codes='+encodeURIComponent(wc)); pollFutu._lastWatch=wc; } }catch(e){}
   pushHoldings(); pushCryptoHoldings(); pushCMargin(); await pollCrypto();
+  bitgetAutoSync();        // 背景把加密倉位拉到跟 Bitget 一致（自帶 60s 節流；只在橋接設了金鑰時動作）
   checkAutoClose();
   renderPositions(); updateCurQuote(); maybeSwitchChart();
   if(futu.tab==='alert') renderAlerts();
@@ -2103,6 +2104,30 @@ function pushCryptoHoldings(){
 /* Bitget 唯讀同步：自動帶入真實合約倉位＋可用保證金＋掛單。
    非破壞合併：只替換上次同步進來的 src='bitget' 部位；手動/幣安部位預設保留（同所重複會問你）。 */
 let bitgetOrders = [];
+/* 把 Bitget 同步結果套進畫面：非破壞合併（只換 src='bitget' 的部位，手動/幣安保留），更新可用保證金與掛單。手動同步與背景自動同步共用。 */
+function applyBitgetData(r, dropManual){
+  cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');
+  if(dropManual) cryptoHoldings = [];
+  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq}); });
+  saveCryptoHoldings();
+  if(r.account && r.account.avail!=null) setCMargin(r.account.avail);
+  bitgetOrders = r.orders||[];
+}
+/* 背景自動同步：橋接有設 Bitget 金鑰時，每 ~60s 靜默把畫面上的加密倉位拉到跟交易所一致（不跳確認、不發泡泡、永不清手動）。 */
+let _bitgetAutoLast=0;
+async function bitgetAutoSync(){
+  if(!futu.connected || !futu.bitget) return;
+  const now=Date.now(); if(now-_bitgetAutoLast<60000) return; _bitgetAutoLast=now;
+  try{
+    const r=await futuFetch('/bitgetsync');
+    if(!r || r.configured===false || r.error) return;
+    const sig=a=>JSON.stringify(a.filter(h=>h.src==='bitget').map(h=>[h.s,h.side,+(+h.q).toFixed(6),h.e]));
+    const before=sig(cryptoHoldings);
+    applyBitgetData(r, false);
+    if(before!==sig(cryptoHoldings)) await pollCrypto();   // 倉位真的變了才重抓報價
+    renderPositions();
+  }catch(e){}
+}
 async function syncBitget(){
   if(!futu.connected){ addBubble('🔄 要先連上牛牛橋接（右上角綠燈）才能同步 Bitget——金鑰是存在橋接那台電腦上。','ai'); return; }
   if(!futu.version){ addBubble('🔄 你電腦上的<b>橋接是舊版</b>（沒有版本號、也沒有同步功能）。請更新資料夾裡的 <code>.py</code> 檔（下載最新 ZIP 覆蓋）再重開 start.bat，右上角會顯示版本後再按同步。','ai'); return; }
@@ -2125,15 +2150,8 @@ async function syncBitget(){
     if(cryptoHoldings.some(h=>h.src!=='bitget')){
       dropManual=confirm('要用 Bitget 即時同步「取代」你目前手動輸入的加密部位嗎？\n\n● 確定＝清掉手動加密部位，改用 Bitget（同一個交易所建議這樣，避免重複計算）。\n● 取消＝保留手動部位（你手動那些是幣安等其他交易所的部位時選這個）。');
     }
-    cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');   // 移除上次的 bitget 部位
-    if(dropManual) cryptoHoldings = [];                            // 使用者同意才清手動
-    poss.forEach(p=>{
-      const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l));
-      cryptoHoldings.push({s:p.sym, q:p.size, e:p.entry, l, side:p.side, m, src:'bitget', liq:p.liq});
-    });
-    saveCryptoHoldings();
-    if(r.account && r.account.avail!=null) setCMargin(r.account.avail);   // 真實可用保證金 → 餵爆倉預警
-    bitgetOrders = r.orders||[];
+    applyBitgetData(r, dropManual);
+    _bitgetAutoLast=Date.now();          // 手動剛同步過，背景自動同步稍後再跑
     await pollCrypto(); renderPositions();
     const avail=(r.account&&r.account.avail!=null)?Math.round(r.account.avail).toLocaleString()+' USDT':'—';
     let ordTxt='';
