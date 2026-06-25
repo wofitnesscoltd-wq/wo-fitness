@@ -2504,6 +2504,10 @@ function renderPositions(){
   { const fb=document.createElement('div'); fb.style.cssText='padding:5px 10px;margin:0 0 6px;font-size:11px;border-radius:7px;cursor:pointer;border:1px solid var(--border);background:var(--panel-2);color:'+(fishOn()?'var(--text)':'var(--muted)');
     fb.innerHTML='🐟 出場守護 <b>'+(fishOn()?'開':'關')+'</b> <span style="color:var(--muted)">'+(fishOn()?'· 每個部位顯示 魚身🟢/轉弱🟡/魚尾🔴，幫你判斷動能是否到底':'· 點開來顯示魚身/魚尾燈號')+'</span>';
     fb.onclick=toggleFish; list.appendChild(fb); }
+  if(futu.bitget){ const sb=document.createElement('button'); sb.id='bitgetSyncTop';
+    sb.style.cssText='width:100%;padding:7px 10px;margin:0 0 6px;font-size:11.5px;border-radius:7px;cursor:pointer;border:1px solid var(--orange);background:var(--panel-2);color:var(--orange-light);font-family:inherit';
+    sb.innerHTML='🔄 同步 Bitget　<span style="color:var(--muted)">已連線·每分鐘自動同步，點此立刻同步</span>';
+    sb.onclick=()=>syncBitget(); list.appendChild(sb); }
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
     const exp=localStorage.getItem('wo_sumexp')==='1';
