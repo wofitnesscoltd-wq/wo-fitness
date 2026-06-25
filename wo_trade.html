@@ -2116,7 +2116,7 @@ function applyBitgetData(r, dropManual){
 /* 背景自動同步：橋接有設 Bitget 金鑰時，每 ~60s 靜默把畫面上的加密倉位拉到跟交易所一致（不跳確認、不發泡泡、永不清手動）。 */
 let _bitgetAutoLast=0;
 async function bitgetAutoSync(){
-  if(!futu.connected || !futu.bitget) return;
+  if(!futu.connected || futu.bitget===false) return;   // undefined=舊版橋接沒回報→仍嘗試；false=明確未設金鑰→跳過
   const now=Date.now(); if(now-_bitgetAutoLast<60000) return; _bitgetAutoLast=now;
   try{
     const r=await futuFetch('/bitgetsync');
@@ -2130,7 +2130,6 @@ async function bitgetAutoSync(){
 }
 async function syncBitget(){
   if(!futu.connected){ addBubble('🔄 要先連上牛牛橋接（右上角綠燈）才能同步 Bitget——金鑰是存在橋接那台電腦上。','ai'); return; }
-  if(!futu.version){ addBubble('🔄 你電腦上的<b>橋接是舊版</b>（沒有版本號、也沒有同步功能）。請更新資料夾裡的 <code>.py</code> 檔（下載最新 ZIP 覆蓋）再重開 start.bat，右上角會顯示版本後再按同步。','ai'); return; }
   const btn=document.getElementById('bitgetSyncBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ 同步中…'; }
   try{
     let r;
@@ -2504,7 +2503,7 @@ function renderPositions(){
   { const fb=document.createElement('div'); fb.style.cssText='padding:5px 10px;margin:0 0 6px;font-size:11px;border-radius:7px;cursor:pointer;border:1px solid var(--border);background:var(--panel-2);color:'+(fishOn()?'var(--text)':'var(--muted)');
     fb.innerHTML='🐟 出場守護 <b>'+(fishOn()?'開':'關')+'</b> <span style="color:var(--muted)">'+(fishOn()?'· 每個部位顯示 魚身🟢/轉弱🟡/魚尾🔴，幫你判斷動能是否到底':'· 點開來顯示魚身/魚尾燈號')+'</span>';
     fb.onclick=toggleFish; list.appendChild(fb); }
-  if(futu.bitget){ const sb=document.createElement('button'); sb.id='bitgetSyncTop';
+  if(futu.connected && futu.bitget!==false){ const sb=document.createElement('button'); sb.id='bitgetSyncTop';
     sb.style.cssText='width:100%;padding:7px 10px;margin:0 0 6px;font-size:11.5px;border-radius:7px;cursor:pointer;border:1px solid var(--orange);background:var(--panel-2);color:var(--orange-light);font-family:inherit';
     sb.innerHTML='🔄 同步 Bitget　<span style="color:var(--muted)">已連線·每分鐘自動同步，點此立刻同步</span>';
     sb.onclick=()=>syncBitget(); list.appendChild(sb); }
