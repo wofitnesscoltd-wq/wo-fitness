@@ -2116,7 +2116,8 @@ function applyBitgetData(r, dropManual){
   (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl}); });
   saveCryptoHoldings();
   bitgetAcct = (r.account&&r.account.equity!=null)?r.account:null;
-  if(r.account && r.account.avail!=null) setCMargin(r.account.avail);
+  if(bitgetAcct){ const used=cryptoHoldings.reduce((a,h)=>a+(h.m||(h.q*h.e/(h.l||1))),0); setCMargin(Math.round((bitgetAcct.equity-used)*100)/100); }  // 餵橋接爆倉用的可用=權益−已用，讓引擎的權益≈交易所真實值
+  else if(r.account && r.account.avail!=null) setCMargin(r.account.avail);
   bitgetOrders = r.orders||[];
 }
 /* 背景自動同步：橋接有設 Bitget 金鑰時，每 ~60s 靜默把畫面上的加密倉位拉到跟交易所一致（不跳確認、不發泡泡、永不清手動）。 */
@@ -2189,11 +2190,11 @@ function pushCMargin(){ if(!futu.connected||!bridgeSynced) return; try{ futuFetc
 function cryptoSummary(){
   let gross=0,net=0,upnl=0,used=0,priced=0;
   cryptoHoldings.forEach(h=>{ const live=cMark(h); const px=live||h.e; if(live!=null)priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; const u=cUpnl(h); upnl+=(u!=null?u:0); used+=(h.m||(h.q*h.e/(h.l||1))); });
-  let avail=getCMargin(), equity;
-  if(bitgetAcct && bitgetAcct.equity!=null){ equity=bitgetAcct.equity; if(bitgetAcct.avail!=null)avail=bitgetAcct.avail; used=Math.max(0,equity-avail); }  // 有交易所真實權益就用它，不再用 可用+已用 推估
-  else equity=avail+used;
+  let avail, equity, balance;
+  if(bitgetAcct && bitgetAcct.equity!=null){ equity=bitgetAcct.equity; avail=Math.max(0,equity-used); balance=equity-upnl; }  // 權益用交易所真實值；可用=權益−已用(超用就是0)；錢包=權益−未實現
+  else { avail=getCMargin(); equity=avail+used; balance=equity-upnl; }
   const maint=0.005*gross, an=Math.abs(net);
-  return {gross,net:an,upnl,equity,used,avail,priced,
+  return {gross,net:an,upnl,equity,used,avail,balance,priced,
     grossLev: equity>0?gross/equity:0, netLev: equity>0?an/equity:0,
     buffer: (an>1&&equity>maint)?(equity-maint)/an*100:(an<=1?null:0)};
 }
@@ -2527,14 +2528,16 @@ function renderPositions(){
         <span style="color:var(--muted-2);flex:0 0 auto">${exp?'▴':'▾'}</span></div>`;
     let body='';
     if(exp){
-      body=`<input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin:8px 0">
+      const upnlTxt=(sm.upnl>=0?'+$':'-$')+Math.abs(Math.round(sm.upnl)).toLocaleString();
+      body=`${bitgetAcct?'':`<input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin:8px 0">`}
       <div style="font-size:12px;line-height:1.8">
-        帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">= 可用 $${Math.round(sm.avail)} ＋ 已用保證金 $${Math.round(sm.used)}</span><br>
+        帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">（錢包 $${Math.round(sm.balance).toLocaleString()} ＋ 未實現 ${upnlTxt}）</span><br>
+        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · Bitget 即時':''}</span><br>
         總名目 $${Math.round(sm.gross).toLocaleString()}　淨曝險 $${Math.round(sm.net).toLocaleString()}<br>
         整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b>　淨 ${sm.netLev.toFixed(1)}x<br>
         距全倉爆倉緩衝 <b style="color:${bufCol}">${bufTxt}</b><span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
       </div>
-      ${getCMargin()<=0?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
+      ${(!bitgetAcct && getCMargin()<=0)?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
     }
     card.innerHTML=head+body;
     list.appendChild(card);
