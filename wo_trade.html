@@ -67,6 +67,10 @@ header .spacer{margin-left:auto;}
 .tpsl-row .tpsl-save{background:var(--orange);color:#fff;border:none;border-radius:6px;padding:6px 11px;font-family:inherit;font-size:12px;cursor:pointer;}
 .tpsl-row .cpct{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;padding:5px 9px;cursor:pointer;}
 .tpsl-row .cpct:hover{color:var(--text);border-color:var(--orange);}
+.simwrap{margin-top:2px;}
+.simwrap .simlevbtn,.simwrap .simclosebtn{background:var(--panel-2);border:1px solid var(--orange);border-radius:6px;color:var(--orange-light);font-family:inherit;font-size:11px;padding:5px 9px;cursor:pointer;}
+.simwrap .simlevbtn:hover,.simwrap .simclosebtn:hover{background:var(--orange);color:#fff;}
+.simout{margin-top:5px;padding:6px 8px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;font-size:11px;line-height:1.6;color:var(--text);}
 .tpsl-hint{font-size:10.5px;color:var(--muted-2);margin-top:4px;}
 .detail-actions{display:flex;gap:7px;margin-top:10px;}
 .detail-actions button{flex:1;border-radius:7px;padding:7px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--text);}
@@ -411,9 +415,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
             <input id="stockSearch" placeholder="＋ 加入個股（可搜尋）" autocomplete="off" oninput="filterStockList()" onfocus="filterStockList()" onblur="setTimeout(hideStockList,160)">
             <div class="combo-list" id="stockList" style="display:none"></div>
           </div>
-          <button class="btn-primary" id="stockBtn" onclick="stockAnalysis()" style="background:var(--panel-2);border:1px solid var(--blue);color:var(--blue)">🔬 個股分析</button>
-          <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
-          <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
+          <button class="btn-primary" id="copyMaxBtn" onclick="copyToMax()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)" title="把你的即時清單快照＋持倉＋全倉曝險打包複製，貼到你訂閱的 Claude Max chat 問市場溫度/選股/個股——更完整、可追問，又不花這裡的 API">📋 複製戰情給 Max</button>
           <button class="btn-primary" id="radarBtn" onclick="fishRadar()" style="background:var(--panel-2);border:1px solid #5BC0BE;color:#5BC0BE" title="純技術掃描(不花API)：找剛啟動單邊動能、順大勢、還沒太誇張的卡位標的">🎣 魚身雷達</button>
           <button class="btn-primary" id="tlightBtn" onclick="tempLight()" style="background:var(--panel-2);border:1px solid #E0A53B;color:#E0A53B" title="純技術秒出(不花API)：大盤趨勢+清單廣度→今天能不能上槓桿紅黃綠燈">🚦 溫度燈</button>
           <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
@@ -421,21 +423,13 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="btBasketBtn" onclick="backtestBasket()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA" title="把整個關注清單每檔的交易池化算總成績，用當前圖的週期">🧺 一籃子</button>
           <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
         </div>
-        <div class="funnel" id="funnel">
-          <div class="fn-step on" data-step="1" onclick="marketTemp()"><span class="fn-num">①</span> 市場溫度</div>
-          <div class="fn-arrow">›</div>
-          <div class="fn-step" data-step="2" onclick="marketBrief()"><span class="fn-num">②</span> 強勢選股</div>
-          <div class="fn-arrow">›</div>
-          <div class="fn-step" data-step="3" onclick="hintResearch()"><span class="fn-num">③</span> 深入研究</div>
-          <span class="fn-hint">由上而下：先看大盤敢不敢上 → 找強勢股 → 深挖成計畫</span>
-        </div>
         <div class="feed" id="feed">
           <div class="welcome" id="welcome">
-            👋 我是你的<b>美股短線交易副駕</b>，用「<b>由上而下</b>」三步幫你決策：<br><br>
-            <b>① 🌡️ 市場溫度</b>　跨資產(VIX、美元、利率、油價、銅金比、比特幣…)＋廣度，判斷今天敢不敢上槓桿<br>
-            <b>② 🎯 強勢選股</b>　找資金輪入的強勢板塊，挑出值得研究的個股方向<br>
-            <b>③ 🔍 深入研究</b>　你點頭後深挖，產出含 進場/停損/目標/部位 的短線計畫<br><br>
-            也可直接在下面打字問我任何盤面問題。<br>
+            👋 這裡留的是<b>「綁你即時資料、chat 取代不了」</b>的工具：<br><br>
+            <b>🩺 持倉診斷</b>　即時體檢你所有真實部位（綁 Bitget/牛牛實際倉位）<br>
+            <b>🚦 溫度燈 ／ 🎣 魚身雷達</b>　純技術、不花 API，秒算你清單的廣度與動能<br>
+            <b>📋 複製戰情給 Max</b>　把即時清單快照＋持倉＋全倉曝險打包，貼到你的 Claude Max chat 問市場溫度／選股／個股分析——更完整又不花這裡的 API<br><br>
+            也可直接在下面打字問我盤面問題。<br>
             <span style="font-size:11px">第一次使用請先點右上 ⚙ 設定你的 Anthropic API 金鑰。</span>
           </div>
         </div>
@@ -1734,7 +1728,31 @@ function marketCtx(){
   return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>tkr(x.s)).join('、')}。`+wlSnapshot()+futuLiveStr()+holdingsLiveStr();
 }
 
-/* ---------- 盤面導讀 → 研究方向 ---------- */
+/* 📋 複製戰情給 Max：把即時清單快照＋持倉＋全倉曝險打包到剪貼簿，貼到使用者訂閱的 Claude Max chat 問
+   （市場溫度/選股/個股分析這類敘述，chat 更完整又不花這裡的 API；數字以這份即時快照為準避免幻覺）。 */
+async function copyToMax(){
+  let pack='【我的即時戰情包｜貼到 Claude Max chat 問市場溫度／強勢選股／個股；數字一律以這份為準，不要用你記憶或網路上的舊數字】\n';
+  const snap=wlSnapshot();
+  pack += snap || '（未連牛牛橋接，沒有即時清單快照）\n';
+  if(cryptoHoldings.length){
+    const em=exposureModel();
+    pack+='\n【加密全倉曝險（Bitget cross；空腿多為不看盤時的保險腿）】\n';
+    pack+='帳戶權益 $'+Math.round(em.equity)+'、未實現 '+(em.upnl>=0?'+':'')+Math.round(em.upnl)+'U、可用 $'+Math.round(em.avail)
+        +'｜淨曝險 '+(em.NET>=0?'+':'')+Math.round(em.NET)+'U(淨槓桿'+em.netLev.toFixed(1)+'x、總槓桿'+em.grossLev.toFixed(1)+'x、對沖佔比'+Math.round(em.hedgedFrac*100)+'%)'
+        +'｜ADL裸化淨曝險 '+em.adlStress.toFixed(1)+'x 權益｜距全倉爆倉緩衝 '+(em.buffer==null?'已對沖':em.buffer.toFixed(1)+'%')+'\n';
+    pack+='每支(按|淨|)：'+em.contracts.map(c=>c.sym.replace('USDT','')+' 多$'+Math.round(c.L)+'/空$'+Math.round(c.S)+'/淨'+(c.net>=0?'+':'')+Math.round(c.net)+'/毛$'+Math.round(c.gross)).join('；')+'\n';
+    pack+='（爆倉以帳戶層級緩衝為準，單腿不會獨立爆；別用單腿孤立爆倉價評估風險。空腿是保險腿，平掉會放大淨多曝險。）\n';
+  }
+  pack += holdingsLiveStr();
+  pack += '\n請依上面的即時數字，回答我接下來問的問題。';
+  try{
+    await navigator.clipboard.writeText(pack);
+    addBubble('📋 已複製你的<b>即時戰情包</b>（清單快照＋持倉＋全倉曝險）到剪貼簿。<br>貼到你訂閱的 <b>Claude Max chat</b> 問市場溫度／強勢選股／個股分析會更完整、可追問，也不花這裡的 API。','ai');
+  }catch(e){
+    addBubble('剪貼簿被瀏覽器擋住，手動框選複製：<br><textarea style="width:100%;height:140px;font-size:11px" onclick="this.select()">'+pack.replace(/</g,'&lt;')+'</textarea>','ai');
+  }
+}
+/* ---------- 盤面導讀 → 研究方向（已下架：市場溫度/強勢選股/個股分析/深入研究改用「複製戰情給 Max」；函式保留不被呼叫，避免動到其它引用） ---------- */
 async function marketTemp(){
   if(busy)return; setBusy(true); setFunnelStep(1);
   addBubble('🌡️ 量一下今天的<b>市場溫度</b>…','user');
@@ -2117,7 +2135,7 @@ function cUpnl(h){ if(h&&h.upnl!=null) return h.upnl; const px=cMark(h); return 
 function applyBitgetData(r, dropManual){
   cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');
   if(dropManual) cryptoHoldings = [];
-  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl}); });
+  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl,mmr:p.mmr,marginRatio:p.marginRatio}); });
   saveCryptoHoldings();
   bitgetAcct = (r.account&&r.account.equity!=null)?r.account:null;
   if(bitgetAcct){ const used=cryptoHoldings.reduce((a,h)=>a+(h.m||(h.q*h.e/(h.l||1))),0); setCMargin(Math.round((bitgetAcct.equity-used)*100)/100); }  // 餵橋接爆倉用的可用=權益−已用，讓引擎的權益≈交易所真實值
@@ -2184,6 +2202,7 @@ async function pollCrypto(){
     try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; pollCrypto._fundBucket=bucket; }catch(e){}
   }
   updateFishStates();
+  if(futu.connected) updateRegime();
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
 function toggleCryptoSum(){ localStorage.setItem('wo_sumexp', localStorage.getItem('wo_sumexp')==='1'?'0':'1'); renderPositions(); }
@@ -2198,9 +2217,163 @@ function cryptoSummary(){
   if(bitgetAcct && bitgetAcct.equity!=null){ equity=bitgetAcct.equity; avail=Math.max(0,equity-used); balance=equity-upnl; }  // 權益用交易所真實值；可用=權益−已用(超用就是0)；錢包=權益−未實現
   else { avail=getCMargin(); equity=avail+used; balance=equity-upnl; }
   const maint=0.005*gross, an=Math.abs(net);
-  return {gross,net:an,upnl,equity,used,avail,balance,priced,
+  return {gross,net:an,netSigned:net,upnl,equity,used,avail,balance,priced,
     grossLev: equity>0?gross/equity:0, netLev: equity>0?an/equity:0,
     buffer: (an>1&&equity>maint)?(equity-maint)/an*100:(an<=1?null:0)};
+}
+/* §1 全倉曝險資料模型（F1 地基）：每合約 多/空名目、灰=中性鎖、紅綠=淨(帶號)；
+   全帳戶 淨NET/毛GROSS/裸化NAKED/對沖佔比/ADL壓力。名目＝size×標記價(Bitget兩腿分開回)。
+   ⚠ 爆倉一律帳戶層級；本地一切只當「估算」，動作後實際以交易所回傳為準。 */
+function exposureModel(){
+  const byC={};
+  cryptoHoldings.forEach(h=>{ const px=cMark(h); if(px==null)return; const n=h.q*px;
+    const c=byC[h.s]||(byC[h.s]={sym:h.s,L:0,S:0}); if(h.side==='short')c.S+=n; else c.L+=n; });
+  const fund=(typeof cryptoFunding!=='undefined')?cryptoFunding:{};
+  const contracts=Object.values(byC).map(c=>{ const locked=Math.min(c.L,c.S);
+    return {sym:c.sym,L:c.L,S:c.S,locked,net:c.L-c.S,gross:c.L+c.S,
+            dir:(c.L-c.S)>=0?'long':'short', fund:(fund[c.sym]!=null?fund[c.sym]:null)}; })
+    .sort((a,b)=>Math.abs(b.net)-Math.abs(a.net));
+  let NET=0,GROSS=0,NAKED=0,LOCKG=0,fundSettle=0;
+  contracts.forEach(c=>{ NET+=c.net; GROSS+=c.gross; NAKED+=c.L; LOCKG+=2*c.locked;
+    if(c.fund!=null) fundSettle+=c.fund*c.net; });   // 淨額：鎖住 min 段一付一收抵掉，只剩 net 段付費
+  const sm=cryptoSummary(), eq=sm.equity||0, avail=sm.avail;
+  // F2：維持保證金用 Bitget 真實 tiered mmr（缺就退 0.5% 並標記）；兩條紅線；空腿消失的全裸對照
+  let maint=0, maintLong=0, mmrMissing=false;
+  cryptoHoldings.forEach(h=>{ const px=cMark(h); if(px==null)return; const n=h.q*px;
+    const r=(h.mmr!=null&&h.mmr>0)?h.mmr:0.005; if(h.mmr==null)mmrMissing=true;
+    maint+=n*r; if(h.side!=='short')maintLong+=n*r; });
+  const an=Math.abs(NET), anNaked=Math.abs(NAKED);
+  const ammoPct   = an>1 ? avail/an*100 : null;                  // 彈藥線：再逆走幾%→可用保證金歸零(不能再開防守空單)
+  const liqPct    = an>1 ? (eq-maint)/an*100 : null;             // 爆倉線：再逆走幾%→權益<維持保證金
+  const liqPctNaked = anNaked>1 ? (eq-maintLong)/anNaked*100 : null;  // 全裸(空腿被ADL/平掉)後的爆倉線
+  const hedgeBuysPct = (liqPct!=null&&liqPctNaked!=null) ? (liqPct-liqPctNaked) : null;  // 保險腿多撐的空間
+  const riskRate = (bitgetAcct&&bitgetAcct.riskRate!=null) ? bitgetAcct.riskRate : null;  // Bitget 全倉風險率(0→1)
+  // 交叉檢核：我們算「還很安全(緩衝大)」但交易所風險率已高 → 估算不一致，別默默信本地
+  const inconsistent = (riskRate!=null && liqPct!=null && riskRate>0.8 && liqPct>15);
+  return {contracts, NET, GROSS, NAKED, LOCKG, equity:eq, avail, upnl:sm.upnl,
+    used:sm.used, balance:sm.balance, buffer:sm.buffer, netSigned:NET,
+    netLev: eq>0?NET/eq:0, grossLev: eq>0?GROSS/eq:0, hedgedFrac: GROSS>0?LOCKG/GROSS:0,
+    adlStress: eq>0?NAKED/eq:0, fundSettle, fundDaily: fundSettle*3,   // 8h結算估 3/日
+    maint, ammoPct, liqPct, liqPctNaked, hedgeBuysPct, mmrMissing, riskRate, inconsistent };
+}
+function kUsd(v){ const a=Math.abs(v); const s=v<0?'-':''; return a>=1000?(s+'$'+(a/1000).toFixed(a>=10000?0:1)+'k'):(s+'$'+Math.round(a)); }
+/* Regime 旗標：BTC 日線 EMA20 斜率＋價位 → 趨勢盤(敘事主導,釋彈藥→補空的舞步危險) / 洗盤(流量主導,均值回歸會救你) */
+let cryptoRegime=null;
+async function updateRegime(){
+  try{ const bars=await momBars('BTCUSDT'); if(bars&&bars.length>=60){
+    const c=bars.map(b=>b.close), e=emaArr(c,20), i=c.length-1, slope=(e[i]-e[i-10])/e[i-10];
+    cryptoRegime = Math.abs(slope)<0.012?'range':(slope>0&&c[i]>e[i]?'trend-up':(slope<0&&c[i]<e[i]?'trend-down':'range'));
+  }}catch(e){}
+}
+function regimeIsTrend(){ return cryptoRegime==='trend-up'||cryptoRegime==='trend-down'; }
+function regimeLine(em){
+  const rmap={'trend-up':['趨勢盤·多','var(--up)'],'trend-down':['趨勢盤·空','var(--dn)'],'range':['洗盤/橫盤','var(--amber)']};
+  const rg=rmap[cryptoRegime]; let s='';
+  if(rg) s+=`<br><span style="color:var(--muted)">市場 regime</span> <b style="color:${rg[1]}">${rg[0]}</b> <span style="color:var(--muted);font-size:10px">${cryptoRegime==='range'?'(釋彈藥→補空的舞步有效，均值回歸會救你)':'(敘事單邊：每跑一輪舞步總名目墊高、爆倉線被放大的帳本追上—這套動作加重警告)'}</span>`;
+  if(trackGrossLev(em.grossLev)) s+=`<br><b style="color:var(--amber)">⚠ 部位放大訊號</b> <span style="color:var(--muted);font-size:10px">總槓桿連續墊高中——這是在放大部位、不是降風險；停損是命，信念不是不對沖的理由</span>`;
+  return s;
+}
+/* 行為護欄：總槓桿在連續釋彈藥中逐步墊高 → 部位放大訊號（存短歷史，只在>3%變化時記一筆）。 */
+function trackGrossLev(g){
+  if(!(g>0)) return false;
+  let h=[]; try{ h=JSON.parse(localStorage.getItem('wo_glev_hist')||'[]'); }catch(e){}
+  const last=h.length?h[h.length-1]:null;
+  if(last==null||Math.abs(g-last)/last>0.03){ h.push(+g.toFixed(2)); if(h.length>6)h.shift(); localStorage.setItem('wo_glev_hist',JSON.stringify(h)); }
+  if(h.length>=3){ const a=h.slice(-3); if(a[0]<a[1]&&a[1]<a[2]&&(a[2]-a[0])/a[0]>0.1) return true; }
+  return false;
+}
+/* F2 雙紅線：彈藥線(可用→0，先到) + 爆倉線(權益<維持)；保險腿有效區間=含對沖 vs 全裸；交叉檢核 Bitget 風險率。 */
+function f2Block(em){
+  if(em.ammoPct==null && em.liqPct==null) return '<div style="margin-top:7px;font-size:11px;color:var(--muted)">淨曝險≈0（高度對沖）：兩條紅線距離極遠。平掉任一保險腿前，先看下方各倉「動作前重算」。</div>';
+  const fp=v=>v==null?'—':Math.max(0,v).toFixed(1)+'%';
+  return `<div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:7px;font-size:11.5px;line-height:1.75">
+    <b>雙紅線</b> <span style="color:var(--muted);font-size:10px">淨曝險方向再逆走多少 →</span><br>
+    <span style="color:var(--amber)">🟠 彈藥線 <b>${fp(em.ammoPct)}</b></span> <span style="color:var(--muted);font-size:10.5px">先到：可用保證金歸零、無法再開防守空單</span><br>
+    <span style="color:var(--red)">🔴 爆倉線 <b>${fp(em.liqPct)}</b></span> <span style="color:var(--muted);font-size:10.5px">權益 &lt; 維持保證金${em.mmrMissing?'（維持率粗估 0.5%，可能低估→更新橋接抓真實 tiered 率）':'（Bitget 真實 tiered 率）'}</span>
+    ${em.liqPctNaked!=null?`<br><span style="color:var(--muted)">🛡 保險腿有效區間：全裸爆倉線 <b>${fp(em.liqPctNaked)}</b>${em.hedgeBuysPct!=null?`（保險腿多撐 <b style="color:#5BC0BE">+${Math.max(0,em.hedgeBuysPct).toFixed(1)}%</b>）`:''}</span>`:''}
+    ${em.riskRate!=null?`<br><span style="color:var(--muted);font-size:10.5px">Bitget 風險率 ${(em.riskRate*100).toFixed(0)}%（交叉檢核）</span>`:''}
+    ${em.inconsistent?`<br><b style="color:var(--red)">⚠ 本地緩衝與交易所風險率不一致，以交易所為準</b>`:''}
+  </div>`;
+}
+/* F3-A 調單腿槓桿（釋彈藥）：提高槓桿釋出保證金=可用↑、彈藥線變遠；總/淨槓桿、爆倉線不變(維持保證金看名目×分級,與你設的槓桿無關)。 */
+function simReleaseAmmo(h, newLev){
+  const L=h.l||1; if(!(newLev>0)) return null;
+  const em=exposureModel(), an=Math.abs(em.NET);
+  const margin=h.m||(h.q*h.e/L);
+  const dAvail=margin*(1 - L/newLev);                    // 估：margin=名目/槓桿，提高槓桿→需求降→釋出
+  return {dAvail, newLev, ammoBefore:em.ammoPct, ammoAfter: an>1?((em.avail+dAvail)/an*100):null};
+}
+/* F3-B 平此腿（動作前重算）：NET 帶號變化可靠；紅線只算 |NET| 變化是「樂觀下界」(去對沖後 avail 會再降→實際更近爆倉)。 */
+function simCloseLeg(h){
+  const em=exposureModel(), px=cMark(h), n=px!=null?h.q*px:0;
+  const legSigned=(h.side==='short'?-1:1)*n;
+  const netAfter=em.NET-legSigned, anA=Math.abs(netAfter);
+  const legs=cryptoHoldings.filter(x=>x.s===h.s);
+  let symNet=0; legs.forEach(l=>{ const p=cMark(l); if(p!=null) symNet+=(l.side==='short'?-1:1)*l.q*p; });
+  const isHedge=legs.length>=2 && ((symNet>=0)!==(h.side!=='short'));
+  return {netBefore:em.NET, netAfter, ammoBefore:em.ammoPct, liqBefore:em.liqPct,
+    ammoAfterLB: anA>1?(em.avail/anA*100):null, liqAfterLB: anA>1?((em.equity-em.maint)/anA*100):null,
+    isHedge, raisesNet: Math.abs(netAfter)>Math.abs(em.NET)};
+}
+function renderSimLev(h,newLev){
+  const L=h.l||1, mut='var(--muted)';
+  if(!(newLev>0)) return '<span style="color:var(--amber)">輸入新槓桿（通常比現在高，才會釋出保證金當彈藥）</span>';
+  const r=simReleaseAmmo(h,newLev); if(!r) return '';
+  const col=r.dAvail>=0?'var(--up)':'var(--dn)';
+  return `調槓桿 ${L}x → ${newLev}x：　釋出彈藥 ≈ <b style="color:${col}">${r.dAvail>=0?'+':''}$${Math.round(r.dAvail)}</b>（可用↑）<br>
+   彈藥線 ${r.ammoBefore!=null?r.ammoBefore.toFixed(1)+'%':'—'} → <b>${r.ammoAfter!=null?r.ammoAfter.toFixed(1)+'%':'—'}</b>（變遠）　<span style="color:${mut}">總/淨槓桿、爆倉線<b>不變</b></span><br>
+   <span style="color:${mut};font-size:10px">調槓桿只放彈藥、不移爆倉線。釋出的拿去開防守空單→降淨🟢；加同向→淨+總槓桿同升、爆倉線內縮🚩。</span>`;
+}
+/* F6 情境列：市場相關性移動 m（如 -0.10）下，重算 權益/可用/淨槓桿/彈藥線/爆倉線（估算）。 */
+function scenarioRow(m){
+  const base=exposureModel(), wallet=base.equity-base.upnl;
+  let newEq=wallet, NET=0, maint=0, cushionLegs=0;
+  cryptoHoldings.forEach(h=>{ const mk=cMark(h); if(mk==null)return; const nm=mk*(1+m);
+    const up=(h.side==='short'?(h.e-nm):(nm-h.e))*h.q; newEq+=up;
+    const n=h.q*nm; NET+=(h.side==='short'?-1:1)*n;
+    const r=(h.mmr!=null&&h.mmr>0)?h.mmr:0.005; maint+=n*r;
+    if(h.side==='short'&&up>0) cushionLegs++; });   // 下跌時轉正的空腿＝保險腿在緩衝
+  const avail=Math.max(0,newEq-base.used), an=Math.abs(NET);
+  return {m, equity:newEq, avail, NET, netLev: newEq>0?NET/newEq:0, cushionLegs,
+    ammoPct: an>1?avail/an*100:null, liqPct: an>1?(newEq-maint)/an*100:null};
+}
+function renderScenarioCard(list){
+  if(!cryptoHoldings.length) return;
+  const exp=localStorage.getItem('wo_scenexp')==='1';
+  const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
+  const head=`<div onclick="toggleScen()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:12px"><span><b>🌙 無人盯盤情境卡</b> <span style="color:var(--muted)">市場 ±5/10/15% 你還剩多少彈藥</span></span><span style="color:var(--muted-2)">${exp?'▴':'▾'}</span></div>`;
+  let body='';
+  if(exp){
+    const rows=[-0.15,-0.10,-0.05,0.05,0.10,0.15].map(m=>{ const s=scenarioRow(m);
+      const dead=(s.ammoPct!=null&&s.ammoPct<=0)||s.avail<=0, mc=m<0?'var(--dn)':'var(--up)';
+      return `<div style="display:grid;grid-template-columns:.62fr 1fr .95fr .8fr .85fr;gap:3px;font-size:10.5px;padding:2px 0;border-top:1px solid var(--border)${dead?';opacity:.55':''}">
+        <span style="color:${mc};font-weight:700">${m>0?'+':''}${Math.round(m*100)}%</span>
+        <span>${kUsd(s.equity)}</span><span style="${s.avail<=1?'color:var(--red);font-weight:700':''}">${kUsd(s.avail)}</span>
+        <span>${s.netLev>=0?'+':''}${s.netLev.toFixed(1)}x</span>
+        <span style="color:${dead?'var(--red)':'var(--text)'}">${s.ammoPct!=null?Math.max(0,s.ammoPct).toFixed(0)+'%':'—'}${s.cushionLegs?` <span style="color:#5BC0BE" title="該情境下轉正、提供緩衝的保險腿數">🛡${s.cushionLegs}</span>`:''}</span></div>`;
+    }).join('');
+    const fund8=exposureModel().fundDaily/3;
+    body=`<div style="margin-top:5px">
+      <div style="display:grid;grid-template-columns:.62fr 1fr .95fr .8fr .85fr;gap:3px;font-size:9px;color:var(--muted-2)"><span>市場</span><span>權益</span><span>可用保證金</span><span>淨槓桿</span><span>距彈藥線</span></div>
+      ${rows}
+      <div style="margin-top:5px;font-size:10px;color:var(--muted)">🛡=該跌幅下轉正、提供緩衝的保險腿數。過夜(8h)淨資金費 ≈ ${fund8>=0?'付':'收'} ${kUsd(Math.abs(fund8))}。<b>可用保證金歸零(紅)那列之後，沒看盤就只能挨打。</b>估算，實際以交易所為準。</div>
+    </div>`;
+  }
+  card.innerHTML=head+body; list.appendChild(card);
+}
+function toggleScen(){ localStorage.setItem('wo_scenexp', localStorage.getItem('wo_scenexp')==='1'?'0':'1'); renderPositions(); }
+function renderSimClose(h){
+  const r=simCloseLeg(h), dn='var(--dn)', mut='var(--muted)';
+  const jump=Math.abs(r.netAfter)-Math.abs(r.netBefore);
+  let s=`模擬平此腿（${h.side==='short'?'空':'多'}）<span style="color:${mut};font-size:10px">— 估算，實際以交易所為準</span>：<br>
+   淨曝險 ${kUsd(r.netBefore)} → <b style="color:${dn}">${kUsd(r.netAfter)}</b>（${jump>=0?'淨曝險跳升 +'+kUsd(jump):'下降 '+kUsd(-jump)}）<br>
+   彈藥線 ${r.ammoBefore!=null?r.ammoBefore.toFixed(1)+'%':'—'}→<b>至少 ${r.ammoAfterLB!=null?Math.max(0,r.ammoAfterLB).toFixed(1)+'%':'—'}</b>　爆倉線 ${r.liqBefore!=null?r.liqBefore.toFixed(1)+'%':'—'}→<b>至少 ${r.liqAfterLB!=null?Math.max(0,r.liqAfterLB).toFixed(1)+'%':'—'}</b>（往內退）`;
+  if(r.isHedge){
+    s+=`<br><b style="color:${dn}">🛡 這是保險腿</b>：去對沖後裸腿保證金需求跳升→<b>可用保證金當下會下降</b>（上面紅線只算|淨|變化是樂觀下界，實際更近爆倉、釋出的保證金 < 裸腿新增需求）。`;
+    s+=`<br><span style="color:${mut};font-size:10px">拆對沖吃反彈：反彈前常先回踩，先確認撐不撐得過這一下；發現看錯要回補→在更差價位重建、且當下可用未必夠再開空（你最怕的「被補完不能再開空」）。</span>`;
+    if(r.raisesNet && regimeIsTrend()) s+=`<br><b style="color:var(--red)">🚩 拆氣囊訊號</b>：<span style="color:${mut};font-size:10px">當前是趨勢盤、平此腿會讓淨曝險跳升——保險腿是買時間不是免疫，趨勢盤拆掉風險特別高。</span>`;
+  }
+  return s;
 }
 function holdingsLiveStr(){
   let out='';
@@ -2505,21 +2678,39 @@ function posAdvice(h, bars){
   let tp= long? e+2*risk : e-2*risk;                                 // 預設 2R；尊重讓利潤奔跑→交給移動止損
   if(long&&tp<=px) tp=px+2*a; if(!long&&tp>=px) tp=px-2*a;
   const liq=h.liq!=null?+h.liq:(typeof liqPrice==='function'?liqPrice(e,L,h.side):null);
-  const slBeyondLiq= liq!=null && (long? sl<=liq : sl>=liq);         // 止損比爆倉還遠＝會先爆才停損(槓桿過高)
+  // 全倉(Bitget cross)沒有「單腿獨立爆倉」：爆倉是帳戶層級(看上方緩衝)。
+  // 所以 isolated 的「止損比爆倉還遠→降槓桿」只在「非全倉的單腿」才成立；全倉一律不用它判斷。
+  const cross=!!bitgetAcct;
+  // 對沖判斷：同標的有多空兩腿＝對沖(保險腿)。與該標的「淨方向」相反的那腿＝保險腿，平掉會放大淨曝險。
+  const legs=cryptoHoldings.filter(x=>x.s===h.s);
+  const hedged=legs.length>=2;
+  let symNet=0; legs.forEach(l=>{ const p=cMark(l); if(p!=null) symNet+=(l.side==='short'?-1:1)*(l.q||0)*p; });
+  const symDir= symNet>=0?'long':'short';
+  const isHedgeLeg= hedged && ((symDir==='long')!==long);
+  const slBeyondLiq= (!cross) && liq!=null && (long? sl<=liq : sl>=liq);
   const near= Math.abs(px-sl) <= 0.6*a;                              // 價格已逼近建議止損
   const dp = px<2?5:(px<20?3:2);
   const rnd=v=>v==null?null:+v.toFixed(dp);
   return {long, px, a, sl:rnd(sl), tp:rnd(tp), trail:rnd(trail), inProfit:prof>0,
-          fs, tail, waning, liq, slBeyondLiq, near, dp};
+          fs, tail, waning, liq, slBeyondLiq, near, dp, cross, hedged, isHedgeLeg, symDir};
 }
 /* 把建議畫成一行（給每張持倉卡）；回傳 {html, adv} */
 function adviceLine(h, bars){
   const adv=posAdvice(h, bars); if(!adv) return null;
-  const dn='var(--dn)', up='var(--up)', mut='var(--muted)';
+  const dn='var(--dn)', up='var(--up)', mut='var(--muted)', teal='#5BC0BE';
+  // 保險腿（與該標的淨方向相反的對沖腿）：它沒有獨立止損的意義，平掉反而放大淨曝險。
+  // 不給「止損/降槓桿」，改給對沖腿的正確操作：留著護倉 or 趨勢回來再分批收利。
+  if(adv.isHedgeLeg){
+    const netCh=adv.symDir==='long'?'多':'空';
+    const s=`🛡 <b style="color:${teal}">保險腿</b>（對沖你較大的${netCh}單）　🎯 想收利可分批 <b style="color:${up}">${adv.tp}</b>`;
+    const tag=`<span style="color:${mut}">全倉沒有單腿爆倉；<b style="color:${adv.tail?'var(--amber)':mut}">${adv.tail?'趨勢若回來、保險腿轉弱可分批收':'留著護住淨曝險，別當止損砍'}</b></span>`;
+    return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把止盈填入下方欄（保險腿不建議設止損；最後一鍵還是你按設定）">套用</button>`};
+  }
   let s=`🛑 止損 <b style="color:${dn}">${adv.sl}</b>　🎯 止盈 <b style="color:${up}">${adv.tp}</b>`;
   if(adv.trail!=null) s+=`　⤴ <span style="color:#C792EA">上移止損→ <b>${adv.trail}</b></span>`;
   let tag='';
   if(adv.slBeyondLiq) tag=`<span style="color:${dn};font-weight:700">⚠ 止損比爆倉價還遠，會先爆倉—請降槓桿</span>`;
+  else if(adv.cross && adv.hedged) tag=`<span style="color:${mut}">主腿；全倉爆倉看上方緩衝，要降風險＝減此${adv.long?'多':'空'}腿或加厚保險腿</span>`;
   else if(adv.tail) tag=`<span style="color:var(--amber)">魚尾·動能竭盡，建議收緊/分批止盈</span>`;
   else if(adv.near) tag=`<span style="color:${dn}">已逼近建議止損</span>`;
   else if(adv.waning) tag=`<span style="color:var(--amber)">動能轉弱，止損收緊</span>`;
@@ -2636,18 +2827,42 @@ function renderPositions(){
     let body='';
     if(exp){
       const upnlTxt=(sm.upnl>=0?'+$':'-$')+Math.abs(Math.round(sm.upnl)).toLocaleString();
+      const em=exposureModel();
+      const ndir=em.NET>=0?'多':'空', ndCol=em.NET>=0?'var(--up)':'var(--dn)';
+      const adlCol=em.adlStress>=8?'var(--red)':em.adlStress>=4?'var(--amber)':'var(--text)';
+      // 每支：多/空名目、灰=中性鎖、紅綠=淨(帶號)、毛；按 |淨| 由大到小（最大裸方向押注在最上）
+      const rows=em.contracts.map(c=>{ const nc=c.net>=0?'var(--up)':'var(--dn)';
+        return `<div style="display:grid;grid-template-columns:1fr .85fr .85fr .8fr 1fr .8fr;gap:3px;font-size:10.5px;padding:3px 0;border-top:1px solid var(--border);align-items:center">
+          <span><b>${c.sym.replace('USDT','')}</b></span>
+          <span style="color:var(--up)">多${kUsd(c.L)}</span>
+          <span style="color:var(--dn)">空${kUsd(c.S)}</span>
+          <span style="color:var(--muted)">🔒${kUsd(c.locked)}</span>
+          <span style="color:${nc};font-weight:700">淨${c.net>=0?'+':'−'}${kUsd(Math.abs(c.net))}</span>
+          <span style="color:var(--muted-2)">毛${kUsd(c.gross)}</span></div>`; }).join('');
+      const fAbs=Math.abs(em.fundDaily), fPay=em.fundDaily>0;   // >0=你淨付；<0=你淨收
+      const fDays=(fPay&&fAbs>0.5&&em.avail>0)?(em.avail/fAbs):null;
       body=`${bitgetAcct?'':`<input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin:8px 0">`}
-      <div style="font-size:12px;line-height:1.8">
+      <div style="font-size:12px;line-height:1.75">
         帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">（錢包 $${Math.round(sm.balance).toLocaleString()} ＋ 未實現 ${upnlTxt}）</span><br>
-        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · Bitget 即時':''}</span><br>
-        總名目 $${Math.round(sm.gross).toLocaleString()}　淨曝險 $${Math.round(sm.net).toLocaleString()}<br>
-        整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b>　淨 ${sm.netLev.toFixed(1)}x<br>
-        距全倉爆倉緩衝 <b style="color:${bufCol}">${bufTxt}</b><span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
+        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · Bitget 即時':''}</span>
       </div>
+      <div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:7px;font-size:11.5px;line-height:1.7">
+        <b>雙軌槓桿</b>　總 <b>${em.grossLev.toFixed(1)}x</b> ｜ 淨(帶號) <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${Math.abs(em.netLev).toFixed(1)}x</b> 偏${ndir} ｜ 對沖佔比 <b>${Math.round(em.hedgedFrac*100)}%</b><br>
+        <span style="color:var(--muted)">毛曝險 ${kUsd(em.GROSS)}　淨曝險 <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${kUsd(Math.abs(em.NET))}</b>（${Math.round(em.hedgedFrac*100)}% 被對沖、其餘是裸的）</span><br>
+        <b style="color:${adlCol}">⚠ ADL 壓力</b> 裸化淨曝險 ${kUsd(em.NAKED)} ＝ <b style="color:${adlCol}">${em.adlStress.toFixed(1)}x</b> 權益　<span style="color:var(--muted);font-size:10.5px">（所有空腿若被 ADL/平掉，裸多會變這麼大）</span><br>
+        <b>資金費</b> ${em.fundDaily===0?'<span style="color:var(--muted)">—（無費率資料，按🔄同步或稍候）</span>':`日估 <b style="color:${fPay?'var(--dn)':'var(--up)'}">${fPay?'付 ':'收 '}${kUsd(fAbs)}</b> · ${(Math.abs(em.fundDaily)/(sm.equity||1)*100).toFixed(2)}%/日${fDays?` · ≈${fDays.toFixed(0)} 天可用保證金`:''} <span style="color:var(--muted);font-size:10px">(8h結算估)</span>`}${regimeLine(em)}
+      </div>
+      <div style="margin-top:6px">
+        <div style="display:grid;grid-template-columns:1fr .85fr .85fr .8fr 1fr .8fr;gap:3px;font-size:9.5px;color:var(--muted-2);padding-bottom:2px">
+          <span>標的</span><span>多名目</span><span>空名目</span><span>中性鎖</span><span>淨(方向)</span><span>毛名目</span></div>
+        ${rows}
+      </div>
+      ${f2Block(em)}
       ${(!bitgetAcct && getCMargin()<=0)?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
     }
     card.innerHTML=head+body;
     list.appendChild(card);
+    renderScenarioCard(list);   // F6 無人盯盤情境卡
   }
   const grid=document.createElement('div'); grid.className='pos-grid'; list.appendChild(grid);
   // 同標的多空雙開→並排同一列（各占整列起點）；單腿標的往後遞補、兩兩填滿
@@ -2675,11 +2890,15 @@ function renderPositions(){
         <div class="tpsl-hint">到價自動以該價平倉並記盈虧（本軟體記錄＋通知，非交易所下單）</div>
         <div class="liqd">名目 $${Math.round(h.q*(px||h.e))} ‧ 幣量 ${(+h.q).toFixed(4)} ‧ 孤立爆倉≈${liqPrice(h.e,h.l,h.side)?liqPrice(h.e,h.l,h.side).toFixed(2):'—'}（全倉看上方緩衝）</div>
         <div class="tpsl-row">部分平倉<input class="cqty" type="number" step="any" placeholder="幣量·空=全部"><button type="button" class="cpct" data-p="25">25%</button><button type="button" class="cpct" data-p="50">50%</button><button type="button" class="cpct" data-p="75">75%</button></div>
+        <div class="simwrap"><div class="tpsl-row">🔧 動作前重算　調槓桿<input class="simlev" type="number" step="1" placeholder="${h.l}→新" style="width:62px"><button type="button" class="simlevbtn">釋彈藥</button><button type="button" class="simclosebtn">模擬平此腿</button></div><div class="simout" style="display:none"></div></div>
         <div class="detail-actions"><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
       </div>`;
     d.querySelector('.pos-head').onclick=()=>togglePos(id);
     const det=d.querySelector('.pos-detail'); det.onclick=e=>e.stopPropagation();
     det.querySelectorAll('.cpct').forEach(b=>b.onclick=()=>{ det.querySelector('.cqty').value=+(h.q*(+b.dataset.p)/100).toFixed(8); });
+    { const so=d.querySelector('.simout');
+      d.querySelector('.simlevbtn').onclick=()=>{ so.style.display=''; so.innerHTML=renderSimLev(h, parseFloat(d.querySelector('.simlev').value)); };
+      d.querySelector('.simclosebtn').onclick=()=>{ so.style.display=''; so.innerHTML=renderSimClose(h); }; }
     d.querySelector('.tpsl-save').onclick=()=>setTPSL('crypto',h.s,h.side,det.querySelector('.tp').value,det.querySelector('.sl').value);
     d.querySelector('.pclose').onclick=()=>openCloseDialog('crypto',h.s,h.side,parseFloat(det.querySelector('.cqty').value)||null);
     d.querySelector('.pdel').onclick=()=>delCryptoHolding(h.s,h.side);
