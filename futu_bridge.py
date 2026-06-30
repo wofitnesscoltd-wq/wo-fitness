@@ -18,7 +18,7 @@
 用法範例：
   python futu_bridge.py --port 8888 --firm FUTUSECURITIES
 """
-import os, json, time, argparse, threading, secrets, urllib.request
+import os, json, time, argparse, threading, secrets, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -289,6 +289,44 @@ class Handler(BaseHTTPRequestHandler):
             tok = q.get("token", [""])[0]
         return tok == TOKEN
 
+    def do_POST(self):
+        # D9：Claude 代理——金鑰只留橋接本機，瀏覽器/手機不必存 Anthropic 金鑰。
+        u = urlparse(self.path)
+        path, q = u.path, parse_qs(u.query)
+        if path != "/claude":
+            self._json({"error": "unknown endpoint"}, 404)
+            return
+        if not self._check_token(q):
+            self._json({"error": "invalid token"}, 403)
+            return
+        key = _anthropic_key()
+        if not key:
+            self._json({"error": "橋接未設 Anthropic 金鑰（.alert_config.json 的 anthropic_key 或環境變數 ANTHROPIC_API_KEY）"}, 400)
+            return
+        try:
+            ln = int(self.headers.get("Content-Length") or 0)
+            payload = self.rfile.read(ln) if ln > 0 else b"{}"
+        except Exception:
+            payload = b"{}"
+        req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=payload, method="POST")
+        req.add_header("content-type", "application/json")
+        req.add_header("x-api-key", key)
+        req.add_header("anthropic-version", "2023-06-01")
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                out, code = r.read(), 200
+        except urllib.error.HTTPError as e:           # 把 Anthropic 的錯誤(429/529/4xx)原樣回給前端，讓它的退避重試照常運作
+            out, code = e.read(), e.code
+        except Exception as e:
+            self._json({"error": "claude proxy 失敗：%s" % e}, 502)
+            return
+        self.send_response(code)
+        self._cors()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
     def do_GET(self):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
@@ -324,7 +362,8 @@ class Handler(BaseHTTPRequestHandler):
                 ok = False
             self._json({"ok": True, "futu": ok, "version": BRIDGE_VERSION,
                         "bitget": bool(bitget_mod and bitget_mod.configured()),
-                        "notify": bool(alert_engine)})
+                        "notify": bool(alert_engine),
+                        "claude": bool(_anthropic_key())})
             return
 
         if not self._check_token(q):
@@ -539,6 +578,13 @@ def _perp_underlyings():
     except Exception:
         pass
     return out
+
+
+def _anthropic_key():
+    """解析 Anthropic 金鑰（給 /claude 代理用；金鑰只留本機、不進瀏覽器）。"""
+    fc = load_alert_config()
+    return ((ARGS.anthropic_key if ARGS else None) or os.environ.get("ANTHROPIC_API_KEY")
+            or fc.get("anthropic_key"))
 
 
 def _tg_creds():
