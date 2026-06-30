@@ -321,11 +321,14 @@ class CryptoScanner:
                 buf = ac["buffer"]; net = ac["net"]; net_lev = ac["net_lev"]
                 ndir = "多" if ac["net_signed"] >= 0 else "空"; eq_disp = ac["equity"]
             if buf is not None:
-                hourb = int(time.time() // 3600)   # 危險區內每小時再催一次（type 帶時段桶避免被去重擋掉）
+                # A4：預警節奏反向綁緩衝——緩衝越低、再催越密（type 帶時段桶繞過去重）。
+                nowt = int(time.time())
+                bucket_for = {7: 300, 12: 900, 20: 3600}   # 危急每5分(近連續)、警告每15分、留意每小時
                 for thr in (7, 12, 20):            # 命中最嚴重的一級就推
                     if buf < thr:
                         sev = {7: "🚨 危急", 12: "⚠️ 警告", 20: "留意"}[thr]
-                        warn = {"side": "exit", "type": f"全倉爆倉預警<{thr}%·h{hourb}", "grade": "A",
+                        bk = nowt // bucket_for[thr]
+                        warn = {"side": "exit", "type": f"全倉爆倉預警<{thr}%·b{bk}", "grade": "A",
                                 "price": 0, "stop": 0, "target": 0, "rr": None,
                                 "reason": (f"{sev}：全倉帳戶緩衝僅 {buf:.1f}%（淨曝險 {net:.0f}U 偏{ndir}、淨槓桿 {net_lev:.1f}x、"
                                            f"權益 {eq_disp:.0f}U）—淨方向再逆走約 {buf:.1f}% 就接近強平，考慮補保證金／降淨曝險／加厚保險腿。"),
@@ -347,14 +350,8 @@ class CryptoScanner:
         code = sym + "@" + self.source
         if ae.already_alerted(con, session, code, sig["side"], sig["type"]):
             return 0
-        key = self.cfg.get("anthropic_key")
+        # D8：移除逐則 AI 複核。爆倉預警是確定性緩衝計算，不需 Claude 把關（省 API）。
         allow = True
-        if key:
-            v = ae.ai_vet(sym, sig, key, self.cfg.get("ai_model", "claude-haiku-4-5-20251001"))
-            if v:
-                sig["reason"] += "｜AI複核：" + v["verdict"] + ("，" + v["note"] if v.get("note") else "")
-                if v["verdict"] == "不建議":
-                    allow = False
         side = "⚠️ 全倉爆倉預警" if "爆倉" in sig.get("type", "") else {"long": "🟢 加密買點", "exit": "🔴 加密賣點"}.get(sig["side"], sig["side"])
         msg = (f"<b>{side}・{sym}（{self.source}）</b>　等級 <b>{sig['grade']}</b>\n"
                f"型態：{sig['type']}\n現價 {sig['price']}　停損 {sig['stop']}　目標 {sig['target']}　R:R {sig.get('rr')}\n"

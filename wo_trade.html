@@ -33,6 +33,7 @@ header .spacer{margin-left:auto;}
 .icon-btn:hover{color:var(--text);border-color:var(--orange);}
 .futu-status{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);cursor:pointer;white-space:nowrap;}
 .futu-status.on{color:var(--green);border-color:rgba(22,199,132,.4);}
+.futu-status.degraded{color:var(--amber);border-color:rgba(224,165,59,.5);}
 .futu-status.off{color:var(--muted);}
 .tab-row{display:flex;gap:4px;}
 .tab-row .tab{font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;color:var(--muted);border:1px solid transparent;}
@@ -71,6 +72,8 @@ header .spacer{margin-left:auto;}
 .simwrap .simlevbtn,.simwrap .simclosebtn{background:var(--panel-2);border:1px solid var(--orange);border-radius:6px;color:var(--orange-light);font-family:inherit;font-size:11px;padding:5px 9px;cursor:pointer;}
 .simwrap .simlevbtn:hover,.simwrap .simclosebtn:hover{background:var(--orange);color:#fff;}
 .simout{margin-top:5px;padding:6px 8px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;font-size:11px;line-height:1.6;color:var(--text);}
+@keyframes bufflash{0%,100%{box-shadow:0 0 0 0 rgba(224,57,67,0)}30%{box-shadow:0 0 0 3px rgba(224,57,67,.85)}60%{box-shadow:0 0 0 3px rgba(224,57,67,.25)}}
+.bufflash{animation:bufflash .5s ease-in-out 3;border-radius:8px;}
 .tpsl-hint{font-size:10.5px;color:var(--muted-2);margin-top:4px;}
 .detail-actions{display:flex;gap:7px;margin-top:10px;}
 .detail-actions button{flex:1;border-radius:7px;padding:7px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--text);}
@@ -1410,18 +1413,24 @@ let wlDir = (localStorage.getItem('wo_wldir')==='asc')?'asc':'desc';      // des
 function wlExt(q){ if(!q)return null; const s=usSession(); if(s==='pre'&&q.pre_rate!=null&&q.pre_rate!=='')return q.pre_rate; if((s==='after'||s==='closed')&&q.after_rate!=null&&q.after_rate!=='')return q.after_rate; return null; }
 /* 目前美股盤別（美東時間）：pre盤前 / regular盤中 / after盤後 / closed休市夜盤。
    牛牛的 after_change_rate/pre_change_rate 在「非當前時段」是上一場的舊值，要按時段才顯示，否則會顯示過時數字。 */
+// D3：真正市場日曆——休市假日＋半日盤(13:00 ET 提早收)。時區用 America/New_York(DST 由 Intl 處理)。
+const US_HOLIDAYS=new Set(['2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25','2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25','2027-01-01','2027-01-18','2027-02-15','2027-03-26','2027-05-31','2027-06-18','2027-07-05','2027-09-06','2027-11-25','2027-12-24']);
+const US_HALFDAYS=new Set(['2026-11-27','2026-12-24','2027-11-26']);   // 感恩節隔日、平安夜：13:00 ET 提早收
 function usSession(){
   try{
-    const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
+    const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
     const g=t=>{const x=p.find(z=>z.type===t);return x?x.value:'';};
-    const wd=g('weekday'); let h=+g('hour'); if(h===24)h=0; const t=h*60+(+g('minute'));
+    const date=g('year')+'-'+g('month')+'-'+g('day'), wd=g('weekday'); let h=+g('hour'); if(h===24)h=0; const t=h*60+(+g('minute'));
     if(wd==='Sat'||wd==='Sun') return 'closed';
-    if(t>=240 && t<570) return 'pre';        // 04:00–09:30 ET
-    if(t>=570 && t<960) return 'regular';     // 09:30–16:00 ET
-    if(t>=960 && t<1200) return 'after';      // 16:00–20:00 ET
+    if(US_HOLIDAYS.has(date)) return 'closed';
+    const close=US_HALFDAYS.has(date)?780:960;   // 半日盤 13:00、平常 16:00 ET
+    if(t>=240 && t<570) return 'pre';            // 04:00–09:30 ET
+    if(t>=570 && t<close) return 'regular';
+    if(t>=close && t<close+240) return 'after';
     return 'closed';
   }catch(e){ return 'regular'; }
 }
+function usHalfDayToday(){ try{ const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()); const g=t=>{const x=p.find(z=>z.type===t);return x?x.value:'';}; return US_HALFDAYS.has(g('year')+'-'+g('month')+'-'+g('day')); }catch(e){ return false; } }
 /* 依當前時段給「盤前/盤後」那行；盤中或無資料就不顯示（避免顯示上一場的舊值） */
 function extSpan(q){
   if(!q) return '';
@@ -2048,7 +2057,13 @@ let futu={on:false,url:'',token:'',quotes:{},positions:[],account:null,timer:nul
 function loadFutuCfg(){ futu.on=localStorage.getItem('wo_futu_on')==='1'; futu.url=localStorage.getItem('wo_futu_url')||'http://127.0.0.1:8888'; futu.token=localStorage.getItem('wo_futu_token')||''; }
 function isUS(sym){ return !!futuCode(sym); }
 function futuCode(sym){ if(!sym)return null; if(/^TWSE:|^TPEX:/.test(sym))return null; if(sym.includes(':')){ const p=sym.split(':'); return ['NASDAQ','NYSE','AMEX','BATS','ARCA'].includes(p[0])?'US.'+p[1]:null; } return 'US.'+sym; }
-function setFutuStatus(ok){ const e=document.getElementById('futuStatus'); if(!e)return; e.className='futu-status '+(ok?'on':'off'); e.textContent=(ok?'🟢':'⚪')+' 富途'+(ok&&futu.version?' v'+futu.version:''); e.title=ok?('富途即時數據｜橋接版本 '+(futu.version||'(舊版，無版本號)')+(futu.bitget?'｜Bitget 金鑰已設定':'｜Bitget 未設金鑰')):'富途即時數據'; }
+function setFutuStatus(ok){ const e=document.getElementById('futuStatus'); if(!e)return;
+  // D4：橋接正常但 FutuOpenD 掉線→明確降級(黃)；美股報價暫停，但加密/Bitget 路徑獨立、不受影響。
+  const degraded = ok && futu.futuLive===false;
+  e.className='futu-status '+(ok?(degraded?'degraded':'on'):'off');
+  e.textContent=(ok?(degraded?'🟡':'🟢'):'⚪')+' 富途'+(ok&&futu.version?' v'+futu.version:'')+(degraded?'·FutuOpenD掉線':'');
+  e.title=ok?(degraded?'橋接正常，但 FutuOpenD 掉線→美股即時報價/K線暫停（圖會退 TradingView）；加密/Bitget 同步獨立、不受影響。請確認 FutuOpenD 已登入。'
+    :('富途即時數據｜橋接版本 '+(futu.version||'(舊版，無版本號)')+(futu.bitget?'｜Bitget 金鑰已設定':'｜Bitget 未設金鑰')+(futu.futuLive===false?'':'｜FutuOpenD 正常'))):'富途即時數據'; }
 /* 手機底部分頁：一次顯示一個全螢幕區塊（圖表/自選/分析/持股）。桌面寬螢幕不受影響。 */
 function mobileTab(name){
   document.body.dataset.mtab=name;
@@ -2062,13 +2077,13 @@ async function futuFetch(path){ const r=await fetch(futu.url.replace(/\/$/,'')+p
 async function connectFutu(){
   if(futu.timer){ clearInterval(futu.timer); futu.timer=null; }
   if(!futu.on){ futu.connected=false; setFutuStatus(false); return; }
-  try{ const h=await futuFetch('/health'); futu.version=h.version||''; futu.bitget=!!h.bitget; futu.notify=!!h.notify; futu.connected=true; setFutuStatus(true); }
+  try{ const h=await futuFetch('/health'); futu.version=h.version||''; futu.bitget=!!h.bitget; futu.notify=!!h.notify; futu.futuLive=h.futu!==false; futu.connected=true; setFutuStatus(true); }
   catch(e){ futu.connected=false; setFutuStatus(false); return; }
   await restoreFromBridge();
   pollFutu(); futu.timer=setInterval(pollFutu,12000);
 }
 async function pollFutu(){
-  try{ await futuFetch('/health'); }
+  try{ const h=await futuFetch('/health'); futu.futuLive=h.futu!==false; }
   catch(e){ futu.connected=false; setFutuStatus(false); maybeSwitchChart(); return; }
   futu.connected=true; setFutuStatus(true);
   try{
@@ -2175,21 +2190,33 @@ function applyBitgetData(r, dropManual){
   if(bitgetAcct){ const used=cryptoHoldings.reduce((a,h)=>a+(h.m||(h.q*h.e/(h.l||1))),0); setCMargin(Math.round((bitgetAcct.equity-used)*100)/100); }  // 餵橋接爆倉用的可用=權益−已用，讓引擎的權益≈交易所真實值
   else if(r.account && r.account.avail!=null) setCMargin(r.account.avail);
   bitgetOrders = r.orders||[];
+  bitgetSyncedAt=Date.now(); bitgetSyncFail=0;        // D2：記錄成功同步時間，給新鮮度顯示用
 }
-/* 背景自動同步：橋接有設 Bitget 金鑰時，每 ~60s 靜默把畫面上的加密倉位拉到跟交易所一致（不跳確認、不發泡泡、永不清手動）。 */
+/* D2 新鮮度：距上次成功 Bitget 同步多久；過期(>90s)就標灰/警告，不顯示舊值當即時。 */
+let bitgetSyncedAt=0, bitgetSyncFail=0;
+function bitgetAge(){ return bitgetSyncedAt? (Date.now()-bitgetSyncedAt)/1000 : null; }
+function freshTag(){
+  const a=bitgetAge(); if(a==null) return '';
+  if(a<=20) return ` <span style="color:var(--muted);font-size:10px">· ${Math.round(a)}s前</span>`;
+  if(a<=90) return ` <span style="color:var(--amber);font-size:10px">· ${Math.round(a)}s前</span>`;
+  return ` <span style="color:var(--red);font-size:10px">· ⚠${a<600?Math.round(a)+'s':Math.round(a/60)+'分'}前·可能過期</span>`;
+}
+/* 背景自動同步：橋接有設 Bitget 金鑰時靜默把倉位拉到跟交易所一致。D5：緩衝越低、輪詢越密。 */
 let _bitgetAutoLast=0;
 async function bitgetAutoSync(){
   if(!futu.connected || futu.bitget===false) return;   // undefined=舊版橋接沒回報→仍嘗試；false=明確未設金鑰→跳過
-  const now=Date.now(); if(now-_bitgetAutoLast<60000) return; _bitgetAutoLast=now;
+  const buf=(bitgetAcct&&typeof exposureModel==='function')?exposureModel().buffer:null;   // D5 分級輪詢
+  const throttle = (buf!=null && buf<7)?12000 : (buf!=null && buf<15)?25000 : (buf!=null && buf<30)?40000 : 60000;
+  const now=Date.now(); if(now-_bitgetAutoLast<throttle) return; _bitgetAutoLast=now;
   try{
     const r=await futuFetch('/bitgetsync');
-    if(!r || r.configured===false || r.error) return;
+    if(!r || r.configured===false || r.error){ bitgetSyncFail++; return; }
     const sig=a=>JSON.stringify(a.filter(h=>h.src==='bitget').map(h=>[h.s,h.side,+(+h.q).toFixed(6),h.e]));
     const before=sig(cryptoHoldings);
     applyBitgetData(r, false);
     if(before!==sig(cryptoHoldings)) await pollCrypto();   // 倉位真的變了才重抓報價
     renderPositions();
-  }catch(e){}
+  }catch(e){ bitgetSyncFail++; }
 }
 async function syncBitget(){
   if(!futu.connected){ addBubble('🔄 要先連上牛牛橋接（右上角綠燈）才能同步 Bitget——金鑰是存在橋接那台電腦上。','ai'); return; }
@@ -2282,15 +2309,37 @@ function exposureModel(){
   const liqPctNaked = anNaked>1 ? (eq-maintLong)/anNaked*100 : null;  // 全裸(空腿被ADL/平掉)後的爆倉線
   const hedgeBuysPct = (liqPct!=null&&liqPctNaked!=null) ? (liqPct-liqPctNaked) : null;  // 保險腿多撐的空間
   const riskRate = (bitgetAcct&&bitgetAcct.riskRate!=null) ? bitgetAcct.riskRate : null;  // Bitget 全倉風險率(0→1)
-  // 交叉檢核：我們算「還很安全(緩衝大)」但交易所風險率已高 → 估算不一致，別默默信本地
-  const inconsistent = (riskRate!=null && liqPct!=null && riskRate>0.8 && liqPct>15);
+  // A3 交叉檢核：用 Bitget 帳戶風險率 + 各倉真實 marginRatio 對照本地估算；
+  // 本地算「還安全(緩衝大)」但交易所風險率/保證金率已高 → 估算不一致，別默默信本地。
+  let maxMR=null; cryptoHoldings.forEach(h=>{ if(h.marginRatio!=null) maxMR=Math.max(maxMR==null?-1:maxMR, h.marginRatio); });
+  const exchHot = (riskRate!=null && riskRate>0.8) || (maxMR!=null && maxMR>0.8);
+  const inconsistent = (exchHot && liqPct!=null && liqPct>15);
   return {contracts, NET, GROSS, NAKED, LOCKG, equity:eq, avail, upnl:sm.upnl,
     used:sm.used, balance:sm.balance, buffer:sm.buffer, netSigned:NET,
     netLev: eq>0?NET/eq:0, grossLev: eq>0?GROSS/eq:0, hedgedFrac: GROSS>0?LOCKG/GROSS:0,
     adlStress: eq>0?NAKED/eq:0, fundSettle, fundDaily: fundSettle*3,   // 8h結算估 3/日
-    maint, ammoPct, liqPct, liqPctNaked, hedgeBuysPct, mmrMissing, riskRate, inconsistent };
+    maint, ammoPct, liqPct, liqPctNaked, hedgeBuysPct, mmrMissing, riskRate, maxMR, inconsistent };
 }
 function kUsd(v){ const a=Math.abs(v); const s=v<0?'-':''; return a>=1000?(s+'$'+(a/1000).toFixed(a>=10000?0:1)+'k'):(s+'$'+Math.round(a)); }
+/* A4：危急緩衝頁內警報——紅閃＋WebAudio 嗶聲（不只押在可能被靜音的 Telegram）。
+   危急<7% 每 20s、警告<15% 每 60s 再響；wo_bufmute=1 可靜音聲響(紅閃保留)。 */
+let _bufAlarmAt=0;
+function bufferAlarm(buf){
+  if(buf==null) return;
+  const tier= buf<7?'crit' : buf<15?'warn' : null; if(!tier) return;
+  const now=Date.now(), gap=(tier==='crit')?20000:60000;
+  if(now-_bufAlarmAt<gap) return; _bufAlarmAt=now;
+  try{ const el=document.getElementById('posList'); if(el){ el.classList.add('bufflash'); setTimeout(()=>el.classList.remove('bufflash'),1500); } }catch(e){}
+  if(localStorage.getItem('wo_bufmute')==='1') return;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    const ctx=bufferAlarm._ctx||(bufferAlarm._ctx=new AC()); if(ctx.state==='suspended') ctx.resume();
+    const beeps=(tier==='crit')?3:2, dur=(tier==='crit')?0.22:0.14, freq=(tier==='crit')?880:660;
+    for(let i=0;i<beeps;i++){ const o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=freq;
+      const t0=ctx.currentTime+i*(dur+0.08); g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.25,t0+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001,t0+dur); o.connect(g); g.connect(ctx.destination); o.start(t0); o.stop(t0+dur+0.02); }
+  }catch(e){}
+}
 /* Regime 旗標：BTC 日線 EMA20 斜率＋價位 → 趨勢盤(敘事主導,釋彈藥→補空的舞步危險) / 洗盤(流量主導,均值回歸會救你) */
 let cryptoRegime=null;
 async function updateRegime(){
@@ -2325,8 +2374,8 @@ function f2Block(em){
     <span style="color:var(--amber)">🟠 彈藥線 <b>${fp(em.ammoPct)}</b></span> <span style="color:var(--muted);font-size:10.5px">先到：可用保證金歸零、無法再開防守空單</span><br>
     <span style="color:var(--red)">🔴 爆倉線 <b>${fp(em.liqPct)}</b></span> <span style="color:var(--muted);font-size:10.5px">權益 &lt; 維持保證金${em.mmrMissing?'（維持率粗估 0.5%，可能低估→更新橋接抓真實 tiered 率）':'（Bitget 真實 tiered 率）'}</span>
     ${em.liqPctNaked!=null?`<br><span style="color:var(--muted)">🛡 保險腿有效區間：全裸爆倉線 <b>${fp(em.liqPctNaked)}</b>${em.hedgeBuysPct!=null?`（保險腿多撐 <b style="color:#5BC0BE">+${Math.max(0,em.hedgeBuysPct).toFixed(1)}%</b>）`:''}</span>`:''}
-    ${em.riskRate!=null?`<br><span style="color:var(--muted);font-size:10.5px">Bitget 風險率 ${(em.riskRate*100).toFixed(0)}%（交叉檢核）</span>`:''}
-    ${em.inconsistent?`<br><b style="color:var(--red)">⚠ 本地緩衝與交易所風險率不一致，以交易所為準</b>`:''}
+    ${(em.riskRate!=null||em.maxMR!=null)?`<br><span style="color:var(--muted);font-size:10.5px">交叉檢核：${em.riskRate!=null?'Bitget 風險率 '+(em.riskRate*100).toFixed(0)+'%':''}${em.maxMR!=null?(em.riskRate!=null?'、':'')+'最高倉保證金率 '+(em.maxMR*100).toFixed(0)+'%':''}</span>`:''}
+    ${em.inconsistent?`<br><b style="color:var(--red)">⚠ 本地緩衝與交易所風險率/保證金率不一致，以交易所為準</b>`:''}
   </div>`;
 }
 /* F3-A 調單腿槓桿（釋彈藥）：提高槓桿釋出保證金=可用↑、彈藥線變遠；總/淨槓桿、爆倉線不變(維持保證金看名目×分級,與你設的槓桿無關)。 */
@@ -2378,17 +2427,20 @@ function renderScenarioCard(list){
   const head=`<div onclick="toggleScen()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:12px"><span><b>🌙 無人盯盤情境卡</b> <span style="color:var(--muted)">市場 ±5/10/15% 你還剩多少彈藥</span></span><span style="color:var(--muted-2)">${exp?'▴':'▾'}</span></div>`;
   let body='';
   if(exp){
+    const GC='.5fr .8fr .8fr .62fr .72fr .72fr';
     const rows=[-0.15,-0.10,-0.05,0.05,0.10,0.15].map(m=>{ const s=scenarioRow(m);
       const dead=(s.ammoPct!=null&&s.ammoPct<=0)||s.avail<=0, mc=m<0?'var(--dn)':'var(--up)';
-      return `<div style="display:grid;grid-template-columns:.62fr 1fr .95fr .8fr .85fr;gap:3px;font-size:10.5px;padding:2px 0;border-top:1px solid var(--border)${dead?';opacity:.55':''}">
+      const liqDead=(s.liqPct!=null&&s.liqPct<=0);
+      return `<div style="display:grid;grid-template-columns:${GC};gap:3px;font-size:10.5px;padding:2px 0;border-top:1px solid var(--border)${dead?';opacity:.55':''}">
         <span style="color:${mc};font-weight:700">${m>0?'+':''}${Math.round(m*100)}%</span>
         <span>${kUsd(s.equity)}</span><span style="${s.avail<=1?'color:var(--red);font-weight:700':''}">${kUsd(s.avail)}</span>
         <span>${s.netLev>=0?'+':''}${s.netLev.toFixed(1)}x</span>
-        <span style="color:${dead?'var(--red)':'var(--text)'}">${s.ammoPct!=null?Math.max(0,s.ammoPct).toFixed(0)+'%':'—'}${s.cushionLegs?` <span style="color:#5BC0BE" title="該情境下轉正、提供緩衝的保險腿數">🛡${s.cushionLegs}</span>`:''}</span></div>`;
+        <span style="color:${dead?'var(--red)':'var(--text)'}">${s.ammoPct!=null?Math.max(0,s.ammoPct).toFixed(0)+'%':'—'}${s.cushionLegs?` <span style="color:#5BC0BE" title="該情境下轉正、提供緩衝的保險腿數">🛡${s.cushionLegs}</span>`:''}</span>
+        <span style="color:${liqDead?'var(--red)':'var(--text)'};font-weight:${liqDead?'700':'400'}">${s.liqPct!=null?Math.max(0,s.liqPct).toFixed(0)+'%':'—'}</span></div>`;
     }).join('');
     const fund8=exposureModel().fundDaily/3;
     body=`<div style="margin-top:5px">
-      <div style="display:grid;grid-template-columns:.62fr 1fr .95fr .8fr .85fr;gap:3px;font-size:9px;color:var(--muted-2)"><span>市場</span><span>權益</span><span>可用保證金</span><span>淨槓桿</span><span>距彈藥線</span></div>
+      <div style="display:grid;grid-template-columns:${GC};gap:3px;font-size:9px;color:var(--muted-2)"><span>市場</span><span>權益</span><span>可用</span><span>淨槓桿</span><span>距彈藥</span><span>距爆倉</span></div>
       ${rows}
       <div style="margin-top:5px;font-size:10px;color:var(--muted)">🛡=該跌幅下轉正、提供緩衝的保險腿數。過夜(8h)淨資金費 ≈ ${fund8>=0?'付':'收'} ${kUsd(Math.abs(fund8))}。<b>可用保證金歸零(紅)那列之後，沒看盤就只能挨打。</b>估算，實際以交易所為準。</div>
     </div>`;
@@ -2403,9 +2455,13 @@ function renderSimClose(h){
    淨曝險 ${kUsd(r.netBefore)} → <b style="color:${dn}">${kUsd(r.netAfter)}</b>（${jump>=0?'淨曝險跳升 +'+kUsd(jump):'下降 '+kUsd(-jump)}）<br>
    彈藥線 ${r.ammoBefore!=null?r.ammoBefore.toFixed(1)+'%':'—'}→<b>至少 ${r.ammoAfterLB!=null?Math.max(0,r.ammoAfterLB).toFixed(1)+'%':'—'}</b>　爆倉線 ${r.liqBefore!=null?r.liqBefore.toFixed(1)+'%':'—'}→<b>至少 ${r.liqAfterLB!=null?Math.max(0,r.liqAfterLB).toFixed(1)+'%':'—'}</b>（往內退）`;
   if(r.isHedge){
-    s+=`<br><b style="color:${dn}">🛡 這是保險腿</b>：去對沖後裸腿保證金需求跳升→<b>可用保證金當下會下降</b>（上面紅線只算|淨|變化是樂觀下界，實際更近爆倉、釋出的保證金 < 裸腿新增需求）。`;
-    s+=`<br><span style="color:${mut};font-size:10px">拆對沖吃反彈：反彈前常先回踩，先確認撐不撐得過這一下；發現看錯要回補→在更差價位重建、且當下可用未必夠再開空（你最怕的「被補完不能再開空」）。</span>`;
-    if(r.raisesNet && regimeIsTrend()) s+=`<br><b style="color:var(--red)">🚩 拆氣囊訊號</b>：<span style="color:${mut};font-size:10px">當前是趨勢盤、平此腿會讓淨曝險跳升——保險腿是買時間不是免疫，趨勢盤拆掉風險特別高。</span>`;
+    const em=exposureModel(), px=cMark(h)||h.e, reMargin=Math.round(h.m||(h.q*px/(h.l||1)));
+    const ammoA=r.ammoAfterLB!=null?Math.max(0,r.ammoAfterLB):null;
+    s+=`<br><b style="color:${dn}">🛡 這是保險腿</b>：去對沖後裸腿保證金需求跳升→<b>可用當下會下降</b>（紅線只算|淨|變化是樂觀下界，實際更近爆倉）。`;
+    // F3-B 區分兩意圖
+    s+=`<br><b style="color:var(--amber)">① 主動換方向(看跌到底→拆對沖吃反彈)</b> <span style="color:${mut};font-size:10px">＝試算：淨 ${kUsd(r.netBefore)}→${kUsd(r.netAfter)}(換邊)。反彈啟動前常先回踩——平掉後彈藥線只剩約 <b>${ammoA!=null?ammoA.toFixed(0)+'%':'—'}</b>，淨方向再逆走超過這個數就撐不過這一下回踩。撐得過才安心拆。</span>`;
+    s+=`<br><b style="color:var(--amber)">② 看錯要回補(重新對沖)</b> <span style="color:${mut};font-size:10px">＝損害回報：補回要在更差價位重建；當下可用 ${kUsd(em.avail)}，再開這張空約需保證金 $${reMargin} → <b style="color:${em.avail>=reMargin?'var(--up)':dn}">${em.avail>=reMargin?'夠':'不夠'}</b>。不夠＝你最怕的「被補完不能再開空」。</span>`;
+    if(r.raisesNet && regimeIsTrend()) s+=`<br><b style="color:var(--red)">🚩 拆氣囊訊號</b>：<span style="color:${mut};font-size:10px">當前趨勢盤、平此腿讓淨曝險跳升——保險腿是買時間不是免疫，趨勢盤拆掉風險特別高。</span>`;
   }
   return s;
 }
@@ -2883,11 +2939,14 @@ function renderPositions(){
     const sm=cryptoSummary();
     const exp=localStorage.getItem('wo_sumexp')==='1';
     const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
-    const bufCol = sm.buffer==null?'var(--green)':(sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)');
+    const stale=bitgetAcct && bitgetAge()!=null && bitgetAge()>90;   // D2：同步過期就標記、緩衝不當即時看
+    const bufCol = sm.buffer==null?'var(--green)':(stale?'var(--muted-2)':(sm.buffer<15?'var(--red)':sm.buffer<30?'var(--amber)':'var(--text)'));
     const bufTxt = sm.buffer==null?'已對沖':sm.buffer.toFixed(1)+'%';
+    if(bitgetAcct && !stale) bufferAlarm(sm.buffer);                 // A4：危急緩衝頁內聲音+紅閃
     const head=`<div onclick="toggleCryptoSum()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:12px;gap:6px">
-        <span><b>加密全倉</b> <span style="color:var(--muted)">權益</span> $${Math.round(sm.equity).toLocaleString()} <span style="color:var(--muted)">未實現</span> <b style="color:${sm.upnl>=0?'var(--up)':'var(--dn)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b> <span style="color:var(--muted)">緩衝</span> <b style="color:${bufCol}">${bufTxt}</b></span>
+        <span><b>加密全倉</b> <span style="color:var(--muted)">權益</span> $${Math.round(sm.equity).toLocaleString()} <span style="color:var(--muted)">未實現</span> <b style="color:${sm.upnl>=0?'var(--up)':'var(--dn)'}">${sm.upnl>=0?'+':''}$${Math.round(sm.upnl).toLocaleString()}</b> <span style="color:var(--muted)">緩衝</span> <b style="color:${bufCol}">${bufTxt}</b>${bitgetAcct?freshTag():''}</span>
         <span style="color:var(--muted-2);flex:0 0 auto">${exp?'▴':'▾'}</span></div>`;
+    card.dataset.bufalarm = (!stale && sm.buffer!=null && sm.buffer<7)?'1':'';
     let body='';
     if(exp){
       const upnlTxt=(sm.upnl>=0?'+$':'-$')+Math.abs(Math.round(sm.upnl)).toLocaleString();
