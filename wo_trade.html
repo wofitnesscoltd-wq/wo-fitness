@@ -2298,6 +2298,44 @@ function renderSimLev(h,newLev){
    彈藥線 ${r.ammoBefore!=null?r.ammoBefore.toFixed(1)+'%':'—'} → <b>${r.ammoAfter!=null?r.ammoAfter.toFixed(1)+'%':'—'}</b>（變遠）　<span style="color:${mut}">總/淨槓桿、爆倉線<b>不變</b></span><br>
    <span style="color:${mut};font-size:10px">調槓桿只放彈藥、不移爆倉線。釋出的拿去開防守空單→降淨🟢；加同向→淨+總槓桿同升、爆倉線內縮🚩。</span>`;
 }
+/* F6 情境列：市場相關性移動 m（如 -0.10）下，重算 權益/可用/淨槓桿/彈藥線/爆倉線（估算）。 */
+function scenarioRow(m){
+  const base=exposureModel(), wallet=base.equity-base.upnl;
+  let newEq=wallet, NET=0, maint=0, cushionLegs=0;
+  cryptoHoldings.forEach(h=>{ const mk=cMark(h); if(mk==null)return; const nm=mk*(1+m);
+    const up=(h.side==='short'?(h.e-nm):(nm-h.e))*h.q; newEq+=up;
+    const n=h.q*nm; NET+=(h.side==='short'?-1:1)*n;
+    const r=(h.mmr!=null&&h.mmr>0)?h.mmr:0.005; maint+=n*r;
+    if(h.side==='short'&&up>0) cushionLegs++; });   // 下跌時轉正的空腿＝保險腿在緩衝
+  const avail=Math.max(0,newEq-base.used), an=Math.abs(NET);
+  return {m, equity:newEq, avail, NET, netLev: newEq>0?NET/newEq:0, cushionLegs,
+    ammoPct: an>1?avail/an*100:null, liqPct: an>1?(newEq-maint)/an*100:null};
+}
+function renderScenarioCard(list){
+  if(!cryptoHoldings.length) return;
+  const exp=localStorage.getItem('wo_scenexp')==='1';
+  const card=document.createElement('div'); card.className='calc-out show'; card.style.margin='0 0 8px';
+  const head=`<div onclick="toggleScen()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:12px"><span><b>🌙 無人盯盤情境卡</b> <span style="color:var(--muted)">市場 ±5/10/15% 你還剩多少彈藥</span></span><span style="color:var(--muted-2)">${exp?'▴':'▾'}</span></div>`;
+  let body='';
+  if(exp){
+    const rows=[-0.15,-0.10,-0.05,0.05,0.10,0.15].map(m=>{ const s=scenarioRow(m);
+      const dead=(s.ammoPct!=null&&s.ammoPct<=0)||s.avail<=0, mc=m<0?'var(--dn)':'var(--up)';
+      return `<div style="display:grid;grid-template-columns:.62fr 1fr .95fr .8fr .85fr;gap:3px;font-size:10.5px;padding:2px 0;border-top:1px solid var(--border)${dead?';opacity:.55':''}">
+        <span style="color:${mc};font-weight:700">${m>0?'+':''}${Math.round(m*100)}%</span>
+        <span>${kUsd(s.equity)}</span><span style="${s.avail<=1?'color:var(--red);font-weight:700':''}">${kUsd(s.avail)}</span>
+        <span>${s.netLev>=0?'+':''}${s.netLev.toFixed(1)}x</span>
+        <span style="color:${dead?'var(--red)':'var(--text)'}">${s.ammoPct!=null?Math.max(0,s.ammoPct).toFixed(0)+'%':'—'}${s.cushionLegs?` <span style="color:#5BC0BE" title="該情境下轉正、提供緩衝的保險腿數">🛡${s.cushionLegs}</span>`:''}</span></div>`;
+    }).join('');
+    const fund8=exposureModel().fundDaily/3;
+    body=`<div style="margin-top:5px">
+      <div style="display:grid;grid-template-columns:.62fr 1fr .95fr .8fr .85fr;gap:3px;font-size:9px;color:var(--muted-2)"><span>市場</span><span>權益</span><span>可用保證金</span><span>淨槓桿</span><span>距彈藥線</span></div>
+      ${rows}
+      <div style="margin-top:5px;font-size:10px;color:var(--muted)">🛡=該跌幅下轉正、提供緩衝的保險腿數。過夜(8h)淨資金費 ≈ ${fund8>=0?'付':'收'} ${kUsd(Math.abs(fund8))}。<b>可用保證金歸零(紅)那列之後，沒看盤就只能挨打。</b>估算，實際以交易所為準。</div>
+    </div>`;
+  }
+  card.innerHTML=head+body; list.appendChild(card);
+}
+function toggleScen(){ localStorage.setItem('wo_scenexp', localStorage.getItem('wo_scenexp')==='1'?'0':'1'); renderPositions(); }
 function renderSimClose(h){
   const r=simCloseLeg(h), dn='var(--dn)', mut='var(--muted)';
   const jump=Math.abs(r.netAfter)-Math.abs(r.netBefore);
@@ -2797,6 +2835,7 @@ function renderPositions(){
     }
     card.innerHTML=head+body;
     list.appendChild(card);
+    renderScenarioCard(list);   // F6 無人盯盤情境卡
   }
   const grid=document.createElement('div'); grid.className='pos-grid'; list.appendChild(grid);
   // 同標的多空雙開→並排同一列（各占整列起點）；單腿標的往後遞補、兩兩填滿
