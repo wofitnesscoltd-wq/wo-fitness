@@ -1656,8 +1656,10 @@ function recordTurn(userContent, assistantContent){
 }
 function clearChatMemory(){ chatHistory=[]; }
 async function callClaude(userText, {json=false, maxTokens=3000, history=null}={}){
+  // D9：橋接能代理(本機有金鑰)就走 /claude，金鑰不進瀏覽器/手機；否則退回瀏覽器直呼 + localStorage 金鑰。
+  const useBridge = (typeof futu!=='undefined' && futu.connected && futu.claude);
   const key=localStorage.getItem('wo_key');
-  if(!key){ openSettings(); throw new Error('請先在 ⚙ 設定你的 Anthropic API 金鑰'); }
+  if(!useBridge && !key){ openSettings(); throw new Error('請先在 ⚙ 設定你的 Anthropic API 金鑰（或啟動橋接由它代理，金鑰就不必進瀏覽器）'); }
   const model=localStorage.getItem('wo_model')||'claude-opus-4-8';
   const body={
     model, max_tokens:maxTokens,
@@ -1670,11 +1672,14 @@ async function callClaude(userText, {json=false, maxTokens=3000, history=null}={
   const BACKOFF=[1200,3000,6000,10000];   // 529過載/429限流/5xx：自動退避重試，不要一次就把錯誤丟到使用者臉上
   try{
     for(let attempt=0;;attempt++){
-      const res=await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify(body), signal:currentAbort.signal
-      });
+      const res = useBridge
+        ? await fetch(futu.url.replace(/\/$/,'')+'/claude',{
+            method:'POST', headers:{'content-type':'application/json','X-Token':futu.token},
+            body:JSON.stringify(body), signal:currentAbort.signal })
+        : await fetch('https://api.anthropic.com/v1/messages',{
+            method:'POST',
+            headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+            body:JSON.stringify(body), signal:currentAbort.signal });
       if(res.ok){ const data=await res.json(); return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim(); }
       const status=res.status; const t=await res.text();
       const retryable=(status===429||status===529||status>=500);
@@ -2077,7 +2082,7 @@ async function futuFetch(path){ const r=await fetch(futu.url.replace(/\/$/,'')+p
 async function connectFutu(){
   if(futu.timer){ clearInterval(futu.timer); futu.timer=null; }
   if(!futu.on){ futu.connected=false; setFutuStatus(false); return; }
-  try{ const h=await futuFetch('/health'); futu.version=h.version||''; futu.bitget=!!h.bitget; futu.notify=!!h.notify; futu.futuLive=h.futu!==false; futu.connected=true; setFutuStatus(true); }
+  try{ const h=await futuFetch('/health'); futu.version=h.version||''; futu.bitget=!!h.bitget; futu.notify=!!h.notify; futu.claude=!!h.claude; futu.futuLive=h.futu!==false; futu.connected=true; setFutuStatus(true); }
   catch(e){ futu.connected=false; setFutuStatus(false); return; }
   await restoreFromBridge();
   pollFutu(); futu.timer=setInterval(pollFutu,12000);
