@@ -2664,64 +2664,85 @@ function fishState(bars, side){
 }
 /* 依持倉狀態(槓桿/進場/現價/真實爆倉)＋技術位(ATR/結構/EMA)＋動能(魚身/轉弱/魚尾) 算止損/止盈/上移數字。
    全部本機算、即時、不花 API；AI 只在你問時做敘述，數字一律錨定技術位＋你真實的爆倉價。 */
+let trailFloor={};   // 結構化移動止損「只升不降」(看空只降不升)的記憶
+/* 最近、且仍守住的 swing low/high（永續結構，24h 任何時段成立；不用 VWAP——美股收盤 VWAP 就斷）。 */
+function recentSwing(bars, px, low, w){ w=w||3; const n=bars.length;
+  for(let i=n-1-w;i>=w;i--){ let piv=true;
+    for(let j=i-w;j<=i+w;j++){ if(j!==i && (low?bars[j].low<bars[i].low:bars[j].high>bars[i].high)){piv=false;break;} }
+    if(piv){ const v=low?bars[i].low:bars[i].high; if(low? v<px : v>px) return v; } }
+  return null;
+}
+/* 今日情緒分(風險偏多/中/空)＝regime(=BTC日線) + 自選清單今日漲跌廣度。risk-off→把支撐標脆弱、傾向部分止損縮size。 */
+function riskTone(){
+  let score=0;
+  if(cryptoRegime==='trend-up')score++; else if(cryptoRegime==='trend-down')score--;
+  const list=lists['us']||[]; let up=0,dn=0;
+  list.forEach(it=>{ const q=futu.quotes[futuCode(it.s)]; if(q&&q.change_rate!=null){ if(q.change_rate>=0)up++; else dn++; } });
+  if(up+dn>=4){ if(up>dn*1.3)score++; else if(dn>up*1.3)score--; }
+  return score>=1?'on':(score<=-1?'off':'neutral');
+}
+/* 動作前重算(部分止損預設開)：觸發後先削 50% 方向腿，估淨曝險換邊。縮方向腿→保證金需求降，對全倉友善。 */
+function adviceTriggerInfo(h, adv){
+  const em=exposureModel(), px=adv.px; if(px==null) return null;
+  const cutSigned=(h.side==='short'?-1:1)*0.5*h.q*px;
+  const netAfter=em.NET-cutSigned;
+  return {netBefore:em.NET, netAfter, flip:(em.NET>=0)!==(netAfter>=0)};
+}
+/* PATCH 3：短線出場建議。錨＝swing low/high(永續1h)；止損=錨−k×短ATR(k隨動能放大,防插針)；
+   結構化移動止損只升不降；今日情緒(risk-off→脆弱、部分止損)；止損只掛較大方向腿。 */
 function posAdvice(h, bars){
   const px=cMark(h); if(px==null||!bars||bars.length<40) return null;
-  const long=h.side!=='short', e=+h.e, L=h.l||1;
-  const c=bars.map(b=>b.close), a=atrVal(bars)||px*0.02;            // 日線 ATR
+  const long=h.side!=='short', e=+h.e, L=h.l||1, key=h.s+'|'+h.side;
+  const a=atrVal(bars)||px*0.01;                                   // 短週期 ATR(永續1h)——比日線窄、貼當下波動
   const fs=fishState(bars,h.side);
-  const tail=fs&&/魚尾/.test(fs.t), waning=fs&&/轉弱/.test(fs.t);
-  const k= tail?1.0 : waning?1.5 : 2.0;                              // 動能足→給空間；轉弱/魚尾→收緊
-  const lo=Math.min(...bars.slice(-20).map(b=>b.low)), hi=Math.max(...bars.slice(-20).map(b=>b.high));
-  let sl= long? Math.min(px-k*a, lo-0.1*a) : Math.max(px+k*a, hi+0.1*a);   // 結構與 ATR 取較保守
+  const tail=fs&&/魚尾/.test(fs.t), waning=fs&&/轉弱/.test(fs.t), strong=!tail&&!waning;
+  const k= strong?0.55 : waning?0.45 : 0.40;                       // 動能越強 k 越大(費半AI插針兇,別貼太死被掃)
+  const anchor=recentSwing(bars, px, long, 3);                     // 短線主錨
+  let sl = anchor!=null ? (long? anchor-k*a : anchor+k*a) : (long? px-1.4*a : px+1.4*a);
   const prof= long? px-e : e-px;
   let trail=null;
-  if(prof> a){                                                       // 獲利超過 1 ATR 才談上移
-    const chand= long? hi-3*a : lo+3*a;                              // 與面板 3×ATR 移動停利同公式
-    trail= long? Math.max(e, chand) : Math.min(e, chand);            // 至少保本
+  if(prof>0 && anchor!=null){                                      // 結構化移動止損：只升不降
+    const base= long? anchor-k*a : anchor+k*a, prev=trailFloor[key];
+    trail= long? Math.max(base, e) : Math.min(base, e);            // 至少保本
+    if(prev!=null) trail= long? Math.max(trail, prev) : Math.min(trail, prev);
+    trailFloor[key]=trail;
     sl= long? Math.max(sl, trail) : Math.min(sl, trail);
   }
-  const risk=Math.abs(e-sl)||a;
-  let tp= long? e+2*risk : e-2*risk;                                 // 預設 2R；尊重讓利潤奔跑→交給移動止損
-  if(long&&tp<=px) tp=px+2*a; if(!long&&tp>=px) tp=px-2*a;
-  const liq=h.liq!=null?+h.liq:(typeof liqPrice==='function'?liqPrice(e,L,h.side):null);
-  // 全倉(Bitget cross)沒有「單腿獨立爆倉」：爆倉是帳戶層級(看上方緩衝)。
-  // 所以 isolated 的「止損比爆倉還遠→降槓桿」只在「非全倉的單腿」才成立；全倉一律不用它判斷。
-  const cross=!!bitgetAcct;
-  // 對沖判斷：同標的有多空兩腿＝對沖(保險腿)。與該標的「淨方向」相反的那腿＝保險腿，平掉會放大淨曝險。
-  const legs=cryptoHoldings.filter(x=>x.s===h.s);
-  const hedged=legs.length>=2;
+  const risk=Math.abs(px-sl)||a;
+  let tp= long? px+2*risk : px-2*risk;                             // 2R(現價到止損距離)
+  const tone=riskTone(), fragile=(tone==='off');                  // risk-off：支撐脆弱、別硬信
+  const cross=!!bitgetAcct, legs=cryptoHoldings.filter(x=>x.s===h.s), hedged=legs.length>=2;
   let symNet=0; legs.forEach(l=>{ const p=cMark(l); if(p!=null) symNet+=(l.side==='short'?-1:1)*(l.q||0)*p; });
-  const symDir= symNet>=0?'long':'short';
-  const isHedgeLeg= hedged && ((symDir==='long')!==long);
+  const symDir= symNet>=0?'long':'short', isHedgeLeg= hedged && ((symDir==='long')!==long);
+  const liq=h.liq!=null?+h.liq:(typeof liqPrice==='function'?liqPrice(e,L,h.side):null);
   const slBeyondLiq= (!cross) && liq!=null && (long? sl<=liq : sl>=liq);
-  const near= Math.abs(px-sl) <= 0.6*a;                              // 價格已逼近建議止損
-  const dp = px<2?5:(px<20?3:2);
-  const rnd=v=>v==null?null:+v.toFixed(dp);
-  return {long, px, a, sl:rnd(sl), tp:rnd(tp), trail:rnd(trail), inProfit:prof>0,
-          fs, tail, waning, liq, slBeyondLiq, near, dp, cross, hedged, isHedgeLeg, symDir};
+  const near= Math.abs(px-sl) <= 0.5*a;
+  const dp = px<2?5:(px<20?3:2); const rnd=v=>v==null?null:+v.toFixed(dp);
+  return {long, px, a, sl:rnd(sl), tp:rnd(tp), trail:rnd(trail), anchor:rnd(anchor), inProfit:prof>0,
+          fs, tail, waning, strong, k, tone, fragile, liq, slBeyondLiq, near, dp, cross, hedged, isHedgeLeg, symDir};
 }
-/* 把建議畫成一行（給每張持倉卡）；回傳 {html, adv} */
+/* 把建議畫成一行；回傳 {html, adv} */
 function adviceLine(h, bars){
   const adv=posAdvice(h, bars); if(!adv) return null;
-  const dn='var(--dn)', up='var(--up)', mut='var(--muted)', teal='#5BC0BE';
-  // 保險腿（與該標的淨方向相反的對沖腿）：它沒有獨立止損的意義，平掉反而放大淨曝險。
-  // 不給「止損/降槓桿」，改給對沖腿的正確操作：留著護倉 or 趨勢回來再分批收利。
-  if(adv.isHedgeLeg){
+  const dn='var(--dn)', up='var(--up)', mut='var(--muted)', teal='#5BC0BE', purp='#C792EA';
+  if(adv.isHedgeLeg){                                              // 保險腿(對沖腿)：不給止損、平掉反放大淨曝險
     const netCh=adv.symDir==='long'?'多':'空';
     const s=`🛡 <b style="color:${teal}">保險腿</b>（對沖你較大的${netCh}單）　🎯 想收利可分批 <b style="color:${up}">${adv.tp}</b>`;
     const tag=`<span style="color:${mut}">全倉沒有單腿爆倉；<b style="color:${adv.tail?'var(--amber)':mut}">${adv.tail?'趨勢若回來、保險腿轉弱可分批收':'留著護住淨曝險，別當止損砍'}</b></span>`;
     return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把止盈填入下方欄（保險腿不建議設止損；最後一鍵還是你按設定）">套用</button>`};
   }
-  let s=`🛑 止損 <b style="color:${dn}">${adv.sl}</b>　🎯 止盈 <b style="color:${up}">${adv.tp}</b>`;
-  if(adv.trail!=null) s+=`　⤴ <span style="color:#C792EA">上移止損→ <b>${adv.trail}</b></span>`;
+  let s=`🛑 <b style="color:${dn}">${adv.sl}</b> <span style="color:${mut};font-size:10px">(${adv.anchor!=null?'swing'+(adv.long?'低':'高')+adv.anchor+'∓'+adv.k+'×ATR':'1.4×ATR'})</span>　🎯 <b style="color:${up}">${adv.tp}</b>`;
+  if(adv.trail!=null) s+=`　⤴ <span style="color:${purp}">上移→ <b>${adv.trail}</b></span>`;
   let tag='';
-  if(adv.slBeyondLiq) tag=`<span style="color:${dn};font-weight:700">⚠ 止損比爆倉價還遠，會先爆倉—請降槓桿</span>`;
-  else if(adv.cross && adv.hedged) tag=`<span style="color:${mut}">主腿；全倉爆倉看上方緩衝，要降風險＝減此${adv.long?'多':'空'}腿或加厚保險腿</span>`;
-  else if(adv.tail) tag=`<span style="color:var(--amber)">魚尾·動能竭盡，建議收緊/分批止盈</span>`;
-  else if(adv.near) tag=`<span style="color:${dn}">已逼近建議止損</span>`;
-  else if(adv.waning) tag=`<span style="color:var(--amber)">動能轉弱，止損收緊</span>`;
-  else tag=`<span style="color:${mut}">${adv.fs?adv.fs.t:'動能足'}</span>`;
-  return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把建議填入下方止盈/止損欄（不會直接下單，最後一鍵還是你按設定）">套用</button>`};
+  if(adv.slBeyondLiq) tag=`<span style="color:${dn};font-weight:700">⚠ 止損比爆倉價還遠—降槓桿</span>`;
+  else if(adv.fragile) tag=`<span style="color:var(--amber)">⚠ risk-off：支撐脆弱易插針→建議部分止損＋縮size，別硬信</span>`;
+  else if(adv.near) tag=`<span style="color:${dn}">已逼近止損</span>`;
+  else if(adv.tail) tag=`<span style="color:var(--amber)">魚尾·動能竭盡，分批止盈</span>`;
+  else if(adv.strong) tag=`<span style="color:${mut}">${adv.fs?adv.fs.t:'動能足'}·k放大防插針</span>`;
+  else tag=`<span style="color:${mut}">${adv.fs?adv.fs.t:''}</span>`;
+  const ti=adviceTriggerInfo(h,adv);
+  const trg=ti?`<div style="flex:0 0 100%;color:${mut};font-size:10px;margin-top:1px">觸發後(預設先削50%方向腿)：淨 ${kUsd(ti.netBefore)}→<b>${kUsd(ti.netAfter)}</b>${ti.flip?'<b style="color:'+purp+'">(換邊)</b>':''}、可用↑(縮方向腿對全倉友善)；續走保險腿獲利、反向則殘腿受傷。</div>`:'';
+  return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把建議填入止盈/止損欄。risk-off 時建議部分(50%)止損；最後一鍵還是你按設定">套用</button>${trg}`};
 }
 let fishCache={}, adviceCache={};
 async function updateFishStates(){
