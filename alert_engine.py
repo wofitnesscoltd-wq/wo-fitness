@@ -182,6 +182,16 @@ def _feat(bars5):
     }
 
 
+# 5-2：關鍵指標任一為 None＝資料不足，整則訊號不發（絕不掛等級、絕不推 Telegram）。
+# 病根是指標來源(FutuOpenD 本體K)抓不到→全 None，分級卻沒擋；這裡硬性 fail-closed。
+KEY_FEATS = ("rsi", "hist", "vwap", "atr", "rvol")
+
+
+def _data_complete(f):
+    """關鍵指標(RSI/MACD柱/VWAP/ATR/RVOL)全部算得出才算資料充足。任一 None → 不發訊號。"""
+    return all(f.get(k) is not None for k in KEY_FEATS)
+
+
 def _grade(conf, f, daily_aligned):
     """等級＝匯流條件數 × RVOL × 與日線同向。"""
     score = conf
@@ -300,7 +310,7 @@ def eval_buy(bars5, daily_chg=None, bars15=None, ctx=None, weights=None):
     if len(bars5) < 30:
         return []
     f = _feat(bars5)
-    if f["rsi"] is None:
+    if not _data_complete(f):        # 5-2：關鍵指標缺失＝資料不足，不發(避免掛 A 級買點)
         return []
     weights = weights or load_weights()
     ctx = ctx or {}
@@ -370,7 +380,7 @@ def eval_sell(bars5, pos=None, ctx=None):
     if len(bars5) < 30:
         return []
     f = _feat(bars5)
-    if f["rsi"] is None:
+    if not _data_complete(f):        # 5-2：關鍵指標缺失＝資料不足，不發賣訊（同樣 fail-closed）
         return []
     ctx = ctx or {}
     triggers = []
