@@ -411,9 +411,7 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
             <input id="stockSearch" placeholder="＋ 加入個股（可搜尋）" autocomplete="off" oninput="filterStockList()" onfocus="filterStockList()" onblur="setTimeout(hideStockList,160)">
             <div class="combo-list" id="stockList" style="display:none"></div>
           </div>
-          <button class="btn-primary" id="stockBtn" onclick="stockAnalysis()" style="background:var(--panel-2);border:1px solid var(--blue);color:var(--blue)">🔬 個股分析</button>
-          <button class="btn-primary" id="tempBtn" onclick="marketTemp()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)">🌡️ 市場溫度</button>
-          <button class="btn-primary" id="briefBtn" onclick="marketBrief()">🎯 強勢選股</button>
+          <button class="btn-primary" id="copyMaxBtn" onclick="copyToMax()" style="background:var(--panel-2);border:1px solid var(--orange);color:var(--orange-light)" title="把你的即時清單快照＋持倉＋全倉曝險打包複製，貼到你訂閱的 Claude Max chat 問市場溫度/選股/個股——更完整、可追問，又不花這裡的 API">📋 複製戰情給 Max</button>
           <button class="btn-primary" id="radarBtn" onclick="fishRadar()" style="background:var(--panel-2);border:1px solid #5BC0BE;color:#5BC0BE" title="純技術掃描(不花API)：找剛啟動單邊動能、順大勢、還沒太誇張的卡位標的">🎣 魚身雷達</button>
           <button class="btn-primary" id="tlightBtn" onclick="tempLight()" style="background:var(--panel-2);border:1px solid #E0A53B;color:#E0A53B" title="純技術秒出(不花API)：大盤趨勢+清單廣度→今天能不能上槓桿紅黃綠燈">🚦 溫度燈</button>
           <button class="btn-primary" id="doctorBtn" onclick="positionDoctor()" style="background:var(--panel-2);border:1px solid var(--green);color:var(--green)">🩺 持倉診斷</button>
@@ -421,21 +419,13 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
           <button class="btn-primary" id="btBasketBtn" onclick="backtestBasket()" style="background:var(--panel-2);border:1px solid #C792EA;color:#C792EA" title="把整個關注清單每檔的交易池化算總成績，用當前圖的週期">🧺 一籃子</button>
           <button class="btn-primary" id="stopBtn" onclick="stopAI()" style="display:none;background:var(--red)">⏹ 停止</button>
         </div>
-        <div class="funnel" id="funnel">
-          <div class="fn-step on" data-step="1" onclick="marketTemp()"><span class="fn-num">①</span> 市場溫度</div>
-          <div class="fn-arrow">›</div>
-          <div class="fn-step" data-step="2" onclick="marketBrief()"><span class="fn-num">②</span> 強勢選股</div>
-          <div class="fn-arrow">›</div>
-          <div class="fn-step" data-step="3" onclick="hintResearch()"><span class="fn-num">③</span> 深入研究</div>
-          <span class="fn-hint">由上而下：先看大盤敢不敢上 → 找強勢股 → 深挖成計畫</span>
-        </div>
         <div class="feed" id="feed">
           <div class="welcome" id="welcome">
-            👋 我是你的<b>美股短線交易副駕</b>，用「<b>由上而下</b>」三步幫你決策：<br><br>
-            <b>① 🌡️ 市場溫度</b>　跨資產(VIX、美元、利率、油價、銅金比、比特幣…)＋廣度，判斷今天敢不敢上槓桿<br>
-            <b>② 🎯 強勢選股</b>　找資金輪入的強勢板塊，挑出值得研究的個股方向<br>
-            <b>③ 🔍 深入研究</b>　你點頭後深挖，產出含 進場/停損/目標/部位 的短線計畫<br><br>
-            也可直接在下面打字問我任何盤面問題。<br>
+            👋 這裡留的是<b>「綁你即時資料、chat 取代不了」</b>的工具：<br><br>
+            <b>🩺 持倉診斷</b>　即時體檢你所有真實部位（綁 Bitget/牛牛實際倉位）<br>
+            <b>🚦 溫度燈 ／ 🎣 魚身雷達</b>　純技術、不花 API，秒算你清單的廣度與動能<br>
+            <b>📋 複製戰情給 Max</b>　把即時清單快照＋持倉＋全倉曝險打包，貼到你的 Claude Max chat 問市場溫度／選股／個股分析——更完整又不花這裡的 API<br><br>
+            也可直接在下面打字問我盤面問題。<br>
             <span style="font-size:11px">第一次使用請先點右上 ⚙ 設定你的 Anthropic API 金鑰。</span>
           </div>
         </div>
@@ -1734,7 +1724,31 @@ function marketCtx(){
   return `這是【整體大盤】層級的分析，請以美股大盤與跨資產為主，不要只針對某一支個股。我的關注清單（最後拿來點評相對強弱用）：${lists['us'].map(x=>tkr(x.s)).join('、')}。`+wlSnapshot()+futuLiveStr()+holdingsLiveStr();
 }
 
-/* ---------- 盤面導讀 → 研究方向 ---------- */
+/* 📋 複製戰情給 Max：把即時清單快照＋持倉＋全倉曝險打包到剪貼簿，貼到使用者訂閱的 Claude Max chat 問
+   （市場溫度/選股/個股分析這類敘述，chat 更完整又不花這裡的 API；數字以這份即時快照為準避免幻覺）。 */
+async function copyToMax(){
+  let pack='【我的即時戰情包｜貼到 Claude Max chat 問市場溫度／強勢選股／個股；數字一律以這份為準，不要用你記憶或網路上的舊數字】\n';
+  const snap=wlSnapshot();
+  pack += snap || '（未連牛牛橋接，沒有即時清單快照）\n';
+  if(cryptoHoldings.length){
+    const em=exposureModel();
+    pack+='\n【加密全倉曝險（Bitget cross；空腿多為不看盤時的保險腿）】\n';
+    pack+='帳戶權益 $'+Math.round(em.equity)+'、未實現 '+(em.upnl>=0?'+':'')+Math.round(em.upnl)+'U、可用 $'+Math.round(em.avail)
+        +'｜淨曝險 '+(em.NET>=0?'+':'')+Math.round(em.NET)+'U(淨槓桿'+em.netLev.toFixed(1)+'x、總槓桿'+em.grossLev.toFixed(1)+'x、對沖佔比'+Math.round(em.hedgedFrac*100)+'%)'
+        +'｜ADL裸化淨曝險 '+em.adlStress.toFixed(1)+'x 權益｜距全倉爆倉緩衝 '+(em.buffer==null?'已對沖':em.buffer.toFixed(1)+'%')+'\n';
+    pack+='每支(按|淨|)：'+em.contracts.map(c=>c.sym.replace('USDT','')+' 多$'+Math.round(c.L)+'/空$'+Math.round(c.S)+'/淨'+(c.net>=0?'+':'')+Math.round(c.net)+'/毛$'+Math.round(c.gross)).join('；')+'\n';
+    pack+='（爆倉以帳戶層級緩衝為準，單腿不會獨立爆；別用單腿孤立爆倉價評估風險。空腿是保險腿，平掉會放大淨多曝險。）\n';
+  }
+  pack += holdingsLiveStr();
+  pack += '\n請依上面的即時數字，回答我接下來問的問題。';
+  try{
+    await navigator.clipboard.writeText(pack);
+    addBubble('📋 已複製你的<b>即時戰情包</b>（清單快照＋持倉＋全倉曝險）到剪貼簿。<br>貼到你訂閱的 <b>Claude Max chat</b> 問市場溫度／強勢選股／個股分析會更完整、可追問，也不花這裡的 API。','ai');
+  }catch(e){
+    addBubble('剪貼簿被瀏覽器擋住，手動框選複製：<br><textarea style="width:100%;height:140px;font-size:11px" onclick="this.select()">'+pack.replace(/</g,'&lt;')+'</textarea>','ai');
+  }
+}
+/* ---------- 盤面導讀 → 研究方向（已下架：市場溫度/強勢選股/個股分析/深入研究改用「複製戰情給 Max」；函式保留不被呼叫，避免動到其它引用） ---------- */
 async function marketTemp(){
   if(busy)return; setBusy(true); setFunnelStep(1);
   addBubble('🌡️ 量一下今天的<b>市場溫度</b>…','user');
