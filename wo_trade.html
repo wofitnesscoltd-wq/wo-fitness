@@ -2605,29 +2605,35 @@ const PURE_CRYPTO=new Set(['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LI
 /* 動能判讀用的日K：代幣化美股永續→用真實個股(週間較具代表性)，純幣→幣價，現股→個股。
    日K一天才變一根→快取 3 小時，大幅省牛牛歷史K額度；抓失敗就沿用上次成功的，避免燈號閃掉。 */
 let _momBars={};
+function withTimeout(p, ms){ return Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error('逾時')), ms))]); }
+/* PATCH 1：代幣化美股永續的動能/ATR/結構，主來源改抓「永續自身 24h K(1h)」——繞開 FutuOpenD 歷史K額度(SMCI/CRDO 不再卡)，
+   且 24h 永續波動才是這條合約的真實波動。本體日K 只當 fallback。逾時(6s)就退下一個來源，絕不無限吊在「載入中」。 */
 async function momBars(sym){
   const cs=cryptoChartSym(sym);
-  let fkey, fetcher;
+  let fkey, fetchers, perp=false;
   if(cs){ const base=cs.replace('USDT','');
     if(!PURE_CRYPTO.has(base)){
-      fkey='US.'+base;
-      fetcher=async()=>{ const r=await futuFetch('/kline?code=US.'+base+'&ktype=day&num=200&live=0'); const k=(r.kline||[]).filter(b=>b.close!=null); if(k.length>=60) return k;
-        const r2=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'); return (r2.kline||[]).filter(b=>b.close!=null); };
-    } else { fkey=cs;
-      fetcher=async()=>{ const r=await futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'); return (r.kline||[]).filter(b=>b.close!=null); };
+      fkey='PERP1h.'+cs; perp=true;
+      fetchers=[
+        async()=>{ const r=await withTimeout(futuFetch('/cryptokline?sym='+cs+'&iv=60m&num=300'),6000); return (r.kline||[]).filter(b=>b.close!=null); },  // 主：永續 1h
+        async()=>{ const r=await withTimeout(futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'),6000); return (r.kline||[]).filter(b=>b.close!=null); },     // 退：永續日
+        async()=>{ const r=await withTimeout(futuFetch('/kline?code=US.'+base+'&ktype=day&num=200&live=0'),6000); return (r.kline||[]).filter(b=>b.close!=null); },  // 末退：本體日(僅輔助)
+      ];
+    } else { fkey='PERP.'+cs;
+      fetchers=[ async()=>{ const r=await withTimeout(futuFetch('/cryptokline?sym='+cs+'&iv=day&num=200'),6000); return (r.kline||[]).filter(b=>b.close!=null); } ];
     }
   } else {
     const code=futuCode(sym); if(!code) return [];
     fkey=code;
-    fetcher=async()=>{ const r=await futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=200&live=0'); return (r.kline||[]).filter(b=>b.close!=null); };
+    fetchers=[ async()=>{ const r=await withTimeout(futuFetch('/kline?code='+encodeURIComponent(code)+'&ktype=day&num=200&live=0'),6000); return (r.kline||[]).filter(b=>b.close!=null); } ];
   }
-  const now=Date.now(), hit=_momBars[fkey];
-  if(hit && hit.bars.length && now-hit.t<10800000) return hit.bars;   // 命中 3 小時快取
-  let bars=[]; try{ bars=await fetcher(); }catch(e){}
-  if(bars.length){ _momBars[fkey]={bars,t:now}; return bars; }
-  if(hit && hit.bars.length) return hit.bars;                          // 這次抓失敗→沿用上次成功的，燈號不閃掉
-  return bars;
+  const now=Date.now(), hit=_momBars[fkey], ttl=perp?1800000:10800000;   // 1h K 快取 30 分；日K 快取 3 小時
+  if(hit && hit.bars.length && now-hit.t<ttl) return hit.bars;
+  for(const f of fetchers){ let bars=[]; try{ bars=await f(); }catch(e){} if(bars.length){ _momBars[fkey]={bars,t:now,perp}; return bars; } }
+  if(hit && hit.bars.length) return hit.bars;                          // 全失敗→沿用上次成功的，燈號不閃掉
+  return [];
 }
+function momIsPerp(sym){ const cs=cryptoChartSym(sym); return !!(cs && !PURE_CRYPTO.has(cs.replace('USDT',''))); }
 function curDiv(bars,rs,hist,w=5){
   const c=bars.map(b=>b.close), n=c.length, cur=n-1, lb=Math.max(0,cur-w);
   const ph=i=>{ if(i<w||i>=n-w)return false; for(let j=i-w;j<=i+w;j++) if(j!==i&&c[j]>=c[i])return false; return true; };
@@ -2737,8 +2743,8 @@ async function updateFishStates(){
       fishCache[key]={st:fishState(bars,side), t:now, bars}; cached=fishCache[key];
     }
     if(fishOn()){
-      if(cached.st){ el.textContent=cached.st.t; el.title='魚身狀態：'+cached.st.r+'（日線動能；代幣化美股永續用真實個股）'; el.style.color=''; el.style.display=''; }
-      else { el.textContent='· 動能載入中…'; el.title='正在抓日線動能（牛牛歷史K）。若一直空白：多半是牛牛歷史K額度/速率限制，或該標的沒美股行情權限。'; el.style.color='var(--muted-2)'; el.style.display=''; }
+      if(cached.st){ el.textContent=cached.st.t; el.title='魚身狀態：'+cached.st.r+'（'+(momIsPerp(sym)?'永續 24h 自身 1h K':'日線動能')+'）'; el.style.color=''; el.style.display=''; }
+      else { el.textContent='· 動能載入中…'; el.title='正在抓動能K（永續用自身24h、其餘日線）。逾時會自動換來源；若仍空白多半是橋接沒回或無此標的行情。'; el.style.color='var(--muted-2)'; el.style.display=''; }
     }
   }
   // 止損/止盈/上移建議：每個加密永續部位一行（always-on、本機算、不花 API）
@@ -2746,7 +2752,7 @@ async function updateFishStates(){
     const sym=a.dataset.asym, side=a.dataset.aside||'';
     const h=cryptoHoldings.find(x=>x.s===sym&&x.side===side); if(!h){ a.style.display='none'; continue; }
     const bars=(fishCache[sym+'|'+side]||{}).bars;
-    if(!bars||bars.length<40){ a.innerHTML='<span class="advl" style="color:var(--muted-2)">· 建議載入中…（抓日線動能）</span>'; a.style.display=''; continue; }
+    if(!bars||bars.length<40){ a.innerHTML='<span class="advl" style="color:var(--muted-2)">· 建議載入中…（抓'+(momIsPerp(sym)?'永續 24h K':'日線')+'，逾時自動換源）</span>'; a.style.display=''; continue; }
     const r=adviceLine(h, bars); if(!r){ a.style.display='none'; continue; }
     a.innerHTML=r.html; a.style.display='';
     adviceCache[sym+'|'+side]=r.adv;
