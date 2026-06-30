@@ -18,7 +18,7 @@
 用法範例：
   python futu_bridge.py --port 8888 --firm FUTUSECURITIES
 """
-import os, json, argparse, threading, secrets, urllib.request
+import os, json, time, argparse, threading, secrets, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -44,9 +44,10 @@ except Exception:
     bitget_mod = None
 
 # 橋接版本：每次改 .py 都會 bump。網頁與啟動橫幅都會顯示，方便確認本機程式有沒有更新到。
-BRIDGE_VERSION = "2026.06.24"
+BRIDGE_VERSION = "2026.06.30"
 
 ARGS = None
+_NOTIFY_STATE = {}   # key -> (last_ts, last_msg)；/notify 伺服器端去重＋冷卻保險，避免洗版
 QUOTE = None
 TRD = None
 ENGINE = None
@@ -316,7 +317,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 ok = False
             self._json({"ok": True, "futu": ok, "version": BRIDGE_VERSION,
-                        "bitget": bool(bitget_mod and bitget_mod.configured())})
+                        "bitget": bool(bitget_mod and bitget_mod.configured()),
+                        "notify": bool(alert_engine)})
             return
 
         if not self._check_token(q):
@@ -452,6 +454,35 @@ class Handler(BaseHTTPRequestHandler):
                             except Exception:
                                 pass
                 self._json({"funding": out})
+            elif path == "/notify":
+                # 網頁在「偵測到需要改設定（上移止損/逼近止損/動能竭盡/緩衝進紅區）」時呼叫，
+                # 把一則訊息轉發到 Telegram。伺服器端再做一層去重＋冷卻當保險，避免洗版。
+                if alert_engine is None:
+                    self._json({"ok": False, "error": "no alert_engine"})
+                else:
+                    token, chat = _tg_creds()
+                    msg = (q.get("msg", [""])[0] or "").strip()
+                    key = q.get("key", [""])[0] or msg[:24]
+                    try:
+                        cool = int(q.get("cool", ["1800"])[0])
+                    except ValueError:
+                        cool = 1800
+                    if not (token and chat):
+                        self._json({"ok": False, "error": "telegram 未設定"})
+                    elif not msg:
+                        self._json({"ok": False, "error": "empty"})
+                    else:
+                        now = time.time()
+                        last = _NOTIFY_STATE.get(key)
+                        if last and last[1] == msg and now - last[0] < cool:
+                            self._json({"ok": True, "sent": False, "reason": "deduped"})
+                        elif last and now - last[0] < min(cool, 600):   # 同 key 至少間隔 10 分鐘
+                            self._json({"ok": True, "sent": False, "reason": "cooldown"})
+                        else:
+                            sent = alert_engine.send_telegram(token, chat, msg)
+                            if sent:
+                                _NOTIFY_STATE[key] = (now, msg)
+                            self._json({"ok": True, "sent": bool(sent)})
             elif path == "/stats":
                 self._json(ENGINE.stats() if ENGINE else {"open": 0})
             elif path == "/weights":
@@ -502,6 +533,14 @@ def _perp_underlyings():
     except Exception:
         pass
     return out
+
+
+def _tg_creds():
+    """從旗標／環境變數／設定檔解析 Telegram 金鑰（給 /notify 即時轉發用）。"""
+    fc = load_alert_config()
+    token = ARGS.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN") or fc.get("telegram_token")
+    chat = ARGS.telegram_chat or os.environ.get("TELEGRAM_CHAT_ID") or fc.get("telegram_chat")
+    return token, chat
 
 
 def start_engine():

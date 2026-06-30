@@ -261,8 +261,9 @@ class CryptoScanner:
         token, chat = self.cfg.get("telegram_token"), self.cfg.get("telegram_chat")
         watch = self.load_watch(self.cfg.get("symbols"))
         holds = load_crypto_holdings()
-        # 若設定了 Bitget 唯讀金鑰：每輪直接從交易所拉真實倉位＋可用保證金（最準），寫回檔案。
+        # 若設定了 Bitget 唯讀金鑰：每輪直接從交易所拉真實倉位＋權益（最準），寫回檔案。
         # 這樣 ⚠️ 全倉爆倉預警不必開著網頁也是即時的（手動/幣安部位＝src!='bitget' 會保留）。
+        bpos = None; bequity = None
         if bitget_mod is not None and bitget_mod.configured():
             try:
                 bpos = bitget_mod.positions()
@@ -271,10 +272,15 @@ class CryptoScanner:
                                    "lev": p["lev"], "side": p["side"], "src": "bitget"} for p in bpos]
                 save_crypto_holdings(holds)
                 bacct = bitget_mod.account()
-                if bacct.get("avail") is not None:
+                bequity = bacct.get("equity")
+                used = sum((h.get("size") or 0) * (h.get("entry") or 0) / ((h.get("lev") or 1) or 1)
+                           for h in holds if h.get("src") == "bitget")
+                if bequity is not None:
+                    save_cmargin(round(bequity - used, 2))      # 可用=權益−已用，讓檔案版引擎權益也≈真實
+                elif bacct.get("avail") is not None:
                     save_cmargin(bacct["avail"])
             except Exception:
-                pass
+                bpos = None; bequity = None
         hmap = {h.get("sym"): h for h in holds if h.get("sym")}
         all_syms = list(dict.fromkeys(list(watch) + list(hmap)))
         pushed = 0
@@ -301,17 +307,31 @@ class CryptoScanner:
                 continue
         # 全倉爆倉預警：帳戶層級（保命警示，預設保留；--no-crypto-liq 可關）
         avail = load_cmargin()
-        if holds and avail > 0 and self.cfg.get("liq_alerts", True):
-            ac = account_cross(holds, price_of, avail)
-            buf = ac["buffer"]
-            if buf is not None and buf < self.cfg.get("liq_warn_pct", 15):
-                ndir = "多" if ac["net_signed"] >= 0 else "空"
-                warn = {"side": "exit", "type": "全倉爆倉預警", "grade": "A",
-                        "price": 0, "stop": 0, "target": 0, "rr": None,
-                        "reason": (f"全倉帳戶緩衝僅 {buf:.1f}%（淨曝險 {ac['net']:.0f}U、淨偏{ndir}、淨槓桿 {ac['net_lev']:.1f}x、"
-                                   f"可用保證金 {avail:.0f}U）—淨方向若續走將逼近強平，考慮補保證金/降淨曝險/縮保險腿外的趨勢腿。"),
-                        "feat": {}}
-                pushed += self._emit(con, session, "ACCOUNT", warn, "C", order, token, chat)
+        if self.cfg.get("liq_alerts", True):
+            buf = None; net = 0.0; net_lev = 0.0; ndir = "多"; eq_disp = 0.0
+            if bequity is not None and bpos:      # Bitget 直算（用真實權益＋標記價，最準）
+                gross = sum((p.get("size") or 0) * (p.get("mark") or 0) for p in bpos)
+                net_signed = sum((p.get("size") or 0) * (p.get("mark") or 0) * (-1 if p.get("side") == "short" else 1) for p in bpos)
+                net = abs(net_signed); maint = 0.005 * gross
+                buf = ((bequity - maint) / net * 100) if (net > 1 and bequity > maint) else (None if net <= 1 else 0.0)
+                net_lev = net / bequity if bequity > 0 else 0.0
+                ndir = "多" if net_signed >= 0 else "空"; eq_disp = bequity
+            elif holds and avail > 0:             # 沒 Bitget 金鑰時退回原本的檔案＋報價推估
+                ac = account_cross(holds, price_of, avail)
+                buf = ac["buffer"]; net = ac["net"]; net_lev = ac["net_lev"]
+                ndir = "多" if ac["net_signed"] >= 0 else "空"; eq_disp = ac["equity"]
+            if buf is not None:
+                hourb = int(time.time() // 3600)   # 危險區內每小時再催一次（type 帶時段桶避免被去重擋掉）
+                for thr in (7, 12, 20):            # 命中最嚴重的一級就推
+                    if buf < thr:
+                        sev = {7: "🚨 危急", 12: "⚠️ 警告", 20: "留意"}[thr]
+                        warn = {"side": "exit", "type": f"全倉爆倉預警<{thr}%·h{hourb}", "grade": "A",
+                                "price": 0, "stop": 0, "target": 0, "rr": None,
+                                "reason": (f"{sev}：全倉帳戶緩衝僅 {buf:.1f}%（淨曝險 {net:.0f}U 偏{ndir}、淨槓桿 {net_lev:.1f}x、"
+                                           f"權益 {eq_disp:.0f}U）—淨方向再逆走約 {buf:.1f}% 就接近強平，考慮補保證金／降淨曝險／加厚保險腿。"),
+                                "feat": {}}
+                        pushed += self._emit(con, session, "ACCOUNT", warn, "C", order, token, chat)
+                        break
         try:
             ae.track_outcomes(con, price_of)
         except Exception:
