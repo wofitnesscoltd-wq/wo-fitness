@@ -1218,6 +1218,28 @@ function updateSelfData(bars){
   } else if(sigEl){ sigEl.style.display='none'; }
   if(ind.rsi && !ind.sig){ try{ marks=marks.concat(rsiDivergence(bars,rsiArr(closes,14),t)); }catch(e){} }   // 開了進出場就不疊背離箭頭，避免兩套符號打架
   try{ S.candle.setMarkers(marks.sort((a,b)=>(a.time>b.time?1:a.time<b.time?-1:0))); }catch(e){}
+  try{ drawExposureLines(); }catch(e){}
+}
+/* PATCH 2：把彈藥線/爆倉線換算成「這支圖上的價位」畫成真正的橫線（帳戶級距離×淨方向→價格）。
+   權益/淨曝險一動就重畫(updateSelfData 每 20s 跑)。估算：假設此標的與淨方向相關性≈1。 */
+function drawExposureLines(){
+  const S=selfState.series, candle=S&&S.candle; if(!candle) return;
+  (S.expLines||[]).forEach(l=>{ try{ candle.removePriceLine(l); }catch(e){} }); S.expLines=[];
+  if(typeof bitgetAcct==='undefined' || !bitgetAcct || !cryptoHoldings.length) return;
+  const cs=cryptoChartSym(selfState.sym); if(!cs) return;
+  const h=cryptoHoldings.find(x=>x.s===cs); if(!h) return;                 // 只在圖＝你的加密持倉時畫
+  const em=exposureModel(); if(em.ammoPct==null && em.liqPct==null) return;
+  const mark=cMark(h)||(selfState.bars.length?selfState.bars[selfState.bars.length-1].close:null);
+  if(mark==null) return;
+  const netLong=em.NET>=0;                                                 // 逆走方向：淨多→下跌、淨空→上漲
+  const toP=pct=> pct==null?null: mark*(1+(netLong?-1:1)*pct/100);
+  const sgn=netLong?'-':'+';
+  const add=(v,pct,label,color,style)=>{ if(v==null||!(v>0))return;
+    S.expLines.push(candle.createPriceLine({price:v,color,lineWidth:2,lineStyle:style||0,axisLabelVisible:true,
+      title:label+' '+sgn+(pct!=null?Math.max(0,pct).toFixed(0):'?')+'%'})); };
+  add(toP(em.ammoPct), em.ammoPct, '🟠彈藥', '#E0A53B', 0);                // 先到先警告
+  add(toP(em.liqPct),  em.liqPct,  '🔴爆倉', '#E03943', 0);
+  if(em.hedged) add(toP(em.liqPctNaked), em.liqPctNaked, '⚪全裸', 'rgba(224,57,67,.5)', 2);   // 保險腿多撐的距離
 }
 
 async function refreshSelf(){
