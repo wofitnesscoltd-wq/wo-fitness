@@ -2202,6 +2202,7 @@ async function pollCrypto(){
     try{ const f=await futuFetch('/cryptofunding?syms='+syms); cryptoFunding=f.funding||{}; pollCrypto._fundBucket=bucket; }catch(e){}
   }
   updateFishStates();
+  if(futu.connected) updateRegime();
 }
 function delCryptoHolding(s,side){ cryptoHoldings=cryptoHoldings.filter(h=>!(h.s===s&&h.side===side)); saveCryptoHoldings(); renderPositions(); }
 function toggleCryptoSum(){ localStorage.setItem('wo_sumexp', localStorage.getItem('wo_sumexp')==='1'?'0':'1'); renderPositions(); }
@@ -2256,6 +2257,31 @@ function exposureModel(){
     maint, ammoPct, liqPct, liqPctNaked, hedgeBuysPct, mmrMissing, riskRate, inconsistent };
 }
 function kUsd(v){ const a=Math.abs(v); const s=v<0?'-':''; return a>=1000?(s+'$'+(a/1000).toFixed(a>=10000?0:1)+'k'):(s+'$'+Math.round(a)); }
+/* Regime 旗標：BTC 日線 EMA20 斜率＋價位 → 趨勢盤(敘事主導,釋彈藥→補空的舞步危險) / 洗盤(流量主導,均值回歸會救你) */
+let cryptoRegime=null;
+async function updateRegime(){
+  try{ const bars=await momBars('BTCUSDT'); if(bars&&bars.length>=60){
+    const c=bars.map(b=>b.close), e=emaArr(c,20), i=c.length-1, slope=(e[i]-e[i-10])/e[i-10];
+    cryptoRegime = Math.abs(slope)<0.012?'range':(slope>0&&c[i]>e[i]?'trend-up':(slope<0&&c[i]<e[i]?'trend-down':'range'));
+  }}catch(e){}
+}
+function regimeIsTrend(){ return cryptoRegime==='trend-up'||cryptoRegime==='trend-down'; }
+function regimeLine(em){
+  const rmap={'trend-up':['趨勢盤·多','var(--up)'],'trend-down':['趨勢盤·空','var(--dn)'],'range':['洗盤/橫盤','var(--amber)']};
+  const rg=rmap[cryptoRegime]; let s='';
+  if(rg) s+=`<br><span style="color:var(--muted)">市場 regime</span> <b style="color:${rg[1]}">${rg[0]}</b> <span style="color:var(--muted);font-size:10px">${cryptoRegime==='range'?'(釋彈藥→補空的舞步有效，均值回歸會救你)':'(敘事單邊：每跑一輪舞步總名目墊高、爆倉線被放大的帳本追上—這套動作加重警告)'}</span>`;
+  if(trackGrossLev(em.grossLev)) s+=`<br><b style="color:var(--amber)">⚠ 部位放大訊號</b> <span style="color:var(--muted);font-size:10px">總槓桿連續墊高中——這是在放大部位、不是降風險；停損是命，信念不是不對沖的理由</span>`;
+  return s;
+}
+/* 行為護欄：總槓桿在連續釋彈藥中逐步墊高 → 部位放大訊號（存短歷史，只在>3%變化時記一筆）。 */
+function trackGrossLev(g){
+  if(!(g>0)) return false;
+  let h=[]; try{ h=JSON.parse(localStorage.getItem('wo_glev_hist')||'[]'); }catch(e){}
+  const last=h.length?h[h.length-1]:null;
+  if(last==null||Math.abs(g-last)/last>0.03){ h.push(+g.toFixed(2)); if(h.length>6)h.shift(); localStorage.setItem('wo_glev_hist',JSON.stringify(h)); }
+  if(h.length>=3){ const a=h.slice(-3); if(a[0]<a[1]&&a[1]<a[2]&&(a[2]-a[0])/a[0]>0.1) return true; }
+  return false;
+}
 /* F2 雙紅線：彈藥線(可用→0，先到) + 爆倉線(權益<維持)；保險腿有效區間=含對沖 vs 全裸；交叉檢核 Bitget 風險率。 */
 function f2Block(em){
   if(em.ammoPct==null && em.liqPct==null) return '<div style="margin-top:7px;font-size:11px;color:var(--muted)">淨曝險≈0（高度對沖）：兩條紅線距離極遠。平掉任一保險腿前，先看下方各倉「動作前重算」。</div>';
@@ -2345,6 +2371,7 @@ function renderSimClose(h){
   if(r.isHedge){
     s+=`<br><b style="color:${dn}">🛡 這是保險腿</b>：去對沖後裸腿保證金需求跳升→<b>可用保證金當下會下降</b>（上面紅線只算|淨|變化是樂觀下界，實際更近爆倉、釋出的保證金 < 裸腿新增需求）。`;
     s+=`<br><span style="color:${mut};font-size:10px">拆對沖吃反彈：反彈前常先回踩，先確認撐不撐得過這一下；發現看錯要回補→在更差價位重建、且當下可用未必夠再開空（你最怕的「被補完不能再開空」）。</span>`;
+    if(r.raisesNet && regimeIsTrend()) s+=`<br><b style="color:var(--red)">🚩 拆氣囊訊號</b>：<span style="color:${mut};font-size:10px">當前是趨勢盤、平此腿會讓淨曝險跳升——保險腿是買時間不是免疫，趨勢盤拆掉風險特別高。</span>`;
   }
   return s;
 }
@@ -2823,7 +2850,7 @@ function renderPositions(){
         <b>雙軌槓桿</b>　總 <b>${em.grossLev.toFixed(1)}x</b> ｜ 淨(帶號) <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${Math.abs(em.netLev).toFixed(1)}x</b> 偏${ndir} ｜ 對沖佔比 <b>${Math.round(em.hedgedFrac*100)}%</b><br>
         <span style="color:var(--muted)">毛曝險 ${kUsd(em.GROSS)}　淨曝險 <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${kUsd(Math.abs(em.NET))}</b>（${Math.round(em.hedgedFrac*100)}% 被對沖、其餘是裸的）</span><br>
         <b style="color:${adlCol}">⚠ ADL 壓力</b> 裸化淨曝險 ${kUsd(em.NAKED)} ＝ <b style="color:${adlCol}">${em.adlStress.toFixed(1)}x</b> 權益　<span style="color:var(--muted);font-size:10.5px">（所有空腿若被 ADL/平掉，裸多會變這麼大）</span><br>
-        <b>資金費</b> ${em.fundDaily===0?'<span style="color:var(--muted)">—（無費率資料，按🔄同步或稍候）</span>':`日估 <b style="color:${fPay?'var(--dn)':'var(--up)'}">${fPay?'付 ':'收 '}${kUsd(fAbs)}</b> · ${(Math.abs(em.fundDaily)/(sm.equity||1)*100).toFixed(2)}%/日${fDays?` · ≈${fDays.toFixed(0)} 天可用保證金`:''} <span style="color:var(--muted);font-size:10px">(8h結算估)</span>`}
+        <b>資金費</b> ${em.fundDaily===0?'<span style="color:var(--muted)">—（無費率資料，按🔄同步或稍候）</span>':`日估 <b style="color:${fPay?'var(--dn)':'var(--up)'}">${fPay?'付 ':'收 '}${kUsd(fAbs)}</b> · ${(Math.abs(em.fundDaily)/(sm.equity||1)*100).toFixed(2)}%/日${fDays?` · ≈${fDays.toFixed(0)} 天可用保證金`:''} <span style="color:var(--muted);font-size:10px">(8h結算估)</span>`}${regimeLine(em)}
       </div>
       <div style="margin-top:6px">
         <div style="display:grid;grid-template-columns:1fr .85fr .85fr .8fr 1fr .8fr;gap:3px;font-size:9.5px;color:var(--muted-2);padding-bottom:2px">
