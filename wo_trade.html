@@ -2832,22 +2832,27 @@ function maybeNotifyAdvice(key, h, adv){
   if(!futu.notify) return;                              // 舊版橋接沒有 /notify
   if(localStorage.getItem('wo_advpush')==='0') return;  // 使用者關閉
   let st={}; try{ st=JSON.parse(localStorage.getItem('wo_advpush_st')||'{}'); }catch(e){}
-  const prev=st[key], now=Date.now();
+  const prev=st[key], now=Date.now(), snap=snapAdv(adv);
   // 第一次看到這個部位：先靜默建立基準，之後有變化才推（避免一開窗就連噴）
-  if(prev===undefined){ st[key]=snapAdv(adv); localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
+  if(prev===undefined){ st[key]=snap; localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
   const pv=prev||{};
-  let reason=null, cool=1800;
+  let reason=null;
   // 5-1：已刪除「止損 vs 單腿爆倉價→降槓桿」推播——全倉沒有單腿爆倉，風險看帳戶層級緩衝(crypto.py 爆倉預警)。
   if(adv.tail && pv.tail!==true){ reason='動能竭盡(魚尾)，建議收緊止損到 '+adv.sl+' 或分批止盈'; }
   else if(adv.near && !pv.near){ reason='價格已逼近建議止損 '+adv.sl+'，留意是否認賠/減碼'; }
   else if(adv.trail!=null && (pv.trail==null || (adv.long? adv.trail>pv.trail+0.45*adv.a : adv.trail<pv.trail-0.45*adv.a))){
     reason='可上移止損鎖利→ '+adv.trail+'（已獲利，把停損往'+(adv.long?'上':'下')+'推保護利潤）'; }
-  if(!reason) { st[key]=snapAdv(adv); localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
-  if(pv.t && now-pv.t < 600000 && pv.reason===reason) { return; }   // 同理由 10 分鐘內不重推
+  // HOTFIX-2：轉態快照每輪更新，但「上次實際推播」的 lastT/lastReason/lastSl 必須保留，
+  // 否則 near 在門檻附近來回時 t 被洗掉→冷卻失效→洗版（就是凌晨那三連發）。
+  const carry={ lastT:pv.lastT, lastReason:pv.lastReason, lastSl:pv.lastSl };
+  if(!reason){ st[key]=Object.assign(snap, carry); localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
+  const COOL=1800000, slMoved=(pv.lastSl==null)||(Math.abs(adv.sl-pv.lastSl)>0.4*adv.a);   // 同 key 30 分；止損沒實質移動就不重推
+  if(pv.lastT && (now-pv.lastT)<COOL && pv.lastReason===reason && !slMoved){
+    st[key]=Object.assign(snap, carry); localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
   const side=h.side==='short'?'空':'多';
   const msg=`🎯 ${h.s.replace('USDT','')} ${h.l}x${side}　現價 ${adv.px}\n${reason}\n建議：🛑止損 ${adv.sl}　🎯止盈 ${adv.tp}${adv.trail!=null?'　⤴上移→ '+adv.trail:''}`;
-  futuFetch('/notify?key='+encodeURIComponent(key)+'&cool='+cool+'&msg='+encodeURIComponent(msg)).catch(()=>{});
-  st[key]=Object.assign(snapAdv(adv), {t:now, reason}); localStorage.setItem('wo_advpush_st',JSON.stringify(st));
+  futuFetch('/notify?key='+encodeURIComponent(key)+'&cool=1800&msg='+encodeURIComponent(msg)).catch(()=>{});
+  st[key]=Object.assign(snap, {lastT:now, lastReason:reason, lastSl:adv.sl}); localStorage.setItem('wo_advpush_st',JSON.stringify(st));
 }
 function snapAdv(adv){ return {trail:adv.trail, near:adv.near, tail:adv.tail, sl:adv.sl}; }
 function renderPositions(){
