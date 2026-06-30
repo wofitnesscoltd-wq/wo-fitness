@@ -56,7 +56,9 @@ LOCK = threading.Lock()
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".futu_bridge_token")
 HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wo_trade.html")
-RAW_URL = "https://raw.githubusercontent.com/wofitnesscoltd-wq/wo-fitness/main/wo_trade.html"
+# D9：可釘固定 commit SHA（WO_HTML_REF）做供應鏈硬化；預設 main 保留自動取最新。
+HTML_REF = os.environ.get("WO_HTML_REF", "main").strip() or "main"
+RAW_URL = "https://raw.githubusercontent.com/wofitnesscoltd-wq/wo-fitness/%s/wo_trade.html" % HTML_REF
 
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".alert_config.json")
@@ -71,7 +73,7 @@ def load_alert_config():
         return {}
 
 
-API_URL = "https://api.github.com/repos/wofitnesscoltd-wq/wo-fitness/contents/wo_trade.html?ref=main"
+API_URL = "https://api.github.com/repos/wofitnesscoltd-wq/wo-fitness/contents/wo_trade.html?ref=%s" % HTML_REF
 
 
 _HTML_CACHE = {"html": None, "ts": 0.0}
@@ -280,7 +282,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _check_token(self, q):
-        tok = self.headers.get("X-Token") or (q.get("token", [""])[0])
+        # D9：預設只認 X-Token 標頭（query string 會殘留在伺服器/代理日誌）。
+        # 要相容舊的 ?token= 用法可設環境變數 WO_ALLOW_QUERY_TOKEN=1。
+        tok = self.headers.get("X-Token")
+        if not tok and os.environ.get("WO_ALLOW_QUERY_TOKEN") == "1":
+            tok = q.get("token", [""])[0]
         return tok == TOKEN
 
     def do_GET(self):

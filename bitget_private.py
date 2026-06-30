@@ -69,31 +69,43 @@ def _get(path, params=None):
         raise BitgetError("未設定 Bitget 唯讀金鑰（環境變數 BITGET_API_KEY / BITGET_API_SECRET / BITGET_API_PASSPHRASE）")
     qs = ("?" + urllib.parse.urlencode(params)) if params else ""
     request_path = path + qs
-    ts = str(int(time.time() * 1000))
-    sign = _sign(secret, ts, "GET", request_path, "")
-    req = urllib.request.Request(BASE + request_path, method="GET")
-    req.add_header("ACCESS-KEY", key)
-    req.add_header("ACCESS-SIGN", sign)
-    req.add_header("ACCESS-TIMESTAMP", ts)
-    req.add_header("ACCESS-PASSPHRASE", passphrase)
-    req.add_header("Content-Type", "application/json")
-    req.add_header("locale", "en-US")
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
+    # D5：暫時性網路/伺服器錯誤重試＋退避（0.4s/0.8s/1.6s）；金鑰/簽名類(4xx)不重試，直接拋。
+    backoffs = [0.4, 0.8, 1.6]
+    last_err = None
+    for attempt in range(len(backoffs) + 1):
+        ts = str(int(time.time() * 1000))             # 每次重簽（timestamp 會變）
+        sign = _sign(secret, ts, "GET", request_path, "")
+        req = urllib.request.Request(BASE + request_path, method="GET")
+        req.add_header("ACCESS-KEY", key)
+        req.add_header("ACCESS-SIGN", sign)
+        req.add_header("ACCESS-TIMESTAMP", ts)
+        req.add_header("ACCESS-PASSPHRASE", passphrase)
+        req.add_header("Content-Type", "application/json")
+        req.add_header("locale", "en-US")
         try:
-            d = json.loads(e.read().decode("utf-8"))
-            raise BitgetError("Bitget API %s：%s" % (d.get("code"), d.get("msg")))
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            if str(data.get("code")) not in ("0", "00000"):
+                raise BitgetError("Bitget API %s：%s" % (data.get("code"), data.get("msg")))
+            return data.get("data")
+        except urllib.error.HTTPError as e:
+            code = getattr(e, "code", 0)
+            if code and code < 500 and code != 429:    # 4xx(金鑰/簽名/權限)：不重試
+                try:
+                    d = json.loads(e.read().decode("utf-8"))
+                    raise BitgetError("Bitget API %s：%s" % (d.get("code"), d.get("msg")))
+                except BitgetError:
+                    raise
+                except Exception:
+                    raise BitgetError("Bitget HTTP %s（多半是金鑰/簽名/權限或 IP 白名單問題）" % code)
+            last_err = "HTTP %s" % code                # 5xx/429：可重試
         except BitgetError:
             raise
-        except Exception:
-            raise BitgetError("Bitget HTTP %s（多半是金鑰/簽名/權限或 IP 白名單問題）" % getattr(e, "code", "?"))
-    except Exception as e:
-        raise BitgetError("連線 Bitget 失敗：%s" % e)
-    if str(data.get("code")) not in ("0", "00000"):
-        raise BitgetError("Bitget API %s：%s" % (data.get("code"), data.get("msg")))
-    return data.get("data")
+        except Exception as e:                         # 連線/逾時：可重試
+            last_err = str(e)
+        if attempt < len(backoffs):
+            time.sleep(backoffs[attempt])
+    raise BitgetError("連線 Bitget 失敗（已重試 %d 次）：%s" % (len(backoffs), last_err))
 
 
 def positions():

@@ -1000,13 +1000,9 @@ class AlertEngine:
                 continue
             if already_alerted(con, session, code, sig["side"], sig["type"]):
                 continue
+            # D8：移除逐則 AI 複核（省 API）。把關改全靠確定性規則：
+            # 波段空間/RR 閘門、流動性閘門、regime 閘門，以及 _data_complete（關鍵指標缺失即不發）。
             allow = True
-            if key:                     # 每則訊號都過 AI 複核
-                v = ai_vet(sym, sig, key, model)
-                if v:
-                    sig["reason"] += "｜AI複核：" + v["verdict"] + ("，" + v["note"] if v.get("note") else "")
-                    if v["verdict"] == "不建議":
-                        allow = False   # AI 否決：仍記錄，但不推播
             ok = send_telegram(token, chat, fmt_msg(sym, sig)) if (token and allow) else False
             log_alert(con, session, code, sig, ok)
             if ok:
