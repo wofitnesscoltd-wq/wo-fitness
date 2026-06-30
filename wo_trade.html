@@ -2131,7 +2131,7 @@ function cUpnl(h){ if(h&&h.upnl!=null) return h.upnl; const px=cMark(h); return 
 function applyBitgetData(r, dropManual){
   cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');
   if(dropManual) cryptoHoldings = [];
-  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl}); });
+  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl,mmr:p.mmr,marginRatio:p.marginRatio}); });
   saveCryptoHoldings();
   bitgetAcct = (r.account&&r.account.equity!=null)?r.account:null;
   if(bitgetAcct){ const used=cryptoHoldings.reduce((a,h)=>a+(h.m||(h.q*h.e/(h.l||1))),0); setCMargin(Math.round((bitgetAcct.equity-used)*100)/100); }  // 餵橋接爆倉用的可用=權益−已用，讓引擎的權益≈交易所真實值
@@ -2231,13 +2231,40 @@ function exposureModel(){
   let NET=0,GROSS=0,NAKED=0,LOCKG=0,fundSettle=0;
   contracts.forEach(c=>{ NET+=c.net; GROSS+=c.gross; NAKED+=c.L; LOCKG+=2*c.locked;
     if(c.fund!=null) fundSettle+=c.fund*c.net; });   // 淨額：鎖住 min 段一付一收抵掉，只剩 net 段付費
-  const sm=cryptoSummary(), eq=sm.equity||0;
-  return {contracts, NET, GROSS, NAKED, LOCKG, equity:eq, avail:sm.avail, upnl:sm.upnl,
+  const sm=cryptoSummary(), eq=sm.equity||0, avail=sm.avail;
+  // F2：維持保證金用 Bitget 真實 tiered mmr（缺就退 0.5% 並標記）；兩條紅線；空腿消失的全裸對照
+  let maint=0, maintLong=0, mmrMissing=false;
+  cryptoHoldings.forEach(h=>{ const px=cMark(h); if(px==null)return; const n=h.q*px;
+    const r=(h.mmr!=null&&h.mmr>0)?h.mmr:0.005; if(h.mmr==null)mmrMissing=true;
+    maint+=n*r; if(h.side!=='short')maintLong+=n*r; });
+  const an=Math.abs(NET), anNaked=Math.abs(NAKED);
+  const ammoPct   = an>1 ? avail/an*100 : null;                  // 彈藥線：再逆走幾%→可用保證金歸零(不能再開防守空單)
+  const liqPct    = an>1 ? (eq-maint)/an*100 : null;             // 爆倉線：再逆走幾%→權益<維持保證金
+  const liqPctNaked = anNaked>1 ? (eq-maintLong)/anNaked*100 : null;  // 全裸(空腿被ADL/平掉)後的爆倉線
+  const hedgeBuysPct = (liqPct!=null&&liqPctNaked!=null) ? (liqPct-liqPctNaked) : null;  // 保險腿多撐的空間
+  const riskRate = (bitgetAcct&&bitgetAcct.riskRate!=null) ? bitgetAcct.riskRate : null;  // Bitget 全倉風險率(0→1)
+  // 交叉檢核：我們算「還很安全(緩衝大)」但交易所風險率已高 → 估算不一致，別默默信本地
+  const inconsistent = (riskRate!=null && liqPct!=null && riskRate>0.8 && liqPct>15);
+  return {contracts, NET, GROSS, NAKED, LOCKG, equity:eq, avail, upnl:sm.upnl,
     used:sm.used, balance:sm.balance, buffer:sm.buffer, netSigned:NET,
     netLev: eq>0?NET/eq:0, grossLev: eq>0?GROSS/eq:0, hedgedFrac: GROSS>0?LOCKG/GROSS:0,
-    adlStress: eq>0?NAKED/eq:0, fundSettle, fundDaily: fundSettle*3 };   // 8h結算估 3/日
+    adlStress: eq>0?NAKED/eq:0, fundSettle, fundDaily: fundSettle*3,   // 8h結算估 3/日
+    maint, ammoPct, liqPct, liqPctNaked, hedgeBuysPct, mmrMissing, riskRate, inconsistent };
 }
 function kUsd(v){ const a=Math.abs(v); const s=v<0?'-':''; return a>=1000?(s+'$'+(a/1000).toFixed(a>=10000?0:1)+'k'):(s+'$'+Math.round(a)); }
+/* F2 雙紅線：彈藥線(可用→0，先到) + 爆倉線(權益<維持)；保險腿有效區間=含對沖 vs 全裸；交叉檢核 Bitget 風險率。 */
+function f2Block(em){
+  if(em.ammoPct==null && em.liqPct==null) return '<div style="margin-top:7px;font-size:11px;color:var(--muted)">淨曝險≈0（高度對沖）：兩條紅線距離極遠。平掉任一保險腿前，先看下方各倉「動作前重算」。</div>';
+  const fp=v=>v==null?'—':Math.max(0,v).toFixed(1)+'%';
+  return `<div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:7px;font-size:11.5px;line-height:1.75">
+    <b>雙紅線</b> <span style="color:var(--muted);font-size:10px">淨曝險方向再逆走多少 →</span><br>
+    <span style="color:var(--amber)">🟠 彈藥線 <b>${fp(em.ammoPct)}</b></span> <span style="color:var(--muted);font-size:10.5px">先到：可用保證金歸零、無法再開防守空單</span><br>
+    <span style="color:var(--red)">🔴 爆倉線 <b>${fp(em.liqPct)}</b></span> <span style="color:var(--muted);font-size:10.5px">權益 &lt; 維持保證金${em.mmrMissing?'（維持率粗估 0.5%，可能低估→更新橋接抓真實 tiered 率）':'（Bitget 真實 tiered 率）'}</span>
+    ${em.liqPctNaked!=null?`<br><span style="color:var(--muted)">🛡 保險腿有效區間：全裸爆倉線 <b>${fp(em.liqPctNaked)}</b>${em.hedgeBuysPct!=null?`（保險腿多撐 <b style="color:#5BC0BE">+${Math.max(0,em.hedgeBuysPct).toFixed(1)}%</b>）`:''}</span>`:''}
+    ${em.riskRate!=null?`<br><span style="color:var(--muted);font-size:10.5px">Bitget 風險率 ${(em.riskRate*100).toFixed(0)}%（交叉檢核）</span>`:''}
+    ${em.inconsistent?`<br><b style="color:var(--red)">⚠ 本地緩衝與交易所風險率不一致，以交易所為準</b>`:''}
+  </div>`;
+}
 function holdingsLiveStr(){
   let out='';
   if(holdings.length){
@@ -2720,7 +2747,7 @@ function renderPositions(){
           <span>標的</span><span>多名目</span><span>空名目</span><span>中性鎖</span><span>淨(方向)</span><span>毛名目</span></div>
         ${rows}
       </div>
-      <div style="margin-top:6px;font-size:11.5px">距全倉爆倉緩衝 <b style="color:${bufCol}">${bufTxt}</b><span style="color:var(--muted);font-size:10.5px"> ←淨曝險方向還能逆走多少（F2 會再補「彈藥線」）</span></div>
+      ${f2Block(em)}
       ${(!bitgetAcct && getCMargin()<=0)?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
     }
     card.innerHTML=head+body;

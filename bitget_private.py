@@ -120,6 +120,8 @@ def positions():
             "upnl": _f(p.get("unrealizedPL")),
             "liq": _f(p.get("liquidationPrice")),
             "mark": _f(p.get("markPrice")),
+            "mmr": _f(p.get("keepMarginRate")),       # 維持保證金率（tiered，交易所真實值；給彈藥線/爆倉線用，勝過固定 0.5%）
+            "marginRatio": _f(p.get("marginRatio")),  # 此倉保證金率（交叉檢核本地估算用）
             "marginMode": p.get("marginMode"),
             "marginCoin": p.get("marginCoin") or MARGIN_COIN,
             "src": "bitget",
@@ -137,6 +139,9 @@ def account():
                 "crossedAvail": _f(a.get("crossedMaxAvailable")),
                 "equity": _f(a.get("accountEquity")) or _f(a.get("usdtEquity")),
                 "upnl": _f(a.get("unrealizedPL")),
+                "riskRate": _f(a.get("crossedRiskRate")),   # 全倉風險率(0→1，近 1 接近強平)；交叉檢核本地緩衝估算
+                "locked": _f(a.get("locked")),
+                "maxTransferOut": _f(a.get("maxTransferOut")),
                 "marginCoin": MARGIN_COIN,
             }
     return {}
