@@ -653,7 +653,7 @@ function coolingActive(){ const recent=entryLog.filter(t=>Date.now()-t<20*60000)
 function openPnl(){
   let pnl=0;
   (holdings||[]).forEach(h=>{ const q=futu.quotes['US.'+tkr(h.s)]; if(q&&q.last!=null) pnl+=(q.last-h.c)*h.q; });
-  (cryptoHoldings||[]).forEach(h=>{ const px=cryptoQuotes[h.s]; if(px) pnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; });
+  (cryptoHoldings||[]).forEach(h=>{ const u=cUpnl(h); if(u!=null) pnl+=u; });
   return pnl;
 }
 function etNow(){ try{ return new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'})); }catch(e){ return new Date(); } }
@@ -1806,10 +1806,10 @@ function positionCtx(){
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
     s+='\n【加密永續部位（幣安/Bitget，全倉 cross）；以下「現價」是程式自動帶入的『永續合約即時報價』(來自 Bitget/幣安)，不是我貼的、也不是個股收盤價。tokenized 美股永續對標的個股本來就常有溢價/折價，這正常；請用『永續報價』算我的部位損益，用『真實個股』做基本面/消息，別說我「貼錯」或把溢價當成我輸入錯誤】\n';
-    cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||null;
-      const upnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
-      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px?`，永續現價${px}`:'（暫無即時報價）'}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，這條腿浮${upnlU!=null?(upnlU>=0?'賺+':'虧')+Math.round(upnlU)+'U':'—'}\n`; });
-    const bySym={}; cryptoHoldings.forEach(h=>{ const px=cryptoQuotes[h.s]||h.e; bySym[h.s]=(bySym[h.s]||0)+h.q*px*(h.side==='short'?-1:1); });
+    cryptoHoldings.forEach(h=>{ const px=cMark(h);
+      const upnlU=cUpnl(h);
+      s+=`・${h.s} ${h.side==='short'?'空':'多'} ${h.l}x：進場${h.e}${px!=null?`，永續標記價${px}`:'（暫無即時報價）'}，保證金${Math.round(h.m||0)}U，名目${Math.round(h.q*(px||h.e))}U，這條腿浮${upnlU!=null?(upnlU>=0?'賺+':'虧')+Math.round(upnlU)+'U':'—'}\n`; });
+    const bySym={}; cryptoHoldings.forEach(h=>{ const px=cMark(h)||h.e; bySym[h.s]=(bySym[h.s]||0)+h.q*px*(h.side==='short'?-1:1); });
     const symNet=Object.keys(bySym).map(k=>`${k} 淨${bySym[k]>=0?'多':'空'}${Math.abs(Math.round(bySym[k]))}U`).join('、');
     const netSigned=Object.values(bySym).reduce((a,b)=>a+b,0);
     s+=`各幣種淨部位（多空對沖後，同幣種單腿不會獨立爆倉）：${symNet}。\n`;
@@ -2104,12 +2104,18 @@ function pushCryptoHoldings(){
 /* Bitget 唯讀同步：自動帶入真實合約倉位＋可用保證金＋掛單。
    非破壞合併：只替換上次同步進來的 src='bitget' 部位；手動/幣安部位預設保留（同所重複會問你）。 */
 let bitgetOrders = [];
-/* 把 Bitget 同步結果套進畫面：非破壞合併（只換 src='bitget' 的部位，手動/幣安保留），更新可用保證金與掛單。手動同步與背景自動同步共用。 */
+let bitgetAcct = null;   // Bitget 帳戶層級真實數字（權益/可用），有就優先於本地推估
+/* 最佳現價/未實現：Bitget 同步的「標記價/未實現」優先——代幣化美股永續(ASTSUSDT…)幣安根本沒有，
+   用 Binance 報價自算會整個錯；沒有 Bitget 值才退回 Binance 報價、再退回進場價。 */
+function cMark(h){ return (h&&h.mark!=null)?h.mark:(h?cryptoQuotes[h.s]:null); }
+function cUpnl(h){ if(h&&h.upnl!=null) return h.upnl; const px=cMark(h); return (px!=null)?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null; }
+/* 把 Bitget 同步結果套進畫面：非破壞合併（只換 src='bitget' 的部位，手動/幣安保留），更新真實權益/可用保證金/標記價/未實現/掛單。手動同步與背景自動同步共用。 */
 function applyBitgetData(r, dropManual){
   cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');
   if(dropManual) cryptoHoldings = [];
-  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq}); });
+  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl}); });
   saveCryptoHoldings();
+  bitgetAcct = (r.account&&r.account.equity!=null)?r.account:null;
   if(r.account && r.account.avail!=null) setCMargin(r.account.avail);
   bitgetOrders = r.orders||[];
 }
@@ -2182,8 +2188,11 @@ function setCMargin(v){ localStorage.setItem('wo_cmargin', (parseFloat(v)||''));
 function pushCMargin(){ if(!futu.connected||!bridgeSynced) return; try{ futuFetch('/setcmargin?v='+(getCMargin()||0)); }catch(e){} }
 function cryptoSummary(){
   let gross=0,net=0,upnl=0,used=0,priced=0;
-  cryptoHoldings.forEach(h=>{ const live=cryptoQuotes[h.s]; const px=live||h.e; if(live)priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; upnl+=(h.side==='short'?(h.e-px):(px-h.e))*h.q; used+=(h.m||(h.q*h.e/(h.l||1))); });
-  const avail=getCMargin(), equity=avail+used, maint=0.005*gross, an=Math.abs(net);
+  cryptoHoldings.forEach(h=>{ const live=cMark(h); const px=live||h.e; if(live!=null)priced++; const n=h.q*px; gross+=n; net+=(h.side==='short'?-1:1)*n; const u=cUpnl(h); upnl+=(u!=null?u:0); used+=(h.m||(h.q*h.e/(h.l||1))); });
+  let avail=getCMargin(), equity;
+  if(bitgetAcct && bitgetAcct.equity!=null){ equity=bitgetAcct.equity; if(bitgetAcct.avail!=null)avail=bitgetAcct.avail; used=Math.max(0,equity-avail); }  // 有交易所真實權益就用它，不再用 可用+已用 推估
+  else equity=avail+used;
+  const maint=0.005*gross, an=Math.abs(net);
   return {gross,net:an,upnl,equity,used,avail,priced,
     grossLev: equity>0?gross/equity:0, netLev: equity>0?an/equity:0,
     buffer: (an>1&&equity>maint)?(equity-maint)/an*100:(an<=1?null:0)};
@@ -2200,8 +2209,8 @@ function holdingsLiveStr(){
   if(cryptoHoldings.length){
     const sm=cryptoSummary();
     out+='\n我的加密永續部位（幣安/Bitget，全倉 cross；空腿多為避免不看盤時被波動掃出場的保險腿，非1:1對沖）：'+cryptoHoldings.map(h=>{
-      const px=cryptoQuotes[h.s];
-      return `${h.s} ${h.l}x ${h.side==='short'?'空':'多'} 進場${h.e}${px?(' 現價'+px):''} 保證金${Math.round(h.m||0)}U`;
+      const px=cMark(h); const u=cUpnl(h);
+      return `${h.s} ${h.l}x ${h.side==='short'?'空':'多'} 進場${h.e}${px!=null?(' 標記'+px):''} 保證金${Math.round(h.m||0)}U${u!=null?(' 未實現'+(u>=0?'+':'')+Math.round(u)+'U'):''}`;
     }).join('、')+'。';
     out+=`全倉總覽：帳戶權益${Math.round(sm.equity)}U、未實現${Math.round(sm.upnl)}U、淨曝險${Math.round(sm.net)}U、淨槓桿${sm.netLev.toFixed(1)}x、距全倉爆倉緩衝${sm.buffer==null?'已對沖極低':sm.buffer.toFixed(1)+'%'}（爆倉看帳戶層級，單腿不會獨立爆；別用單腿孤立爆倉價評估風險）。`;
   }
@@ -2310,7 +2319,7 @@ let cmState=null;
 function feeDefault(kind){ const v=parseFloat(localStorage.getItem(kind==='crypto'?'wo_fee_crypto':'wo_fee_stock')); return v>0?v:(kind==='crypto'?0.04:0.15); }
 function openCloseDialog(kind,s,side,presetQty){
   let h,live,sym,fullQty;
-  if(kind==='crypto'){ h=cryptoHoldings.find(x=>x.s===s&&x.side===side); if(!h)return; live=cryptoQuotes[h.s]||h.e; sym=h.s; fullQty=h.q; }
+  if(kind==='crypto'){ h=cryptoHoldings.find(x=>x.s===s&&x.side===side); if(!h)return; live=cMark(h)||h.e; sym=h.s; fullQty=h.q; }
   else{ h=holdings.find(x=>x.s===s); if(!h)return; const q=futu.quotes['US.'+tkr(h.s)]; live=(q&&q.last!=null)?q.last:h.c; sym=tkr(h.s); fullQty=h.q; }
   cmState={kind,s,side,h,sym,fullQty,entry:kind==='crypto'?h.e:h.c};
   const cr=kind==='crypto';
@@ -2539,8 +2548,8 @@ function renderPositions(){
     else singles.push(...legs);
   });
   [...pairs,...singles].forEach(h=>{
-    const px=cryptoQuotes[h.s];
-    const pnlU=px?((h.side==='short'?(h.e-px):(px-h.e))*h.q):null;
+    const px=cMark(h);
+    const pnlU=cUpnl(h);
     const id='c|'+h.s+'|'+h.side; const exp=expandedPos.has(id);
     const sideTxt=h.side==='short'?'空':'多', sideCol=h.side==='short'?'var(--dn)':'var(--up)';
     const margin=Math.round(h.m||(h.q*h.e/(h.l||1)));
@@ -2638,7 +2647,7 @@ function triggerAutoClose(kind,h,exitPx,which){
 }
 function checkAutoClose(){
   cryptoHoldings.slice().forEach(h=>{
-    const px=cryptoQuotes[h.s]; if(!px)return;
+    const px=cMark(h); if(px==null)return;
     if(h.tp&&(h.side==='short'?px<=h.tp:px>=h.tp)){ triggerAutoClose('crypto',h,h.tp,'tp'); return; }
     if(h.sl&&(h.side==='short'?px>=h.sl:px<=h.sl)){ triggerAutoClose('crypto',h,h.sl,'sl'); }
   });
