@@ -2198,10 +2198,32 @@ function cryptoSummary(){
   if(bitgetAcct && bitgetAcct.equity!=null){ equity=bitgetAcct.equity; avail=Math.max(0,equity-used); balance=equity-upnl; }  // 權益用交易所真實值；可用=權益−已用(超用就是0)；錢包=權益−未實現
   else { avail=getCMargin(); equity=avail+used; balance=equity-upnl; }
   const maint=0.005*gross, an=Math.abs(net);
-  return {gross,net:an,upnl,equity,used,avail,balance,priced,
+  return {gross,net:an,netSigned:net,upnl,equity,used,avail,balance,priced,
     grossLev: equity>0?gross/equity:0, netLev: equity>0?an/equity:0,
     buffer: (an>1&&equity>maint)?(equity-maint)/an*100:(an<=1?null:0)};
 }
+/* §1 全倉曝險資料模型（F1 地基）：每合約 多/空名目、灰=中性鎖、紅綠=淨(帶號)；
+   全帳戶 淨NET/毛GROSS/裸化NAKED/對沖佔比/ADL壓力。名目＝size×標記價(Bitget兩腿分開回)。
+   ⚠ 爆倉一律帳戶層級；本地一切只當「估算」，動作後實際以交易所回傳為準。 */
+function exposureModel(){
+  const byC={};
+  cryptoHoldings.forEach(h=>{ const px=cMark(h); if(px==null)return; const n=h.q*px;
+    const c=byC[h.s]||(byC[h.s]={sym:h.s,L:0,S:0}); if(h.side==='short')c.S+=n; else c.L+=n; });
+  const fund=(typeof cryptoFunding!=='undefined')?cryptoFunding:{};
+  const contracts=Object.values(byC).map(c=>{ const locked=Math.min(c.L,c.S);
+    return {sym:c.sym,L:c.L,S:c.S,locked,net:c.L-c.S,gross:c.L+c.S,
+            dir:(c.L-c.S)>=0?'long':'short', fund:(fund[c.sym]!=null?fund[c.sym]:null)}; })
+    .sort((a,b)=>Math.abs(b.net)-Math.abs(a.net));
+  let NET=0,GROSS=0,NAKED=0,LOCKG=0,fundSettle=0;
+  contracts.forEach(c=>{ NET+=c.net; GROSS+=c.gross; NAKED+=c.L; LOCKG+=2*c.locked;
+    if(c.fund!=null) fundSettle+=c.fund*c.net; });   // 淨額：鎖住 min 段一付一收抵掉，只剩 net 段付費
+  const sm=cryptoSummary(), eq=sm.equity||0;
+  return {contracts, NET, GROSS, NAKED, LOCKG, equity:eq, avail:sm.avail, upnl:sm.upnl,
+    used:sm.used, balance:sm.balance, buffer:sm.buffer, netSigned:NET,
+    netLev: eq>0?NET/eq:0, grossLev: eq>0?GROSS/eq:0, hedgedFrac: GROSS>0?LOCKG/GROSS:0,
+    adlStress: eq>0?NAKED/eq:0, fundSettle, fundDaily: fundSettle*3 };   // 8h結算估 3/日
+}
+function kUsd(v){ const a=Math.abs(v); const s=v<0?'-':''; return a>=1000?(s+'$'+(a/1000).toFixed(a>=10000?0:1)+'k'):(s+'$'+Math.round(a)); }
 function holdingsLiveStr(){
   let out='';
   if(holdings.length){
@@ -2654,14 +2676,37 @@ function renderPositions(){
     let body='';
     if(exp){
       const upnlTxt=(sm.upnl>=0?'+$':'-$')+Math.abs(Math.round(sm.upnl)).toLocaleString();
+      const em=exposureModel();
+      const ndir=em.NET>=0?'多':'空', ndCol=em.NET>=0?'var(--up)':'var(--dn)';
+      const adlCol=em.adlStress>=8?'var(--red)':em.adlStress>=4?'var(--amber)':'var(--text)';
+      // 每支：多/空名目、灰=中性鎖、紅綠=淨(帶號)、毛；按 |淨| 由大到小（最大裸方向押注在最上）
+      const rows=em.contracts.map(c=>{ const nc=c.net>=0?'var(--up)':'var(--dn)';
+        return `<div style="display:grid;grid-template-columns:1fr .85fr .85fr .8fr 1fr .8fr;gap:3px;font-size:10.5px;padding:3px 0;border-top:1px solid var(--border);align-items:center">
+          <span><b>${c.sym.replace('USDT','')}</b></span>
+          <span style="color:var(--up)">多${kUsd(c.L)}</span>
+          <span style="color:var(--dn)">空${kUsd(c.S)}</span>
+          <span style="color:var(--muted)">🔒${kUsd(c.locked)}</span>
+          <span style="color:${nc};font-weight:700">淨${c.net>=0?'+':'−'}${kUsd(Math.abs(c.net))}</span>
+          <span style="color:var(--muted-2)">毛${kUsd(c.gross)}</span></div>`; }).join('');
+      const fAbs=Math.abs(em.fundDaily), fPay=em.fundDaily>0;   // >0=你淨付；<0=你淨收
+      const fDays=(fPay&&fAbs>0.5&&em.avail>0)?(em.avail/fAbs):null;
       body=`${bitgetAcct?'':`<input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin:8px 0">`}
-      <div style="font-size:12px;line-height:1.8">
+      <div style="font-size:12px;line-height:1.75">
         帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">（錢包 $${Math.round(sm.balance).toLocaleString()} ＋ 未實現 ${upnlTxt}）</span><br>
-        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · Bitget 即時':''}</span><br>
-        總名目 $${Math.round(sm.gross).toLocaleString()}　淨曝險 $${Math.round(sm.net).toLocaleString()}<br>
-        整體槓桿 <b>${sm.grossLev.toFixed(1)}x</b>　淨 ${sm.netLev.toFixed(1)}x<br>
-        距全倉爆倉緩衝 <b style="color:${bufCol}">${bufTxt}</b><span style="color:var(--muted);font-size:11px"> ←淨曝險方向還能逆走多少</span>
+        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · Bitget 即時':''}</span>
       </div>
+      <div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:7px;font-size:11.5px;line-height:1.7">
+        <b>雙軌槓桿</b>　總 <b>${em.grossLev.toFixed(1)}x</b> ｜ 淨(帶號) <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${Math.abs(em.netLev).toFixed(1)}x</b> 偏${ndir} ｜ 對沖佔比 <b>${Math.round(em.hedgedFrac*100)}%</b><br>
+        <span style="color:var(--muted)">毛曝險 ${kUsd(em.GROSS)}　淨曝險 <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${kUsd(Math.abs(em.NET))}</b>（${Math.round(em.hedgedFrac*100)}% 被對沖、其餘是裸的）</span><br>
+        <b style="color:${adlCol}">⚠ ADL 壓力</b> 裸化淨曝險 ${kUsd(em.NAKED)} ＝ <b style="color:${adlCol}">${em.adlStress.toFixed(1)}x</b> 權益　<span style="color:var(--muted);font-size:10.5px">（所有空腿若被 ADL/平掉，裸多會變這麼大）</span><br>
+        <b>資金費</b> ${em.fundDaily===0?'<span style="color:var(--muted)">—（無費率資料，按🔄同步或稍候）</span>':`日估 <b style="color:${fPay?'var(--dn)':'var(--up)'}">${fPay?'付 ':'收 '}${kUsd(fAbs)}</b> · ${(Math.abs(em.fundDaily)/(sm.equity||1)*100).toFixed(2)}%/日${fDays?` · ≈${fDays.toFixed(0)} 天可用保證金`:''} <span style="color:var(--muted);font-size:10px">(8h結算估)</span>`}
+      </div>
+      <div style="margin-top:6px">
+        <div style="display:grid;grid-template-columns:1fr .85fr .85fr .8fr 1fr .8fr;gap:3px;font-size:9.5px;color:var(--muted-2);padding-bottom:2px">
+          <span>標的</span><span>多名目</span><span>空名目</span><span>中性鎖</span><span>淨(方向)</span><span>毛名目</span></div>
+        ${rows}
+      </div>
+      <div style="margin-top:6px;font-size:11.5px">距全倉爆倉緩衝 <b style="color:${bufCol}">${bufTxt}</b><span style="color:var(--muted);font-size:10.5px"> ←淨曝險方向還能逆走多少（F2 會再補「彈藥線」）</span></div>
       ${(!bitgetAcct && getCMargin()<=0)?'<div style="font-size:11px;color:var(--amber);margin-top:4px">↑ 填入交易所「可用保證金」才能算權益/爆倉緩衝</div>':''}`;
     }
     card.innerHTML=head+body;
