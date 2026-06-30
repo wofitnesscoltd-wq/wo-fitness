@@ -180,8 +180,11 @@ def _die(msg):
     sys.exit(1)
 
 
-def _get_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+def _get_json(url, token=""):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if token:                                  # 橋接認證走 X-Token 標頭（不放 query，避免殘留在日誌）
+        headers["X-Token"] = token
+    req = urllib.request.Request(url, headers=headers)
     try:
         raw = urllib.request.urlopen(req, timeout=25).read()
     except urllib.error.HTTPError as e:
@@ -200,8 +203,8 @@ def _get_json(url):
 
 
 def from_bridge(url, token, code, ktype, num):
-    q = urllib.parse.urlencode({"code": code, "ktype": ktype, "num": num, "live": 0, "token": token})
-    r = _get_json(url.rstrip("/") + "/kline?" + q)
+    q = urllib.parse.urlencode({"code": code, "ktype": ktype, "num": num, "live": 0})
+    r = _get_json(url.rstrip("/") + "/kline?" + q, token=token)
     if isinstance(r, dict) and r.get("error"):
         _die(f"橋接回錯誤：{r.get('error')}（檢查 --token 對不對、牛牛有沒有開）")
     bars = [b for b in (r.get("kline") or []) if b.get("close") is not None] if isinstance(r, dict) else []
