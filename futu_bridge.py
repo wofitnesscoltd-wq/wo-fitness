@@ -43,8 +43,13 @@ try:
 except Exception:
     bitget_mod = None
 
+try:
+    import pattern_signals as pattern_mod  # P6-1 訊號記分卡（低波動蓄積 / 資金費異常；確定性、不呼叫 AI）
+except Exception:
+    pattern_mod = None
+
 # 橋接版本：每次改 .py 都會 bump。網頁與啟動橫幅都會顯示，方便確認本機程式有沒有更新到。
-BRIDGE_VERSION = "2026.06.30"
+BRIDGE_VERSION = "2026.07.01"
 
 ARGS = None
 _NOTIFY_STATE = {}   # key -> (last_ts, last_msg)；/notify 伺服器端去重＋冷卻保險，避免洗版
@@ -499,6 +504,22 @@ class Handler(BaseHTTPRequestHandler):
                             except Exception:
                                 pass
                 self._json({"funding": out})
+            elif path == "/patternsignals":
+                # P6-1：訊號記分卡（低波動蓄積 / 資金費異常）。純確定性、不呼叫 AI。
+                sym = q.get("sym", [""])[0].upper()
+                if not (pattern_mod and crypto_mod and sym):
+                    self._json({"error": "unavailable"})
+                else:
+                    try:
+                        kl = (CRYPTO.kl if CRYPTO else crypto_mod.SOURCES[ARGS.crypto_source][0])
+                        bars = kl(sym, "15m", 300)
+                    except Exception:
+                        bars = []
+                    try:
+                        fh = crypto_mod.funding_history(sym, ARGS.crypto_source)
+                    except Exception:
+                        fh = []
+                    self._json(pattern_mod.scan(bars, fh))
             elif path == "/notify":
                 # 網頁在「偵測到需要改設定（上移止損/逼近止損/動能竭盡/緩衝進紅區）」時呼叫，
                 # 把一則訊息轉發到 Telegram。伺服器端再做一層去重＋冷卻當保險，避免洗版。
