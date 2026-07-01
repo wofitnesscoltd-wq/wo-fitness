@@ -86,7 +86,9 @@ def funding_signal(funding_hist, recent=8, consec=3, k_std=1.0):
             c += 1
         else:
             break
-    triggered = base_std > 0 and abs(offset) > k_std * base_std and c >= consec
+    # 用絕對容忍度擋浮點雜訊：定值資金費(如長期同一費率)的 std/offset 會是 ~1e-20，
+    # 遠小於真實費率量級(~1e-4)，不可誤判成異常。真實偏移遠大於 1e-9。
+    triggered = base_std > 1e-9 and abs(offset) > max(k_std * base_std, 1e-9) and c >= consec
     dirw = "偏高(多方付費重)" if sign > 0 else "偏低(空方付費重)"
     note = ("近 %d 期資金費均 %.4f%% 較基準 %.4f%% %s、連續 %d 期同向 → 資金費異常"
             % (recent, recent_ma * 100, base_mean * 100, dirw, c)) if triggered else \
