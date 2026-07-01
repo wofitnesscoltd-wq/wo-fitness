@@ -1789,7 +1789,15 @@ async function copyToMax(){
         +'｜淨曝險 '+(em.NET>=0?'+':'')+Math.round(em.NET)+'U(淨槓桿'+em.netLev.toFixed(1)+'x、總槓桿'+em.grossLev.toFixed(1)+'x、對沖佔比'+Math.round(em.hedgedFrac*100)+'%)'
         +'｜ADL裸化淨曝險 '+em.adlStress.toFixed(1)+'x 權益｜距全倉爆倉緩衝 '+(em.buffer==null?'已對沖':em.buffer.toFixed(1)+'%')+'\n';
     pack+='每支(按|淨|)：'+em.contracts.map(c=>c.sym.replace('USDT','')+' 多$'+Math.round(c.L)+'/空$'+Math.round(c.S)+'/淨'+(c.net>=0?'+':'')+Math.round(c.net)+'/毛$'+Math.round(c.gross)).join('；')+'\n';
-    pack+='（爆倉以帳戶層級緩衝為準，單腿不會獨立爆；別用單腿孤立爆倉價評估風險。空腿是保險腿，平掉會放大淨多曝險。）\n';
+    // P4-1：每條腿的角色標記（即時重讀，含手動覆蓋），讓對話不必口頭補充哪條是保險腿
+    pack+='每腿角色：'+cryptoHoldings.map(h=>h.s.replace('USDT','')+(h.side==='short'?'空':'多')+'＝'+({directional:'方向腿',insurance:'保險腿',lock:'對鎖腿'}[legRole(h)]||legRole(h))).join('；')+'\n';
+    pack+='（爆倉以帳戶層級緩衝為準，單腿不會獨立爆；別用單腿孤立爆倉價評估風險。保險/對鎖腿平掉會放大淨曝險。）\n';
+  }
+  // P6-1：訊號記分卡（確定性比對，非預測）——每個持倉標的一行 N/2
+  if(futu.connected && cryptoHoldings.length){
+    const syms=[...new Set(cryptoHoldings.map(h=>h.s))], parts=[];
+    for(const s of syms){ try{ const r=await futuFetch('/patternsignals?sym='+encodeURIComponent(s)); if(r&&r.line) parts.push(s.replace('USDT','')+'：'+r.line); }catch(e){} }
+    if(parts.length) pack+='\n【訊號記分卡（確定性比對，非預測）】\n'+parts.join('\n')+'\n';
   }
   pack += holdingsLiveStr();
   pack += '\n請依上面的即時數字，回答我接下來問的問題。';
@@ -2198,8 +2206,9 @@ function applyBitgetData(r, dropManual){
   bitgetSyncedAt=Date.now(); bitgetSyncFail=0;        // D2：記錄成功同步時間，給新鮮度顯示用
 }
 /* D2 新鮮度：距上次成功 Bitget 同步多久；過期(>90s)就標灰/警告，不顯示舊值當即時。 */
-let bitgetSyncedAt=0, bitgetSyncFail=0;
+let bitgetSyncedAt=0, bitgetSyncFail=0, cryptoQuotesAt=0;   // P4-2：各資料源 fetched_at
 function bitgetAge(){ return bitgetSyncedAt? (Date.now()-bitgetSyncedAt)/1000 : null; }
+function ageStr(ts){ if(!ts) return '尚無'; const s=Math.round((Date.now()-ts)/1000); return s<60?s+'秒前':(s<3600?Math.round(s/60)+'分前':Math.round(s/3600)+'時前'); }
 function freshTag(){
   const a=bitgetAge(); if(a==null) return '';
   if(a<=20) return ` <span style="color:var(--muted);font-size:10px">· ${Math.round(a)}s前</span>`;
@@ -2261,7 +2270,7 @@ async function syncBitget(){
 async function pollCrypto(){
   if(!cryptoHoldings.length) return;
   const syms=encodeURIComponent(cryptoHoldings.map(x=>x.s).join(','));
-  try{ const r=await futuFetch('/cryptoquote?syms='+syms); cryptoQuotes=r.quotes||{}; }catch(e){}
+  try{ const r=await futuFetch('/cryptoquote?syms='+syms); cryptoQuotes=r.quotes||{}; cryptoQuotesAt=Date.now(); }catch(e){}
   // 資金費率每 8 小時結算一次（UTC 00/08/16＝台灣 08/16/00）。只在跨結算時段時抓一次，其餘不動。
   const bucket=Math.floor(Date.now()/(8*3600*1000));
   if(bucket!==pollCrypto._fundBucket){
@@ -3054,7 +3063,7 @@ function renderPositions(){
       body=`${bitgetAcct?'':`<input type="number" value="${getCMargin()||''}" placeholder="可用保證金 USDT（交易所剩餘可用）" onchange="setCMargin(this.value)" style="width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:inherit;font-size:12.5px;margin:8px 0">`}
       <div style="font-size:12px;line-height:1.75">
         帳戶權益 <b>$${Math.round(sm.equity).toLocaleString()}</b> <span style="color:var(--muted)">（錢包 $${Math.round(sm.balance).toLocaleString()} ＋ 未實現 ${upnlTxt}）</span><br>
-        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · Bitget 即時':''}</span>
+        可用保證金 <b>$${Math.round(sm.avail).toLocaleString()}</b> <span style="color:var(--muted)">· 已用各倉 $${Math.round(sm.used).toLocaleString()}${bitgetAcct?' · <span style="color:'+((bitgetAge()!=null&&bitgetAge()>45)?'var(--amber)':'var(--muted)')+'">Bitget '+ageStr(bitgetSyncedAt)+((bitgetAge()!=null&&bitgetAge()>45)?'·可能過期':'')+'</span>':''}</span>
       </div>
       <div style="margin-top:7px;padding:6px 8px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:7px;font-size:11.5px;line-height:1.7">
         <b>雙軌槓桿</b>　總 <b>${em.grossLev.toFixed(1)}x</b> ｜ 淨(帶號) <b style="color:${ndCol}">${em.NET>=0?'+':'−'}${Math.abs(em.netLev).toFixed(1)}x</b> 偏${ndir} ｜ 對沖佔比 <b>${Math.round(em.hedgedFrac*100)}%</b><br>

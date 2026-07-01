@@ -584,20 +584,32 @@ def track_outcomes(con, price_of):
 # ====================================================================
 # 市場時段
 # ====================================================================
+# P8-2：與前端同一份市場日曆——休市假日＋半日盤(13:00 ET 提早收)。前後端須一致。
+US_HOLIDAYS = {'2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25', '2026-06-19',
+               '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25', '2027-01-01', '2027-01-18',
+               '2027-02-15', '2027-03-26', '2027-05-31', '2027-06-18', '2027-07-05', '2027-09-06',
+               '2027-11-25', '2027-12-24'}
+US_HALFDAYS = {'2026-11-27', '2026-12-24', '2027-11-26'}   # 感恩節隔日、平安夜：13:00 ET 提早收
+
+
 def market_phase(now=None):
-    """回傳 'pre' / 'regular' / 'post' / 'closed'（美東）。"""
+    """回傳 'pre' / 'regular' / 'post' / 'closed'（美東，含假日/半日盤）。"""
     if ET is None:
         now = now or datetime.now()
     else:
         now = (now or datetime.now(ET)).astimezone(ET)
     if now.weekday() >= 5:
         return "closed"
+    date = now.strftime("%Y-%m-%d")
+    if date in US_HOLIDAYS:
+        return "closed"
     hm = now.hour * 60 + now.minute
+    reg_close = 13 * 60 if date in US_HALFDAYS else 16 * 60   # 半日盤 13:00 收
     if 4 * 60 <= hm < 9 * 60 + 30:
         return "pre"
-    if 9 * 60 + 30 <= hm < 16 * 60:
+    if 9 * 60 + 30 <= hm < reg_close:
         return "regular"
-    if 16 * 60 <= hm < 20 * 60:
+    if reg_close <= hm < 20 * 60:
         return "post"
     return "closed"
 
@@ -762,6 +774,9 @@ class AlertEngine:
             b = st.get("grade:" + g)
             if b and b["n"]:
                 lines.append(f"・{g} 級：{b['n']} 筆　勝率 {b['win_rate']}%　期望 {b['expectancy_R']}R")
+        # P2-2：固定尾行「涵蓋/未涵蓋」，與對話層 v3.1「✅已跑/⏭跳過」對齊（同一套系統的一致感）。
+        lines.append(f"✅ 涵蓋：美股警示引擎已結算訊號績效（A/B/C 等級）"
+                     f"　⏭ 未涵蓋：加密永續（另走爆倉/出場模組，不進此績效表）、未結算追蹤中 {st.get('open', 0)} 筆")
         text = "\n".join(lines)
         # HOTFIX-B：預設「不」自動跑 AI 教練長文（燒 API，且對錯誤標的＝美股當沖敘述，非你的 Bitget 永續）。
         # 只自動推純績效數字。要 AI 檢討改按需：/report?push=1&ai=1，或把快照丟你自己的 Claude chat。

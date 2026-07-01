@@ -185,6 +185,38 @@ def bitget_funding(sym):
         return {"mark": 0.0, "funding": 0.0}
 
 
+def bitget_funding_history(sym, limit=100):
+    """歷史資金費率（由舊到新的 list），給訊號記分卡的資金費異常判斷。"""
+    try:
+        d = _get_json(f"https://api.bitget.com/api/v2/mix/market/history-fund-rate?symbol={sym}"
+                      f"&productType=usdt-futures&pageSize={limit}")
+        rows = d.get("data") or []
+        out = [(int(r.get("fundingTime", 0)), float(r.get("fundingRate", 0))) for r in rows]
+        out.sort(key=lambda x: x[0])
+        return [r for _, r in out]
+    except Exception:
+        return []
+
+
+def binance_funding_history(sym, limit=100):
+    try:
+        rows = _get_json(f"https://fapi.binance.com/fapi/v1/fundingRate?symbol={sym}&limit={limit}")
+        return [float(r.get("fundingRate", 0)) for r in rows]   # 已由舊到新
+    except Exception:
+        return []
+
+
+def funding_history(sym, source="bitget"):
+    """代幣化美股永續只在 Bitget→先 Bitget 再退 Binance。"""
+    order = ["bitget", "binance"] if source != "binance" else ["binance", "bitget"]
+    fns = {"bitget": bitget_funding_history, "binance": binance_funding_history}
+    for k in order:
+        h = fns[k](sym)
+        if h:
+            return h
+    return []
+
+
 SOURCES = {
     "binance": (binance_klines, binance_funding),
     "bitget": (bitget_klines, bitget_funding),
