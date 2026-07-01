@@ -751,7 +751,7 @@ class AlertEngine:
         save_weights(w)
         return {"updated": True, "n": n_used, "weights": w}
 
-    def build_report(self, kind="每日", push=True):
+    def build_report(self, kind="每日", push=True, ai=None):
         st = self.stats()
         allw = st.get("ALL", {})
         lines = [f"📊 <b>{kind}績效報告</b>　{session_key()}",
@@ -763,8 +763,11 @@ class AlertEngine:
             if b and b["n"]:
                 lines.append(f"・{g} 級：{b['n']} 筆　勝率 {b['win_rate']}%　期望 {b['expectancy_R']}R")
         text = "\n".join(lines)
+        # HOTFIX-B：預設「不」自動跑 AI 教練長文（燒 API，且對錯誤標的＝美股當沖敘述，非你的 Bitget 永續）。
+        # 只自動推純績效數字。要 AI 檢討改按需：/report?push=1&ai=1，或把快照丟你自己的 Claude chat。
         key = self.cfg.get("anthropic_key")
-        if key:
+        use_ai = self.cfg.get("ai_report") if ai is None else ai   # 按需：/report?ai=1 才跑 AI 檢討
+        if key and use_ai:
             coach = _ai_report(key, self.cfg.get("ai_model", "claude-haiku-4-5-20251001"),
                                text, self.recent_alerts(30))
             if coach:
@@ -930,9 +933,18 @@ class AlertEngine:
         # 永續部位的賣點：tokenized 美股永續→用真實個股(牛牛)的當日短線背離提醒槓桿減碼/回補
         puf = self.cfg.get("perp_underlyings")
         if puf:
-            for p in (puf() or []):
+            legs = puf() or []
+            # HOTFIX-A：全倉口徑統一——同一 perp 同時有多、空腿＝對鎖/保險，
+            # 對這種標的的任一腿都不發「減碼/回補」方向性提醒（平掉會從中性變裸單、更近爆倉）。
+            sides_by_perp = {}
+            for p in legs:
+                sides_by_perp.setdefault(p.get("perp"), set()).add(p.get("side", "long"))
+            hedged_perps = {k for k, s in sides_by_perp.items() if "long" in s and "short" in s}
+            for p in legs:
                 code, side, perp = p.get("code"), p.get("side", "long"), p.get("perp")
                 if not code:
+                    continue
+                if perp in hedged_perps:      # 對鎖腿/保險腿：不發方向性減碼/回補
                     continue
                 try:
                     b = [x for x in (self.get_kline(code, "15m", 80) or []) if x.get("close") is not None]

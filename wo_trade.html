@@ -2894,6 +2894,9 @@ function maybeNotifyAdvice(key, h, adv){
   if(localStorage.getItem('wo_advpush')==='0') return;  // 使用者關閉
   let st={}; try{ st=JSON.parse(localStorage.getItem('wo_advpush_st')||'{}'); }catch(e){}
   const prev=st[key], now=Date.now(), snap=snapAdv(adv);
+  // HOTFIX-A：對鎖腿/保險腿「永不」發方向性止損/認賠/減碼推播——平掉它=從中性變裸多、更近爆倉。
+  // 與面板 adviceLine 同口徑(那裡標🛡不給止損)；只靜默更新基準，不推。
+  if(adv.isHedgeLeg){ st[key]=snap; localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
   // 第一次看到這個部位：先靜默建立基準，之後有變化才推（避免一開窗就連噴）
   if(prev===undefined){ st[key]=snap; localStorage.setItem('wo_advpush_st',JSON.stringify(st)); return; }
   const pv=prev||{};
