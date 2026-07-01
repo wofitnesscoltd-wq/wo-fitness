@@ -537,7 +537,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "engine off"})
                 else:
                     push = q.get("push", ["0"])[0] == "1"
-                    self._json({"report": ENGINE.build_report("即時", push=push)})
+                    ai = q.get("ai", ["0"])[0] == "1"   # 按需 AI 檢討：/report?push=1&ai=1
+                    self._json({"report": ENGINE.build_report("即時", push=push, ai=ai)})
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except Exception as e:
