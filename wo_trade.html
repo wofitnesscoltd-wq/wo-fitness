@@ -2189,7 +2189,7 @@ function cUpnl(h){ if(h&&h.upnl!=null) return h.upnl; const px=cMark(h); return 
 function applyBitgetData(r, dropManual){
   cryptoHoldings = cryptoHoldings.filter(h=>h.src!=='bitget');
   if(dropManual) cryptoHoldings = [];
-  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl,mmr:p.mmr,marginRatio:p.marginRatio}); });
+  (r.positions||[]).forEach(p=>{ const l=p.lev||1, m=(p.margin!=null?p.margin:(p.size*p.entry/l)); cryptoHoldings.push({s:p.sym,q:p.size,e:p.entry,l,side:p.side,m,src:'bitget',liq:p.liq,mark:p.mark,upnl:p.upnl,mmr:p.mmr,marginRatio:p.marginRatio,leg_role:p.leg_role}); });
   saveCryptoHoldings();
   bitgetAcct = (r.account&&r.account.equity!=null)?r.account:null;
   if(bitgetAcct){ const used=cryptoHoldings.reduce((a,h)=>a+(h.m||(h.q*h.e/(h.l||1))),0); setCMargin(Math.round((bitgetAcct.equity-used)*100)/100); }  // 餵橋接爆倉用的可用=權益−已用，讓引擎的權益≈交易所真實值
@@ -2783,6 +2783,24 @@ function adviceTriggerInfo(h, adv){
   const netAfter=em.NET-cutSigned;
   return {netBefore:em.NET, netAfter, flip:(em.NET>=0)!==(netAfter>=0)};
 }
+/* ===== P1-1 腿角色：單一欄位、全系統讀同一份（覆蓋 > Bitget 計算值 > 前端退路計算） ===== */
+function legRoleOverrides(){ try{ return JSON.parse(localStorage.getItem('wo_legrole_ov')||'{}'); }catch(e){ return {}; } }
+function setLegRoleOverride(sym, side, role){
+  const ov=legRoleOverrides(); const k=sym+'|'+side;
+  if(role==='auto') delete ov[k]; else ov[k]=role;
+  localStorage.setItem('wo_legrole_ov', JSON.stringify(ov)); renderPositions();
+}
+function legRole(h){
+  const ov=legRoleOverrides()[h.s+'|'+h.side]; if(ov) return ov;         // 手動覆蓋優先
+  if(h.leg_role) return h.leg_role;                                      // Bitget 算好的欄位
+  const legs=cryptoHoldings.filter(x=>x.s===h.s); let L=0,S=0;           // 退路：前端同公式現算
+  legs.forEach(l=>{ const px=cMark(l)||l.e; const n=(l.q||0)*px; if(l.side==='short')S+=n; else L+=n; });
+  if(L>0&&S>0){ const g=L+S; if(g>0&&Math.abs(L-S)/g<0.2) return 'lock';
+    const mine=h.side==='long'?L:S, other=h.side==='long'?S:L; return mine<other?'insurance':'directional'; }
+  return 'directional';
+}
+function isProtectiveLeg(h){ const r=legRole(h); return r==='insurance'||r==='lock'; }   // 保險/對鎖腿：不給方向性止損
+function legRoleLabel(r){ return {directional:'方向腿',insurance:'🛡 保險腿',lock:'⚖️ 對鎖腿'}[r]||r; }
 /* PATCH 3：短線出場建議。錨＝swing low/high(永續1h)；止損=錨−k×短ATR(k隨動能放大,防插針)；
    結構化移動止損只升不降；今日情緒(risk-off→脆弱、部分止損)；止損只掛較大方向腿。 */
 function posAdvice(h, bars){
@@ -2808,21 +2826,23 @@ function posAdvice(h, bars){
   const tone=riskTone(), fragile=(tone==='off');                  // risk-off：支撐脆弱、別硬信
   const cross=!!bitgetAcct, legs=cryptoHoldings.filter(x=>x.s===h.s), hedged=legs.length>=2;
   let symNet=0; legs.forEach(l=>{ const p=cMark(l); if(p!=null) symNet+=(l.side==='short'?-1:1)*(l.q||0)*p; });
-  const symDir= symNet>=0?'long':'short', isHedgeLeg= hedged && ((symDir==='long')!==long);
+  const symDir= symNet>=0?'long':'short';
+  const role=legRole(h), isHedgeLeg=isProtectiveLeg(h);   // P1-1：讀單一欄位(含手動覆蓋)，不再自行推導
   const near= Math.abs(px-sl) <= 0.5*a;
   const dp = px<2?5:(px<20?3:2); const rnd=v=>v==null?null:+v.toFixed(dp);
   return {long, px, a, sl:rnd(sl), tp:rnd(tp), trail:rnd(trail), anchor:rnd(anchor), inProfit:prof>0,
-          fs, tail, waning, strong, k, tone, fragile, near, dp, cross, hedged, isHedgeLeg, symDir};
+          fs, tail, waning, strong, k, tone, fragile, near, dp, cross, hedged, isHedgeLeg, role, symDir};
 }
 /* 把建議畫成一行；回傳 {html, adv} */
 function adviceLine(h, bars){
   const adv=posAdvice(h, bars); if(!adv) return null;
   const dn='var(--dn)', up='var(--up)', mut='var(--muted)', teal='#5BC0BE', purp='#C792EA';
-  if(adv.isHedgeLeg){                                              // 保險腿(對沖腿)：不給止損、平掉反放大淨曝險
-    const netCh=adv.symDir==='long'?'多':'空';
-    const s=`🛡 <b style="color:${teal}">保險腿</b>（對沖你較大的${netCh}單）　🎯 想收利可分批 <b style="color:${up}">${adv.tp}</b>`;
-    const tag=`<span style="color:${mut}">全倉沒有單腿爆倉；<b style="color:${adv.tail?'var(--amber)':mut}">${adv.tail?'趨勢若回來、保險腿轉弱可分批收':'留著護住淨曝險，別當止損砍'}</b></span>`;
-    return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把止盈填入下方欄（保險腿不建議設止損；最後一鍵還是你按設定）">套用</button>`};
+  if(adv.isHedgeLeg){                                              // 保險/對鎖腿：不給止損、平掉反放大淨曝險
+    const lock=adv.role==='lock', netCh=adv.symDir==='long'?'多':'空';
+    const s=lock? `⚖️ <b style="color:${teal}">對鎖腿</b>（多空接近 1:1、賺震盪）　🎯 分批 <b style="color:${up}">${adv.tp}</b>`
+                : `🛡 <b style="color:${teal}">保險腿</b>（對沖你較大的${netCh}單）　🎯 想收利可分批 <b style="color:${up}">${adv.tp}</b>`;
+    const tag=`<span style="color:${mut}">全倉沒有單腿爆倉；<b style="color:${adv.tail?'var(--amber)':mut}">${adv.tail?'趨勢若回來、轉弱可分批收':'留著護住淨曝險，別當止損砍'}</b></span>`;
+    return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把止盈填入下方欄（保險/對鎖腿不建議設止損；最後一鍵還是你按設定）">套用</button>`};
   }
   let s=`🛑 <b style="color:${dn}">${adv.sl}</b> <span style="color:${mut};font-size:10px">(${adv.anchor!=null?'swing'+(adv.long?'低':'高')+adv.anchor+'∓'+adv.k+'×ATR':'1.4×ATR'})</span>　🎯 <b style="color:${up}">${adv.tp}</b>`;
   if(adv.trail!=null) s+=`　⤴ <span style="color:${purp}">上移→ <b>${adv.trail}</b></span>`;
@@ -3080,13 +3100,15 @@ function renderPositions(){
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
         <div class="tpsl-hint">到價自動以該價平倉並記盈虧（本軟體記錄＋通知，非交易所下單）</div>
         <div class="liqd">名目 $${Math.round(h.q*(px||h.e))} ‧ 幣量 ${(+h.q).toFixed(4)} ‧ 孤立爆倉≈${liqPrice(h.e,h.l,h.side)?liqPrice(h.e,h.l,h.side).toFixed(2):'—'}（全倉看上方緩衝）</div>
+        <div class="tpsl-row" style="font-size:10.5px">腿角色 <b style="color:#5BC0BE">${legRoleLabel(legRole(h))}</b><span style="color:${legRoleOverrides()[h.s+'|'+h.side]?'var(--amber)':'var(--muted)'}">${legRoleOverrides()[h.s+'|'+h.side]?'·手動':'·自動'}</span><button type="button" class="cpct lrb" data-r="auto">自動</button><button type="button" class="cpct lrb" data-r="directional">方向</button><button type="button" class="cpct lrb" data-r="insurance">保險</button><button type="button" class="cpct lrb" data-r="lock">對鎖</button></div>
         <div class="tpsl-row">部分平倉<input class="cqty" type="number" step="any" placeholder="幣量·空=全部"><button type="button" class="cpct" data-p="25">25%</button><button type="button" class="cpct" data-p="50">50%</button><button type="button" class="cpct" data-p="75">75%</button></div>
         <div class="simwrap"><div class="tpsl-row">🔧 動作前重算　調槓桿<input class="simlev" type="number" step="1" placeholder="${h.l}→新" style="width:62px"><button type="button" class="simlevbtn">釋彈藥</button><button type="button" class="simclosebtn">模擬平此腿</button></div><div class="simout" style="display:none"></div></div>
         <div class="detail-actions"><button class="pclose">平倉並記錄</button><button class="pdel">移除</button></div>
       </div>`;
     d.querySelector('.pos-head').onclick=()=>togglePos(id);
     const det=d.querySelector('.pos-detail'); det.onclick=e=>e.stopPropagation();
-    det.querySelectorAll('.cpct').forEach(b=>b.onclick=()=>{ det.querySelector('.cqty').value=+(h.q*(+b.dataset.p)/100).toFixed(8); });
+    det.querySelectorAll('.cpct[data-p]').forEach(b=>b.onclick=()=>{ det.querySelector('.cqty').value=+(h.q*(+b.dataset.p)/100).toFixed(8); });
+    det.querySelectorAll('.lrb').forEach(b=>b.onclick=()=>setLegRoleOverride(h.s,h.side,b.dataset.r));   // P1-1 手動覆蓋腿角色
     { const so=d.querySelector('.simout');
       d.querySelector('.simlevbtn').onclick=()=>{ so.style.display=''; so.innerHTML=renderSimLev(h, parseFloat(d.querySelector('.simlev').value)); };
       d.querySelector('.simclosebtn').onclick=()=>{ so.style.display=''; so.innerHTML=renderSimClose(h); }; }
