@@ -2837,6 +2837,50 @@ function adviceLine(h, bars){
   const trg=ti?`<div style="flex:0 0 100%;color:${mut};font-size:10px;margin-top:1px">觸發後(預設先削50%方向腿)：淨 ${kUsd(ti.netBefore)}→<b>${kUsd(ti.netAfter)}</b>${ti.flip?'<b style="color:'+purp+'">(換邊)</b>':''}、可用↑(縮方向腿對全倉友善)；續走保險腿獲利、反向則殘腿受傷。</div>`:'';
   return {adv, html:`<span class="advl">${s}　${tag}</span><button type="button" class="advapply" title="把建議填入止盈/止損欄。risk-off 時建議部分(50%)止損；最後一鍵還是你按設定">套用</button>${trg}`};
 }
+/* ===== B5 突破加倉建議引擎（右側/動能突破，非均值回歸；唯讀、不自動下單） ===== */
+function brkOn(){ return localStorage.getItem('wo_brk')==='1'; }          // 預設關：加倉是最高風險動作，寧少觸發
+function brkAggr(){ return localStorage.getItem('wo_brk_aggr')==='1'; }   // 預設保守(等回踩)；可切積極(收破有量即觸發)
+function toggleBrk(){ localStorage.setItem('wo_brk', brkOn()?'0':'1'); forceRenderPositions?forceRenderPositions():renderPositions(); }
+function toggleBrkAggr(){ localStorage.setItem('wo_brk_aggr', brkAggr()?'0':'1'); forceRenderPositions?forceRenderPositions():renderPositions(); }
+/* 突破偵測：收破前高→加多腿、收破前低→加空腿。確認 ①收盤破錨(非碰) ②量能RVOL>1 ③(保守)回踩不破。 */
+function breakoutAdd(h, bars){
+  if(!bars || bars.length<40) return null;
+  const px=cMark(h)||bars[bars.length-1].close, a=atrVal(bars)||px*0.01;
+  const n=bars.length, closes=bars.map(b=>b.close), vols=bars.map(b=>b.volume||0);
+  const seg=bars.slice(-23,-3); if(seg.length<10) return null;           // 前高/前低：排除最近3根的近20根
+  const SH=Math.max(...seg.map(b=>b.high)), SL=Math.min(...seg.map(b=>b.low));
+  const dp=px<2?5:(px<20?3:2), rnd=v=>+v.toFixed(dp);
+  const L=20, base=vols.slice(-L-1,-1).reduce((s,v)=>s+v,0)/L||0, rvol=base>0?vols[n-1]/base:0, volOk=rvol>1;
+  let dir=null, anchor=null;
+  if(closes[n-1]>SH){ dir='long'; anchor=SH; } else if(closes[n-1]<SL){ dir='short'; anchor=SL; } else return null;
+  const since=bars.slice(-6); let retest=false;                          // 回踩不破
+  if(dir==='long'){ retest=since.some(b=>b.low<=anchor+0.6*a) && since.every(b=>b.close>=anchor); }
+  else{ retest=since.some(b=>b.high>=anchor-0.6*a) && since.every(b=>b.close<=anchor); }
+  const triggered = volOk && (brkAggr()?true:retest);
+  return {dir, anchor:rnd(anchor), px, rvol:+rvol.toFixed(2), volOk, retest, triggered,
+          distPct:+(Math.abs(px-anchor)/px*100).toFixed(1)};
+}
+/* 風控閘：往 dir 方向還能加多少名目才碰帳戶上限(毛≤capG、|淨|≤capN)；≤0＝部位放大·不建議。 */
+function addHeadroom(h, dir){
+  const em=exposureModel(), eq=em.equity||1;
+  const capG=+(localStorage.getItem('wo_cap_gross')||10), capN=+(localStorage.getItem('wo_cap_net')||4);
+  const roomGross=capG*eq-em.GROSS, capNv=capN*eq, sign=(dir==='short'?-1:1);
+  const roomNet=(sign*em.NET>=0)?(capNv-Math.abs(em.NET)):(capNv+Math.abs(em.NET));  // 同向→吃淨額度；反向→先降險
+  const room=Math.max(0, Math.min(roomGross, roomNet));
+  return {room, capG, capN, tightBy:(roomGross<roomNet?'毛':'淨')};
+}
+function brkLine(h, bars){
+  const b=breakoutAdd(h, bars); if(!b) return null;
+  const mut='var(--muted)';
+  const addLong=b.dir==='long', col=addLong?'var(--up)':'var(--dn)';
+  const hr=addHeadroom(h, b.dir), tf=(momIsPerp(h.s)?'1h':'日');
+  const status=b.triggered?`<b style="color:${col}">🚀 可加${addLong?'多':'空'}腿</b>`:`<span style="color:var(--amber)">突破確認·等回踩</span>`;
+  const gate=hr.room<=0
+    ? `<b style="color:var(--dn)">⚠ 部位放大·不建議</b>（已達${hr.tightBy}上限 ${hr.tightBy==='毛'?hr.capG:hr.capN}x）`
+    : `可加空間 ≈ <b>$${Math.round(hr.room).toLocaleString()}</b>（到${hr.tightBy}上限）·手動在 Bitget 掛條件單`;
+  const s=`${status}　收破${addLong?'前高':'前低'} <b>${b.anchor}</b>(${tf}·離現價${b.distPct}%)　量 RVOL <b style="color:${b.volOk?'var(--up)':mut}">${b.rvol}</b>${brkAggr()?'':'　'}`;
+  return {html:`<span class="advl">${s}<br><span style="color:${mut};font-size:10px">${gate}</span></span>`, brk:b};
+}
 let fishCache={}, adviceCache={};
 async function updateFishStates(){
   const els=document.querySelectorAll('#posList .fishb'); if(!els.length) return;
@@ -2873,6 +2917,17 @@ async function updateFishStates(){
     const btn=a.querySelector('.advapply');
     if(btn) btn.onclick=(ev)=>{ ev.stopPropagation(); applyAdvice(h, r.adv); };
     maybeNotifyAdvice(sym+'|'+side, h, r.adv);
+  }
+  // B5 突破加倉建議：每個加密永續部位一行（只在雷達開啟時；唯讀、只算點位＋動作前重算）
+  const brkEls=document.querySelectorAll('#posList .brk');
+  for(const be of brkEls){
+    if(!brkOn()){ be.style.display='none'; continue; }
+    const sym=be.dataset.bsym, side=be.dataset.bside||'';
+    const h=cryptoHoldings.find(x=>x.s===sym&&x.side===side); if(!h){ be.style.display='none'; continue; }
+    const bars=(fishCache[sym+'|'+side]||{}).bars;
+    if(!bars||bars.length<40){ be.style.display='none'; continue; }
+    const r=brkLine(h, bars); if(!r){ be.style.display='none'; continue; }
+    be.innerHTML=r.html; be.style.display='';
   }
 }
 /* 套用：把建議填入該卡的止盈/止損欄並展開（不直接下單；最後一鍵還是你按「設定」） */
@@ -2939,6 +2994,10 @@ function renderPositions(){
     const nb=document.createElement('div'); nb.style.cssText='padding:5px 10px;margin:0 0 6px;font-size:11px;border-radius:7px;cursor:pointer;border:1px solid var(--border);background:var(--panel-2);color:'+(advOn?'var(--text)':'var(--muted)');
     nb.innerHTML='🔔 止損/止盈建議推播 <b>'+(advOn?'開':'關')+'</b> <span style="color:var(--muted)">· '+(advOn?'只在「需要改設定」時 Telegram 通知你（不洗版）':'點開＝偵測到該上移止損/逼近止損/動能竭盡時推播')+'</span>';
     nb.onclick=()=>{ localStorage.setItem('wo_advpush', advOn?'0':'1'); renderPositions(); }; list.appendChild(nb); }
+  if(cryptoHoldings.length){ const on=brkOn(), aggr=brkAggr();
+    const kb=document.createElement('div'); kb.style.cssText='padding:5px 10px;margin:0 0 6px;font-size:11px;border-radius:7px;border:1px solid var(--border);background:var(--panel-2);color:'+(on?'var(--text)':'var(--muted)');
+    kb.innerHTML='<span style="cursor:pointer" id="brkTgl">🚀 突破加倉雷達 <b>'+(on?'開':'關')+'</b></span> <span style="color:var(--muted)">'+(on?'· 收破前高/前低＋量能才建議加倉，附動作前重算（唯讀，不自動下單）':'· 右側動能突破才順勢加倉，預設關（加倉是放大部位、最高風險動作）')+'</span>'+(on?' <span id="brkMode" style="cursor:pointer;color:'+(aggr?'var(--dn)':'var(--up)')+';border:1px solid var(--border);border-radius:5px;padding:1px 6px;margin-left:4px">'+(aggr?'積極(收破有量即觸發)':'保守(等回踩)')+'</span>':'');
+    kb.querySelector('#brkTgl').onclick=toggleBrk; const mb=kb.querySelector('#brkMode'); if(mb) mb.onclick=(e)=>{e.stopPropagation();toggleBrkAggr();}; list.appendChild(kb); }
   if(futu.connected && futu.bitget!==false){ const sb=document.createElement('button'); sb.id='bitgetSyncTop';
     sb.style.cssText='width:100%;padding:7px 10px;margin:0 0 6px;font-size:11.5px;border-radius:7px;cursor:pointer;border:1px solid var(--orange);background:var(--panel-2);color:var(--orange-light);font-family:inherit';
     sb.innerHTML='🔄 同步 Bitget　<span style="color:var(--muted)">已連線·每分鐘自動同步，點此立刻同步</span>';
@@ -3015,6 +3074,7 @@ function renderPositions(){
         <div class="phl"><span class="pc">${h.s.replace('USDT','')} <span style="font-size:10px;color:${sideCol}">${h.l}x${sideTxt}</span></span><span class="pr">${fmtMoney(pnlU)}<span class="pcaret">▾</span></span></div>
         <div class="pn">進場 ${h.e} ‧ 保證金 $${margin}${px?' ‧ 現價 '+px:'<span style="color:var(--muted-2)"> ‧ 未連線</span>'}<span class="fishb" data-fsym="${h.s}" data-fside="${h.side}" style="display:none;margin-left:6px;font-size:10.5px;font-weight:700"></span></div>${lim}
         <div class="adv" data-asym="${h.s}" data-aside="${h.side}" data-akind="crypto" style="display:none"></div>
+        <div class="adv brk" data-bsym="${h.s}" data-bside="${h.side}" style="display:none"></div>
       </div>
       <div class="pos-detail">
         <div class="tpsl-row">止盈<input class="tp" type="number" step="any" value="${h.tp||''}" placeholder="價">止損<input class="sl" type="number" step="any" value="${h.sl||''}" placeholder="價"><button class="tpsl-save">設定</button></div>
