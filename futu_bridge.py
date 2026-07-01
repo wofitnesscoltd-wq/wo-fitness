@@ -575,7 +575,8 @@ def _perp_underlyings():
             if sym and crypto_mod.is_stock_perp(sym):
                 base = crypto_mod._base(sym)
                 if base:
-                    out.append({"code": "US." + base, "perp": sym, "side": h.get("side", "long")})
+                    out.append({"code": "US." + base, "perp": sym, "side": h.get("side", "long"),
+                                "leg_role": h.get("leg_role")})   # P1-1：腿角色一併帶給引擎
     except Exception:
         pass
     return out

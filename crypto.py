@@ -269,7 +269,8 @@ class CryptoScanner:
                 bpos = bitget_mod.positions()
                 others = [h for h in holds if h.get("src") != "bitget"]
                 holds = others + [{"sym": p["sym"], "size": p["size"], "entry": p["entry"],
-                                   "lev": p["lev"], "side": p["side"], "src": "bitget"} for p in bpos]
+                                   "lev": p["lev"], "side": p["side"], "src": "bitget",
+                                   "leg_role": p.get("leg_role")} for p in bpos]   # P1-1：帶上腿角色，後端推播讀同一份
                 save_crypto_holdings(holds)
                 bacct = bitget_mod.account()
                 bequity = bacct.get("equity")

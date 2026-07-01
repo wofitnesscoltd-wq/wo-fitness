@@ -934,8 +934,8 @@ class AlertEngine:
         puf = self.cfg.get("perp_underlyings")
         if puf:
             legs = puf() or []
-            # HOTFIX-A：全倉口徑統一——同一 perp 同時有多、空腿＝對鎖/保險，
-            # 對這種標的的任一腿都不發「減碼/回補」方向性提醒（平掉會從中性變裸單、更近爆倉）。
+            # P1-1：讀 leg_role 單一欄位判定（不再自行重推）。insurance/lock → 不發方向性減碼/回補。
+            # 相容退路：舊資料無 leg_role 時，同 perp 同時有多空腿即視為對鎖，任一腿都不發。
             sides_by_perp = {}
             for p in legs:
                 sides_by_perp.setdefault(p.get("perp"), set()).add(p.get("side", "long"))
@@ -944,7 +944,9 @@ class AlertEngine:
                 code, side, perp = p.get("code"), p.get("side", "long"), p.get("perp")
                 if not code:
                     continue
-                if perp in hedged_perps:      # 對鎖腿/保險腿：不發方向性減碼/回補
+                role = p.get("leg_role")
+                is_protective = role in ("insurance", "lock") if role else (perp in hedged_perps)
+                if is_protective:             # 對鎖腿/保險腿：不發方向性減碼/回補（平掉會從中性變裸單、更近爆倉）
                     continue
                 try:
                     b = [x for x in (self.get_kline(code, "15m", 80) or []) if x.get("close") is not None]

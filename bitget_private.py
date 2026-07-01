@@ -138,7 +138,35 @@ def positions():
             "marginCoin": p.get("marginCoin") or MARGIN_COIN,
             "src": "bitget",
         })
+    _tag_leg_roles(out)
     return out
+
+
+def _tag_leg_roles(positions_list):
+    """P1-1：算一次、存成欄位、全系統讀同一份的『腿角色』leg_role。
+    同合約多名目 L、空名目 S：|L−S|/(L+S) < 0.2 → 兩腿皆 lock（對鎖）；
+    否則量小邊 insurance（保險腿）、量大邊 directional（方向腿）；單腿一律 directional。
+    名目用標記價×size；缺標記價退用進場價。此為預設值，前端手動覆蓋優先於此。"""
+    notion = {}
+    for p in positions_list:
+        px = p.get("mark") or p.get("entry") or 0
+        n = (p.get("size") or 0) * (px or 0)
+        b = notion.setdefault(p["sym"], {"long": 0.0, "short": 0.0})
+        b[p["side"]] += n
+    for p in positions_list:
+        b = notion.get(p["sym"], {})
+        L, S = b.get("long", 0.0), b.get("short", 0.0)
+        if L > 0 and S > 0:
+            gross = L + S
+            if gross > 0 and abs(L - S) / gross < 0.2:
+                role = "lock"
+            else:
+                mine = L if p["side"] == "long" else S
+                other = S if p["side"] == "long" else L
+                role = "insurance" if mine < other else "directional"
+        else:
+            role = "directional"
+        p["leg_role"] = role
 
 
 def account():
