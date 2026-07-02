@@ -304,9 +304,10 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
   .main{flex-direction:column;width:100%;}
   /* 圖表吃半個螢幕高：價格主圖＋RSI/MACD/量副圖都放得下（至少 460px） */
   .chart-area{flex:none;width:100%;height:max(460px, calc(var(--apph,100vh)*0.52));border-right:none;border-bottom:1px solid var(--border);}
-  .work{flex:none;width:100%!important;flex-direction:column;min-width:0;}
-  .brain{flex:none;width:100%!important;border-right:none;border-bottom:1px solid var(--border);height:max(420px, calc(var(--apph,100vh)*0.38));}
-  .news{flex:none;width:100%!important;min-width:0;height:max(340px, calc(var(--apph,100vh)*0.30));}
+  /* 下半段：分析欄與新聞欄「並排」共用一列（641px 起兩欄都塞得下），不再各佔整寬留大片黑 */
+  .work{flex:none;width:100%!important;flex-direction:row;min-width:0;height:max(440px, calc(var(--apph,100vh)*0.40));border-bottom:1px solid var(--border);}
+  .brain{flex:1 1 auto;width:auto!important;min-width:0;height:auto;border-right:1px solid var(--border);border-bottom:none;}
+  .news{flex:0 0 36%;width:auto!important;min-width:260px;height:auto;}
 }
 
 /* ===== iPhone / 手機版（≤640px 直向）：底部分頁，一次一個全螢幕，貼合瀏海與底部安全區 ===== */
