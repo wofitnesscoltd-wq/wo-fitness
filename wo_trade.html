@@ -294,16 +294,19 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
 .pane-divider:hover::after{opacity:0;}
 #dragOverlay{position:fixed;inset:0;z-index:190;display:none;}
 #dragOverlay.show{display:block;}
-@media(max-width:920px) and (min-width:641px){
+/* ===== 直立/窄幅版型：641–920px 一律套用；直立螢幕(portrait)則放寬到 1366px（1080×2560 直立螢幕也算）。
+   高度全用 --apph 比例（隨 A−/A＋ zoom 補正），寬度全部強制 100%，圖表給足高度讓 RSI/MACD/量副圖不再被壓扁。 ===== */
+@media (max-width:920px) and (min-width:641px), (orientation:portrait) and (min-width:641px) and (max-width:1366px){
   .splitter-v,.splitter-h{display:none;}
   body{overflow:auto;height:auto;}
   .layout{flex-direction:column;height:auto;}
-  .sidebar{width:100%;max-height:200px;}
-  .main{flex-direction:column;}
-  .chart-area{flex:none;height:300px;border-right:none;border-bottom:1px solid var(--border);}
-  .work{flex:none;width:100%;flex-direction:column;min-width:0;}
-  .brain{border-right:none;border-bottom:1px solid var(--border);height:520px;}
-  .news{width:100%;height:400px;}
+  .sidebar{width:100%!important;max-width:none;max-height:180px;border-right:none;border-bottom:1px solid var(--border);}
+  .main{flex-direction:column;width:100%;}
+  /* 圖表吃半個螢幕高：價格主圖＋RSI/MACD/量副圖都放得下（至少 460px） */
+  .chart-area{flex:none;width:100%;height:max(460px, calc(var(--apph,100vh)*0.52));border-right:none;border-bottom:1px solid var(--border);}
+  .work{flex:none;width:100%!important;flex-direction:column;min-width:0;}
+  .brain{flex:none;width:100%!important;border-right:none;border-bottom:1px solid var(--border);height:max(420px, calc(var(--apph,100vh)*0.38));}
+  .news{flex:none;width:100%!important;min-width:0;height:max(340px, calc(var(--apph,100vh)*0.30));}
 }
 
 /* ===== iPhone / 手機版（≤640px 直向）：底部分頁，一次一個全螢幕，貼合瀏海與底部安全區 ===== */
