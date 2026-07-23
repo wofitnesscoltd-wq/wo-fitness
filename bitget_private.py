@@ -218,6 +218,76 @@ def sync():
     return out
 
 
+def fill_history(symbol=None, start_time=None, end_time=None, limit=100, id_less_than=None):
+    """歷史成交明細（唯讀）。交易日誌用：重建你實際的進出場價/量/方向/已實現損益。
+    分頁：回傳 (fills, endId)；endId 非 None 時代表可能還有更舊的資料，
+    下一頁把 endId 傳進 id_less_than 繼續往回拉（Bitget 用 cursor 分頁，不是 offset）。"""
+    params = {"productType": PRODUCT_TYPE, "limit": str(limit)}
+    if symbol:
+        params["symbol"] = symbol.upper()
+    if start_time:
+        params["startTime"] = str(int(start_time))
+    if end_time:
+        params["endTime"] = str(int(end_time))
+    if id_less_than:
+        params["idLessThan"] = str(id_less_than)
+    data = _get("/api/v2/mix/order/fill-history", params) or {}
+    out = []
+    for f in (data.get("fillList") or []):
+        out.append({
+            "tradeId": f.get("tradeId"),
+            "orderId": f.get("orderId"),
+            "sym": (f.get("symbol") or "").upper(),
+            "side": f.get("side"),                 # buy / sell
+            "tradeSide": f.get("tradeSide"),        # open / close
+            "size": _f(f.get("baseVolume")),
+            "price": _f(f.get("price")),
+            "quoteVolume": _f(f.get("quoteVolume")),
+            "profit": _f(f.get("profit")),          # 已實現損益（只有平倉腿才有值）
+            "feeDetail": f.get("feeDetail"),
+            "ts": f.get("cTime"),
+            "raw": f,                               # 保留原始欄位：日後若命名有出入，資料不會丟
+        })
+    return out, data.get("endId")
+
+
+def orders_history(symbol=None, start_time=None, end_time=None, limit=100, id_less_than=None):
+    """歷史委託（唯讀，含已成交/已取消）。同上分頁邏輯。"""
+    params = {"productType": PRODUCT_TYPE, "limit": str(limit)}
+    if symbol:
+        params["symbol"] = symbol.upper()
+    if start_time:
+        params["startTime"] = str(int(start_time))
+    if end_time:
+        params["endTime"] = str(int(end_time))
+    if id_less_than:
+        params["idLessThan"] = str(id_less_than)
+    data = _get("/api/v2/mix/order/orders-history", params) or {}
+    out = []
+    for o in (data.get("entrustedList") or []):
+        out.append({
+            "orderId": o.get("orderId"),
+            "clientOid": o.get("clientOid"),
+            "sym": (o.get("symbol") or "").upper(),
+            "side": o.get("side"),
+            "tradeSide": o.get("tradeSide"),
+            "posSide": o.get("posSide"),
+            "size": _f(o.get("size")),
+            "baseVolume": _f(o.get("baseVolume")),
+            "price": _f(o.get("price")),
+            "priceAvg": _f(o.get("priceAvg")),
+            "leverage": _f(o.get("leverage")),
+            "marginMode": o.get("marginMode"),
+            "orderType": o.get("orderType"),
+            "status": o.get("status"),
+            "totalProfits": _f(o.get("totalProfits")),
+            "enterPointSource": o.get("enterPointSource"),
+            "ts": o.get("cTime"),
+            "raw": o,
+        })
+    return out, data.get("endId")
+
+
 if __name__ == "__main__":
     # 離線自我檢查：驗證簽名是決定性的、configured() 行為正確。不需要網路、不需要真金鑰。
     s1 = _sign("secretkey", "1700000000000", "GET", "/api/v2/mix/account/accounts?productType=USDT-FUTURES", "")

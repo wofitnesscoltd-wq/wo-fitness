@@ -546,6 +546,13 @@ body.focus .sidebar, body.focus #splitSide, body.focus .news, body.focus #splitN
     <input id="futuUrl" placeholder="http://127.0.0.1:8888">
     <label>橋接 Token（啟動 futu_bridge.py 時會印出）</label>
     <input id="futuToken" type="password" placeholder="貼上 bridge token">
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 10px">
+    <label style="color:var(--text)">📒 交易日誌（唯讀）<span style="font-size:10px;color:var(--muted)">　把 Bitget 歷史成交/委託記錄到本機，分析你自己的保險/對鎖腿操作習慣</span></label>
+    <div class="row" style="gap:8px">
+      <button type="button" onclick="journalBackfill()" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-family:inherit;font-size:12px;cursor:pointer;">⬇ 拉取歷史（首次用）</button>
+      <button type="button" onclick="journalReport()" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-family:inherit;font-size:12px;cursor:pointer;">📊 看操作習慣報告</button>
+    </div>
+    <div id="journalOut" style="display:none;margin-top:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11.5px;white-space:pre-wrap;line-height:1.6;max-height:260px;overflow-y:auto"></div>
     <div class="row">
       <button class="cancel" onclick="closeSettings()">取消</button>
       <button class="save" onclick="saveSettings()">儲存</button>
@@ -1580,6 +1587,23 @@ function setRegion(r){
   const f=lists[region][0]; if(f) selectSymbol(f.s,f.n);
 }
 
+/* ---------- 交易日誌（唯讀）：拉歷史成交/委託 + 保險腿操作習慣報告，純算術不花 API ---------- */
+async function journalBackfill(){
+  const out=document.getElementById('journalOut'); out.style.display=''; out.textContent='拉取中…（歷史多的話可能要幾十秒，別關視窗）';
+  try{
+    const r=await futuFetch('/journal/backfill?days=730');
+    if(r && r.error){ out.textContent='⚠ '+r.error; return; }
+    out.textContent=`✅ 已收集：成交 ${r.fills} 筆、委託 ${r.orders} 筆（呼叫 API ${r.api_calls} 次）。之後每 15 分鐘自動增量同步新紀錄。`;
+  }catch(e){ out.textContent='⚠ 連不到橋接，確認 futu_bridge.py 有在跑、且已設定 Bitget 金鑰。'; }
+}
+async function journalReport(){
+  const out=document.getElementById('journalOut'); out.style.display=''; out.textContent='算報告中…';
+  try{
+    const r=await futuFetch('/journal/report?days=180');
+    if(r && r.error){ out.textContent='⚠ '+r.error; return; }
+    out.textContent=(r&&r.report)||'（尚無資料，先按上面「拉取歷史」）';
+  }catch(e){ out.textContent='⚠ 連不到橋接，確認 futu_bridge.py 有在跑。'; }
+}
 /* ---------- 設定 ---------- */
 function openSettings(){
   document.getElementById('keyInput').value=localStorage.getItem('wo_key')||'';
