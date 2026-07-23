@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 .futu_bridge_token
 wo_alerts.db
+wo_trade_journal.db
+wo_trade_journal.db-wal
+wo_trade_journal.db-shm
 wo_watch.json
 wo_weights.json
 wo_holdings.json

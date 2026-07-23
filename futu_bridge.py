@@ -44,6 +44,11 @@ except Exception:
     bitget_mod = None
 
 try:
+    import trade_journal                   # 交易日誌（唯讀）：歷史成交/委託記錄 + 對鎖腿操作習慣分析
+except Exception:
+    trade_journal = None
+
+try:
     import pattern_signals as pattern_mod  # P6-1 訊號記分卡（低波動蓄積 / 資金費異常；確定性、不呼叫 AI）
 except Exception:
     pattern_mod = None
@@ -57,6 +62,7 @@ QUOTE = None
 TRD = None
 ENGINE = None
 CRYPTO = None
+JOURNAL = None
 LOCK = threading.Lock()
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".futu_bridge_token")
@@ -520,6 +526,28 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         fh = []
                     self._json(pattern_mod.scan(bars, fh))
+            elif path == "/journal/backfill":
+                # 交易日誌：一次性把歷史成交/委託拉回本機（唯讀）。可能跑幾十秒，是同步呼叫。
+                if trade_journal is None or not (bitget_mod and bitget_mod.configured()):
+                    self._json({"error": "未設定 Bitget 唯讀金鑰，或 trade_journal 模組未載入"})
+                else:
+                    days = int(q.get("days", ["365"])[0] or 365)
+                    days = max(1, min(days, 1095))    # 上限 3 年，避免誤填超大數字打爆 API 呼叫次數
+                    self._json(trade_journal.backfill(days=days))
+            elif path == "/journal/report":
+                # 對鎖/保險腿操作習慣分析（純算術，不呼叫 AI）。
+                if trade_journal is None:
+                    self._json({"error": "trade_journal 模組未載入"})
+                else:
+                    days = int(q.get("days", ["180"])[0] or 180)
+                    self._json({"report": trade_journal.hedge_pattern_report(lookback_days=days)})
+            elif path == "/journal/stats":
+                if trade_journal is None:
+                    self._json({"error": "trade_journal 模組未載入"})
+                else:
+                    out = trade_journal.stats()
+                    out["background_sync"] = JOURNAL.last_result if JOURNAL else {}
+                    self._json(out)
             elif path == "/notify":
                 # 網頁在「偵測到需要改設定（上移止損/逼近止損/動能竭盡/緩衝進紅區）」時呼叫，
                 # 把一則訊息轉發到 Telegram。伺服器端再做一層去重＋冷卻當保險，避免洗版。
@@ -648,6 +676,17 @@ def start_engine():
     print(f"  AI 複核  : {'開（每則訊號過 Claude 複核）' if ai_key else '關（未提供 Anthropic 金鑰，純規則訊號）'}")
 
 
+def start_journal():
+    """有 Bitget 唯讀金鑰時，啟動交易日誌背景增量同步（每 15 分鐘拉一次新成交/委託）。
+    只讀、只存本機 SQLite，跟爆倉/出場推播完全無關，不影響現有風控路徑。"""
+    global JOURNAL
+    if trade_journal is None or not (bitget_mod and bitget_mod.configured()):
+        return
+    JOURNAL = trade_journal.JournalSync(sync_sec=900)
+    JOURNAL.start()
+    print("  交易日誌 : 已啟動背景同步（每15分鐘）。首次使用先呼叫 /journal/backfill?days=365 拉歷史")
+
+
 def start_crypto():
     """有 --crypto 時，啟動 24h 加密永續監測（幣安/Bitget），共用 Telegram/DB。"""
     global CRYPTO
@@ -736,6 +775,7 @@ def main():
         print("  Bitget   : 唯讀金鑰已設定 → 網頁可按「🔄 同步 Bitget」自動帶入倉位/保證金/掛單")
     else:
         print("  Bitget   : 未設金鑰（要自動同步倉位，設環境變數 BITGET_API_KEY/SECRET/PASSPHRASE，唯讀權限即可）")
+    start_journal()
     print("  Ctrl+C 結束。只讀、不下單。" + ("⚠️ 已開放區網(--lan)，端點有 Token 保護；請在自家 WiFi 用。" if ARGS.host == "0.0.0.0" else "僅綁定本機。"))
     print("=" * 56)
 
@@ -749,6 +789,8 @@ def main():
             ENGINE.stop()
         if CRYPTO:
             CRYPTO.stop()
+        if JOURNAL:
+            JOURNAL.stop()
         if QUOTE:
             QUOTE.close()
         if TRD:
